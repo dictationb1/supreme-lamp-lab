@@ -10,9 +10,18 @@ jobs:
   check:
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
     timeout-minutes: 3
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
+      - name: Initial Diagnostic Check
+        shell: cmd
+        run: |
+          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion"
+
       - name: Verify interactive Windows runner
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "Machine: $env:COMPUTERNAME"

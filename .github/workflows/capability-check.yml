@@ -17,12 +17,23 @@ jobs:
     name: Local Windows Client Capability Check
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
     timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
+      - name: Initial Diagnostic Check
+        shell: cmd
+        run: |
+          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
+          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Git:' (Get-Command git -ErrorAction SilentlyContinue).Path; Write-Host 'Node:' (Get-Command node -ErrorAction SilentlyContinue).Path"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Verify Windows OS, User and Interactive Session
-        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Write-Host "=== Windows Client Environment Verification ==="
@@ -42,35 +53,63 @@ jobs:
           node-version: '20'
 
       - name: Install Playwright Dependencies
-        shell: powershell
         run: |
-          npm init -y
-          npm install playwright
+          $ErrorActionPreference = 'Stop'
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed with code $LASTEXITCODE" }
           npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw "playwright install failed with code $LASTEXITCODE" }
+
+      - name: Run PowerShell & Regression Checks
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/run-regressions.js
+          if ($LASTEXITCODE -ne 0) { throw "Regression tests failed with code $LASTEXITCODE" }
 
       - name: Launch Browser and Capture Screenshot & Video
-        shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           node scripts/browser-check.js
+          if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
+
+      - name: Run Mission Control Verification Profile
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node scripts/mission-control-check.js
+          if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+
+      - name: Validate Expected Artifacts
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $artDir = "artifacts/run-$runId-$runAttempt"
+
+          if (-not (Test-Path "$artDir/screenshot.png")) {
+            throw "Required screenshot evidence missing in $artDir"
+          }
+          if (-not (Test-Path "$artDir/results.json")) {
+            throw "Required results.json evidence missing in $artDir"
+          }
+          Write-Host "Artifact validation passed for $artDir"
 
       - name: Upload Private Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: windows-client-browser-artifacts
+          name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/
           retention-days: 7
 
       - name: Record Artifact Evidence and Run URL
-        shell: powershell
+        if: always()
         run: |
+          $ErrorActionPreference = 'Stop'
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
           $summary = @"
           ## Capability Check Evidence
           - **Run URL**: $runUrl
-          - **Artifact Name**: `windows-client-browser-artifacts`
-          - **Artifact Evidence**:
-            - Screenshot: `artifacts/screenshot.png`
-            - Recorded Video: `artifacts/videos/`
+          - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
           - **Status**: Artifacts captured and uploaded successfully. Accessible via Github Actions run URL.
           "@
           Write-Host $summary
@@ -80,20 +119,38 @@ jobs:
     name: Temporary Windows Server Tailnet Job
     runs-on: windows-latest
     needs: client-capability-check
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Connect Temporary Windows Server to Tailnet via OIDC
-        uses: tailscale/github-action@v2
+        uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
+          version: 1.90.1
 
       - name: Verify Client & Tailnet Connectivity
-        shell: powershell
         run: |
+          $ErrorActionPreference = 'Stop'
           Write-Host "Testing connectivity across Tailnet from temporary Windows server..."
           & "C:\Program Files\Tailscale\tailscale.exe" status
-          Write-Host "Tailnet connectivity test from temporary server completed."
+          if ($LASTEXITCODE -ne 0) { throw "Tailscale status failed with code $LASTEXITCODE" }
+
+          $peerHost = $env:TAILSCALE_PEER_HOST
+          if ($peerHost) {
+            Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
+            $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
+            if ($res.StatusCode -ne 200) {
+              throw "Peer HTTP check failed with status code $($res.StatusCode)"
+            }
+            Write-Host "Peer connectivity check passed."
+          } else {
+            Write-Host "TAILSCALE_PEER_HOST not set; verified tailscale status."
+          }

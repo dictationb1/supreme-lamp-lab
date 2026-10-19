@@ -1,0 +1,14 @@
+{
+  "name": "supreme-lamp-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lab for supreme-lamp interactive testing and capability verification",
+  "scripts": {
+    "test:browser": "node scripts/browser-check.js",
+    "test:mission-control": "node scripts/mission-control-check.js",
+    "test:regression": "node scripts/run-regressions.js"
+  },
+  "dependencies": {
+    "playwright": "1.49.1"
+  }
+}
