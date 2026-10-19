@@ -95,32 +95,3 @@ Write-Log "Configuring Scheduled Task: $taskName for user $TargetUser" "INFO"
 
 # Check if task already exists
 $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($existingTask) {
-    Write-Log "Scheduled task '$taskName' already exists. Removing old task..." "INFO"
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-}
-
-# Define Actions, Triggers, and Settings
-$action = New-ScheduledTaskAction -Execute "$RunnerPath\run.cmd" -WorkingDirectory $RunnerPath
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $TargetUser
-
-# Crucial settings for interactive execution:
-# 1. LogonType = Interactive (Runs only when user is logged on)
-# 2. RunLevel = Highest (Admin privileges if needed by tests)
-$principal = New-ScheduledTaskPrincipal -UserId $TargetUser -LogonType Interactive -RunLevel Highest
-
-# Ensure it doesn't stop if running longer than 3 days, and restarts if it fails.
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Days 0)
-
-# Register the new task
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
-
-Write-Log "Successfully migrated GitHub Actions runner to an interactive At Logon Scheduled Task." "INFO"
-Write-Log "" "INFO"
-Write-Log "========================================================================" "INFO"
-Write-Log "ACTION REQUIRED ON THE VM:" "INFO"
-Write-Log "1. Ensure the user '$TargetUser' is actively logged into the Windows Desktop." "INFO"
-Write-Log "2. The scheduled task will trigger next time the user logs in." "INFO"
-Write-Log "3. To start immediately without logging out/in, execute the task manually:" "INFO"
-Write-Log "   Start-ScheduledTask -TaskName '$taskName'" "INFO"
-Write-Log "========================================================================" "INFO"
