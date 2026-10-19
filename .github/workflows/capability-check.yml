@@ -79,38 +79,54 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
 
       - name: Validate Expected Artifacts
+        if: always()
         run: |
           $ErrorActionPreference = 'Stop'
           $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
           $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $artDir = "artifacts/run-$runId-$runAttempt"
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
+          $success = $true
           if (-not (Test-Path "$artDir/screenshot.png")) {
-            throw "Required screenshot evidence missing in $artDir"
+            Write-Host "::warning::Required screenshot evidence missing in $artDir"
+            $success = $false
           }
           if (-not (Test-Path "$artDir/results.json")) {
-            throw "Required results.json evidence missing in $artDir"
+            Write-Host "::warning::Required results.json evidence missing in $artDir"
+            $success = $false
           }
-          Write-Host "Artifact validation passed for $artDir"
+          if ($success) {
+            Write-Host "Artifact validation passed for $artDir"
+          } else {
+            throw "Artifact validation failed for $artDir. Expected screenshot and results.json."
+          }
 
       - name: Upload Private Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/
+          path: ${{ runner.temp }}/artifacts/
           retention-days: 7
 
       - name: Record Artifact Evidence and Run URL
         if: always()
         run: |
           $ErrorActionPreference = 'Stop'
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
+          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture failed or incomplete." }
+
           $summary = @"
           ## Capability Check Evidence
           - **Run URL**: $runUrl
           - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: Artifacts captured and uploaded successfully. Accessible via Github Actions run URL.
+          - **Status**: $statusMsg Accessible via Github Actions run URL.
           "@
           Write-Host $summary
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
@@ -118,7 +134,6 @@ jobs:
   server-tailnet-check:
     name: Temporary Windows Server Tailnet Job
     runs-on: windows-latest
-    needs: client-capability-check
     permissions:
       id-token: write
       contents: read

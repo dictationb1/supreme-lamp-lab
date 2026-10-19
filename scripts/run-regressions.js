@@ -67,7 +67,8 @@ allPassed = runTest('Browser Check Strictly Fails on Headed Launch Failure', () 
 allPassed = runTest('Per-Run Output Directory Isolation', () => {
   const runId = 'test-run-123';
   const runAttempt = '1';
-  const targetDir = path.resolve(__dirname, `../artifacts/run-${runId}-${runAttempt}`);
+  const baseDir = process.env.RUNNER_TEMP || path.resolve(__dirname, '..');
+  const targetDir = path.join(baseDir, `artifacts`, `run-${runId}-${runAttempt}`);
   if (targetDir.includes('artifacts/screenshot.png')) {
     throw new Error('Output path is not isolated per run!');
   }
