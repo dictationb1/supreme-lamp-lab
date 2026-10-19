@@ -1,0 +1,24 @@
+name: Runner connection check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 3
+    steps:
+      - name: Verify interactive Windows runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Machine: $env:COMPUTERNAME"
+          $sessionId = (Get-Process -Id $PID).SessionId
+          Write-Host "Windows session: $sessionId"
+          if ($sessionId -eq 0) {
+            throw 'Desktop testing requires an interactive user session.'
+          }
+          Write-Host 'Runner connection check passed.'
