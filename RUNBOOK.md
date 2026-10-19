@@ -26,6 +26,13 @@ Tailscale OIDC Workload Identity Federation භාවිත කිරීමට �
 - **Interactive Desktop Session**:
   - Headed browser පරීක්ෂණ සහ native `mstsc.exe` RDP පරීක්ෂණ සඳහා Session ID > 0 සහිත සක්‍රීය Windows User Desktop Session එකක් අවශ්‍ය වේ.
 
+- **Migration to Interactive Scheduled Task (VM එක මත ක්‍රියාත්මක කළ යුතු පියවර)**:
+  - CI ක්‍රියාවලියක ඇතුළත සිට මෙය ස්වයංක්‍රීයව සිදු කළ නොහැක. VM එකට login වී Administrator PowerShell එකක් විවෘත කර පහත විධානය ක්‍රියාත්මක කරන්න:
+  ```powershell
+  .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "ඔබේ_භාවිතා_කරන්නාගේ_නම"
+  ```
+  - ඉන්පසු Windows එකෙන් ලොග් අවුට් වී (Log out) නැවත ලොග් ඉන් (Log in) වන්න. එවිට At Logon trigger එක මගින් interactive runner එක ආරම්භ වේ.
+
 ---
 
 ## 3. Local Verification Run (දේශීයව පරීක්ෂා කිරීම)
