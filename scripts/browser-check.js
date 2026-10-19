@@ -2,6 +2,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
+const { registerProcess } = require('./registry-utils');
 
 function startLocalServer(port = 0) {
   const htmlContent = `<!DOCTYPE html>
@@ -76,6 +77,7 @@ async function runBrowserCheck() {
   try {
     const { server, url } = await startLocalServer(0);
     serverInstance = server;
+    registerProcess(process.pid, process.execPath, 'Browser Check Local Server');
 
     console.log('Launching browser in HEADED mode for interactive capability check...');
     // Interactive profile strictly requires headed mode. Do not fall back to headless.

@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { execSync, spawn } = require('child_process');
 const { chromium } = require('playwright');
+const { registerProcess } = require('./registry-utils');
 
 // Helper to capture full Windows desktop screenshot via PowerShell
 function captureDesktopScreenshot(outputPath) {
@@ -121,6 +122,10 @@ async function runMissionControlCheck() {
           detached: true,
           stdio: 'ignore'
         });
+
+        if (mstscProc.pid) {
+          registerProcess(mstscProc.pid, 'mstsc.exe', 'Native RDP Check');
+        }
 
         await new Promise(r => setTimeout(r, 2000));
         const desktopCaptured = captureDesktopScreenshot(desktopScreenshotPath);
