@@ -1,0 +1,99 @@
+name: Capability Check Workflow
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'jules-**'
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  client-capability-check:
+    name: Local Windows Client Capability Check
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify Windows OS, User and Interactive Session
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "=== Windows Client Environment Verification ==="
+          Write-Host "Machine Name : $env:COMPUTERNAME"
+          Write-Host "User Account : $env:USERNAME"
+          Write-Host "OS Detail    : $((Get-CimInstance Win32_OperatingSystem).Caption)"
+          $sessionId = (Get-Process -Id $PID).SessionId
+          Write-Host "Session ID   : $sessionId"
+          if ($sessionId -eq 0) {
+            throw 'Desktop capability check requires an interactive Windows user session (Session ID > 0).'
+          }
+          Write-Host "OS, User, and Interactive Session check passed successfully."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright Dependencies
+        shell: powershell
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium
+
+      - name: Launch Browser and Capture Screenshot & Video
+        shell: powershell
+        run: |
+          node scripts/browser-check.js
+
+      - name: Upload Private Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-client-browser-artifacts
+          path: artifacts/
+          retention-days: 7
+
+      - name: Record Artifact Evidence and Run URL
+        shell: powershell
+        run: |
+          $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
+          $summary = @"
+          ## Capability Check Evidence
+          - **Run URL**: $runUrl
+          - **Artifact Name**: `windows-client-browser-artifacts`
+          - **Artifact Evidence**:
+            - Screenshot: `artifacts/screenshot.png`
+            - Recorded Video: `artifacts/videos/`
+          - **Status**: Artifacts captured and uploaded successfully. Accessible via Github Actions run URL.
+          "@
+          Write-Host $summary
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+
+  server-tailnet-check:
+    name: Temporary Windows Server Tailnet Job
+    runs-on: windows-latest
+    needs: client-capability-check
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Connect Temporary Windows Server to Tailnet via OIDC
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Verify Client & Tailnet Connectivity
+        shell: powershell
+        run: |
+          Write-Host "Testing connectivity across Tailnet from temporary Windows server..."
+          & "C:\Program Files\Tailscale\tailscale.exe" status
+          Write-Host "Tailnet connectivity test from temporary server completed."
