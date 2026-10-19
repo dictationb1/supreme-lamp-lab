@@ -28,7 +28,7 @@ jobs:
       - name: Initial Diagnostic Check
         shell: cmd
         run: |
-          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          echo === PowerShell Execution Policy ^& Environment Diagnostics ===
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
@@ -36,6 +36,11 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Preflight Cleanup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh ./scripts/cleanup-lab.ps1
 
       - name: Verify Windows OS, User and Interactive Session
         run: |
@@ -51,17 +56,41 @@ jobs:
           }
           Write-Host "OS, User, and Interactive Session check passed successfully."
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Custom Setup Node.js
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Downloading Node.js..."
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip" -OutFile "node.zip"
+
+          $expectedHash = "55b639295920b219bb2acbcfa00f90393a2789095b7323f79475c9f34795f217"
+          $actualHash = (Get-FileHash "node.zip" -Algorithm SHA256).Hash
+          if ($actualHash.ToLower() -ne $expectedHash.ToLower()) {
+            throw "Checksum mismatch for Node.js zip! Expected: $expectedHash, Actual: $actualHash"
+          }
+          Write-Host "Checksum verified successfully."
+
+          Write-Host "Extracting Node.js..."
+          Expand-Archive -Path "node.zip" -DestinationPath "node_dist" -Force
+          $nodePath = Resolve-Path "node_dist\node-v22.14.0-win-x64"
+          Write-Host "Adding Node.js to PATH: $nodePath"
+          Add-Content $env:GITHUB_PATH $nodePath
+
+      - name: Verify Node.js and NPM Paths
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "Node version:"
+          node -v
+          Write-Host "NPM version:"
+          npm.cmd -v
+          Write-Host "Resolved node executable: $((Get-Command node).Path)"
+          Write-Host "Resolved npm executable: $((Get-Command npm.cmd).Path)"
 
       - name: Install Playwright Dependencies
         run: |
           $ErrorActionPreference = 'Stop'
-          npm ci
-          if ($LASTEXITCODE -ne 0) { throw "npm ci failed with code $LASTEXITCODE" }
-          npx playwright install chromium
+          npm.cmd ci
+          if ($LASTEXITCODE -ne 0) { throw "npm.cmd ci failed with code $LASTEXITCODE" }
+          npx.cmd playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw "playwright install failed with code $LASTEXITCODE" }
 
       - name: Run PowerShell & Regression Checks
@@ -113,6 +142,15 @@ jobs:
           name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/artifacts/
           retention-days: 7
+
+      - name: Postflight Cleanup
+        if: always()
+        env:
+          POSTFLIGHT_CLEANUP: "true"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "=== Performing bounded final cleanup of lab processes ==="
+          pwsh ./scripts/cleanup-lab.ps1
 
       - name: Record Artifact Evidence and Run URL
         if: always()
