@@ -52,7 +52,8 @@ async function runBrowserCheck() {
   const commitSha = process.env.GITHUB_SHA || 'local-sha';
   const runnerName = process.env.RUNNER_NAME || process.env.COMPUTERNAME || 'local-runner';
 
-  const outputDir = path.resolve(__dirname, `../artifacts/run-${runId}-${runAttempt}`);
+  const baseDir = process.env.RUNNER_TEMP || path.resolve(__dirname, '..');
+  const outputDir = path.join(baseDir, `artifacts`, `run-${runId}-${runAttempt}`);
   const videoDir = path.join(outputDir, 'videos');
   const screenshotPath = path.join(outputDir, 'screenshot.png');
   const resultsPath = path.join(outputDir, 'results.json');

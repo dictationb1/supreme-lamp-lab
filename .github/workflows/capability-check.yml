@@ -8,6 +8,10 @@ on:
       - 'jules-**'
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   id-token: write
@@ -79,38 +83,54 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
 
       - name: Validate Expected Artifacts
+        if: always()
         run: |
           $ErrorActionPreference = 'Stop'
           $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
           $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $artDir = "artifacts/run-$runId-$runAttempt"
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
+          $success = $true
           if (-not (Test-Path "$artDir/screenshot.png")) {
-            throw "Required screenshot evidence missing in $artDir"
+            Write-Host "::warning::Required screenshot evidence missing in $artDir"
+            $success = $false
           }
           if (-not (Test-Path "$artDir/results.json")) {
-            throw "Required results.json evidence missing in $artDir"
+            Write-Host "::warning::Required results.json evidence missing in $artDir"
+            $success = $false
           }
-          Write-Host "Artifact validation passed for $artDir"
+          if ($success) {
+            Write-Host "Artifact validation passed for $artDir"
+          } else {
+            throw "Artifact validation failed for $artDir. Expected screenshot and results.json."
+          }
 
       - name: Upload Private Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/
+          path: ${{ runner.temp }}/artifacts/
           retention-days: 7
 
       - name: Record Artifact Evidence and Run URL
         if: always()
         run: |
           $ErrorActionPreference = 'Stop'
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
+          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture failed or incomplete." }
+
           $summary = @"
           ## Capability Check Evidence
           - **Run URL**: $runUrl
           - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: Artifacts captured and uploaded successfully. Accessible via Github Actions run URL.
+          - **Status**: $statusMsg Accessible via Github Actions run URL.
           "@
           Write-Host $summary
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
@@ -129,10 +149,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Auth Info Empty
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:OAUTH_CLIENT_ID) { throw "Missing TS_OAUTH_CLIENT_ID secret" }
+          if (-not $env:AUDIENCE) { throw "Missing TS_AUDIENCE secret" }
+        env:
+          OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+
       - name: Connect Temporary Windows Server to Tailnet via OIDC
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
           version: 1.90.1
 
@@ -144,6 +174,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Tailscale status failed with code $LASTEXITCODE" }
 
           $peerHost = $env:TAILSCALE_PEER_HOST
+          if (-not $peerHost) {
+            throw "TAILSCALE_PEER_HOST not set."
+          }
           if ($peerHost) {
             Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
             $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
@@ -151,6 +184,4 @@ jobs:
               throw "Peer HTTP check failed with status code $($res.StatusCode)"
             }
             Write-Host "Peer connectivity check passed."
-          } else {
-            Write-Host "TAILSCALE_PEER_HOST not set; verified tailscale status."
           }
