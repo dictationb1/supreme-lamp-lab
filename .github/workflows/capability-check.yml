@@ -29,9 +29,10 @@ jobs:
           New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
           $diagLog = Join-Path $diagDir "preflight-diagnostic.log"
 
+          $utcNow = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
           $diagContent = @"
           === Early Diagnostic Information ===
-          Timestamp    : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC' -AsUTC)
+          Timestamp    : $utcNow
           ComputerName : $env:COMPUTERNAME
           UserName     : $env:USERNAME
           OS Caption   : $((Get-CimInstance Win32_OperatingSystem).Caption)
@@ -121,6 +122,7 @@ jobs:
           path: |
             artifacts/
             ${{ runner.temp }}/diagnostics-*
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Record Accurate Run Summary
