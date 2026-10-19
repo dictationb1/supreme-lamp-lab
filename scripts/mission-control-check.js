@@ -32,7 +32,8 @@ async function runMissionControlCheck() {
   const runnerName = process.env.RUNNER_NAME || process.env.COMPUTERNAME || 'local-runner';
   const serverUrl = process.env.MISSION_CONTROL_URL || 'http://127.0.0.1:8080';
 
-  const outputDir = path.resolve(__dirname, `../artifacts/run-${runId}-${runAttempt}`);
+  const baseDir = process.env.RUNNER_TEMP || path.resolve(__dirname, '..');
+  const outputDir = path.join(baseDir, `artifacts`, `run-${runId}-${runAttempt}`);
   const videoDir = path.join(outputDir, 'videos');
   const screenshotPath = path.join(outputDir, 'mc-dashboard.png');
   const desktopScreenshotPath = path.join(outputDir, 'native-desktop-mstsc.png');
@@ -66,9 +67,21 @@ async function runMissionControlCheck() {
       throw new Error(`Readiness check returned HTTP ${readinessRes.status}`);
     }
     const readinessData = await readinessRes.json();
-    backendIdentity = readinessData.backendIdentity || readinessData.identity || 'supreme-lamp-control-plane';
-    backendCommit = readinessData.sourceCommit || readinessData.commit || commitSha;
-    readinessServices = readinessData.services || { status: 'operational' };
+
+    // Throw error if missing from readiness JSON
+    if (!readinessData.backendIdentity && !readinessData.identity) {
+      throw new Error("Missing backend identity in readiness JSON");
+    }
+    if (!readinessData.sourceCommit && !readinessData.commit) {
+      throw new Error("Missing source commit in readiness JSON");
+    }
+    if (!readinessData.services) {
+      throw new Error("Missing services in readiness JSON");
+    }
+
+    backendIdentity = readinessData.backendIdentity || readinessData.identity;
+    backendCommit = readinessData.sourceCommit || readinessData.commit;
+    readinessServices = readinessData.services;
 
     console.log(`Backend Identity: ${backendIdentity}, Commit: ${backendCommit}`);
 
@@ -94,25 +107,31 @@ async function runMissionControlCheck() {
 
     // Native RDP Auto-Login Test in Windows session
     if (process.platform === 'win32') {
-      console.log('Testing Windows native RDP auto-login capability...');
-      const mstscPath = 'C:\\Windows\\System32\\mstsc.exe';
-      if (!fs.existsSync(mstscPath)) {
-        throw new Error('Native mstsc.exe not found at expected path');
+      const rdpTarget = process.env.RDP_TARGET;
+      if (!rdpTarget) {
+        console.log('BLOCKED: Explicit RDP_TARGET environment variable not provided. Skipping RDP test.');
+      } else {
+        console.log(`Testing Windows native RDP auto-login capability against target ${rdpTarget}...`);
+        const mstscPath = 'C:\\Windows\\System32\\mstsc.exe';
+        if (!fs.existsSync(mstscPath)) {
+          throw new Error('Native mstsc.exe not found at expected path');
+        }
+
+        const mstscProc = spawn('mstsc.exe', [`/v:${rdpTarget}`, '/w:800', '/h:600'], {
+          detached: true,
+          stdio: 'ignore'
+        });
+
+        await new Promise(r => setTimeout(r, 2000));
+        const desktopCaptured = captureDesktopScreenshot(desktopScreenshotPath);
+        console.log(`Native desktop screenshot captured: ${desktopCaptured}`);
+
+        try {
+          if (mstscProc.pid) process.kill(mstscProc.pid);
+        } catch (e) {
+          console.error(`Failed to kill mstsc.exe process ${mstscProc.pid}: ${e.message}`);
+        }
       }
-
-      const mstscProc = spawn('mstsc.exe', ['/v:127.0.0.1:3389', '/w:800', '/h:600'], {
-        detached: true,
-        stdio: 'ignore'
-      });
-
-      await new Promise(r => setTimeout(r, 2000));
-      const desktopCaptured = captureDesktopScreenshot(desktopScreenshotPath);
-      console.log(`Native desktop screenshot captured: ${desktopCaptured}`);
-
-      try {
-        if (mstscProc.pid) process.kill(mstscProc.pid);
-        execSync('taskkill /F /IM mstsc.exe /T 2>nul || ver >nul', { stdio: 'ignore' });
-      } catch (e) {}
     }
 
     status = 'PASS';
