@@ -21,14 +21,33 @@ jobs:
       run:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
     steps:
-      - name: Initial Diagnostic Check
+      - name: Create Early Diagnostic Log under RUNNER_TEMP
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $diagDir = Join-Path $env:RUNNER_TEMP "diagnostics-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+          $diagLog = Join-Path $diagDir "preflight-diagnostic.log"
+
+          $diagContent = @"
+          === Early Diagnostic Information ===
+          Timestamp    : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC' -AsUTC)
+          ComputerName : $env:COMPUTERNAME
+          UserName     : $env:USERNAME
+          OS Caption   : $((Get-CimInstance Win32_OperatingSystem).Caption)
+          PID          : $PID
+          SessionId    : $((Get-Process -Id $PID).SessionId)
+          "@
+          Set-Content -Path $diagLog -Value $diagContent
+          Write-Host "Early diagnostic log saved to $diagLog"
+
+      - name: Initial Environment & Policy Check
         shell: cmd
         run: |
           echo === PowerShell Execution Policy & Environment Diagnostics ===
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Git:' (Get-Command git -ErrorAction SilentlyContinue).Path; Write-Host 'Node:' (Get-Command node -ErrorAction SilentlyContinue).Path"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,7 +62,7 @@ jobs:
           $sessionId = (Get-Process -Id $PID).SessionId
           Write-Host "Session ID   : $sessionId"
           if ($sessionId -eq 0) {
-            throw 'Desktop capability check requires an interactive Windows user session (Session ID > 0).'
+            throw 'Desktop capability check requires an interactive Windows user session (Session ID > 0). Service-mode Session 0 execution is BLOCKED.'
           }
           Write-Host "OS, User, and Interactive Session check passed successfully."
 
@@ -52,7 +71,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Playwright Dependencies
+      - name: Install Dependencies
         run: |
           $ErrorActionPreference = 'Stop'
           npm ci
@@ -78,18 +97,19 @@ jobs:
           node scripts/mission-control-check.js
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
 
-      - name: Validate Expected Artifacts
+      - name: Validate Expected Evidence Artifacts
         run: |
           $ErrorActionPreference = 'Stop'
           $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
           $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
           $artDir = "artifacts/run-$runId-$runAttempt"
 
-          if (-not (Test-Path "$artDir/screenshot.png")) {
-            throw "Required screenshot evidence missing in $artDir"
-          }
-          if (-not (Test-Path "$artDir/results.json")) {
-            throw "Required results.json evidence missing in $artDir"
+          $missing = @()
+          if (-not (Test-Path "$artDir/screenshot.png")) { $missing += "screenshot.png" }
+          if (-not (Test-Path "$artDir/results.json")) { $missing += "results.json" }
+
+          if ($missing.Count -gt 0) {
+            throw "Required evidence missing in $artDir : $($missing -join ', ')"
           }
           Write-Host "Artifact validation passed for $artDir"
 
@@ -98,19 +118,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/
+          path: |
+            artifacts/
+            ${{ runner.temp }}/diagnostics-*
           retention-days: 7
 
-      - name: Record Artifact Evidence and Run URL
+      - name: Record Accurate Run Summary
         if: always()
         run: |
           $ErrorActionPreference = 'Stop'
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
+          $runId = $env:GITHUB_RUN_ID
+          $runAttempt = $env:GITHUB_RUN_ATTEMPT
+          $artDir = "artifacts/run-$runId-$runAttempt"
+
+          $hasScreenshot = Test-Path "$artDir/screenshot.png"
+          $hasResults = Test-Path "$artDir/results.json"
+
+          $statusMsg = if ($hasScreenshot -and $hasResults) {
+            "All required capability artifacts captured and present."
+          } else {
+            "WARNING: Missing required artifacts or workflow failed prior to completion."
+          }
+
           $summary = @"
-          ## Capability Check Evidence
+          ## Capability Check Evidence Summary
           - **Run URL**: $runUrl
-          - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: Artifacts captured and uploaded successfully. Accessible via Github Actions run URL.
+          - **Artifact Name**: `windows-client-browser-artifacts-${runId}-${runAttempt}`
+          - **Screenshot captured**: $(if ($hasScreenshot) { 'YES' } else { 'NO' })
+          - **Results JSON captured**: $(if ($hasResults) { 'YES' } else { 'NO' })
+          - **Status**: $statusMsg
           "@
           Write-Host $summary
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary

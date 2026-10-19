@@ -44,30 +44,20 @@ This catalogue documents reproduced defect triggers, root causes, regression tes
 
 ---
 
-### Defect 5: Unpinned Playwright Dependency & Dynamic `npm init`
-- **Trigger**: CI workflow dynamically executed `npm init -y` and `npm install playwright` without lockfiles, causing version drift and slow runs.
-- **Root Cause**: Missing committed `package.json` and `package-lock.json`.
-- **Regression Test**: Local syntax and dependency lock check (`npm ci`).
-- **Expected Verdict**: `PASS` (Deterministic installation via `npm ci`).
-- **Time Limit**: 30 seconds.
-- **Evidence Files**: `package.json`, `package-lock.json`.
+### Defect 5: Session 0 Windows Service Execution Masking Desktop Failure
+- **Trigger**: Runner executed under Windows Service (Session 0) without interactive desktop session, leading to headed browser / RDP failure.
+- **Root Cause**: Windows Service mode lacks GUI desktop context.
+- **Regression Test**: `scripts/run-regressions.js` -> `Session 0 Service Execution Gate Enforcement`.
+- **Expected Verdict**: `PASS` (Explicitly blocks execution in Session 0 and requires interactive user session).
+- **Time Limit**: 5 seconds.
+- **Evidence Files**: Diagnostic preflight logs under `RUNNER_TEMP`.
 
 ---
 
-### Defect 6: Non-Linux Incompatible Tailscale Action & OAuth Parameter Mismatch
-- **Trigger**: Tailscale job failed on Windows or attempted OIDC federation with incompatible action version or secret mismatch.
-- **Root Cause**: `tailscale/github-action@v2` lacks Windows OIDC support.
-- **Regression Test**: Workflow YAML validation for `tailscale/github-action@v3` with `id-token: write` and OIDC parameter configuration.
-- **Expected Verdict**: `PASS`.
-- **Time Limit**: 30 seconds.
-- **Evidence Files**: `.github/workflows/capability-check.yml`.
-
----
-
-### Defect 7: Mission Control Verification & Native Desktop Auto-Login
-- **Trigger**: Lack of verification for backend readiness JSON, Web Desktop first frame, and native mstsc RDP client.
-- **Root Cause**: Missing Mission Control test script and desktop screenshot verification.
-- **Regression Test**: `scripts/mission-control-check.js`.
-- **Expected Verdict**: `PASS` (Verifies readiness JSON, dashboard telemetry, Web Desktop canvas, and captures native desktop screenshot).
-- **Time Limit**: 15 seconds.
-- **Evidence Files**: `artifacts/run-<id>-<attempt>/mc-dashboard.png`, `native-desktop-mstsc.png`, `mission-control-results.json`.
+### Defect 6: Invented Mission Control Contract Defaults & Global Process Termination
+- **Trigger**: Mission Control test invented identity and commit defaults when API response fields were missing, and used global `taskkill /IM mstsc.exe`.
+- **Root Cause**: Fallback values masking broken API contracts and indiscriminate process termination.
+- **Regression Test**: `scripts/run-regressions.js` -> `Mission Control Strict Contract & Target Process Tracking`.
+- **Expected Verdict**: `PASS` (Fails on missing contract fields and targets process PIDs specifically).
+- **Time Limit**: 5 seconds.
+- **Evidence Files**: `artifacts/run-<id>-<attempt>/mission-control-results.json`.

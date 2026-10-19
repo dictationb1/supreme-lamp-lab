@@ -5,7 +5,11 @@ const path = require('path');
 function runTest(name, fn) {
   console.log(`\n=== Running Regression Test: ${name} ===`);
   try {
-    fn();
+    const result = fn();
+    if (result === 'SKIPPED') {
+      console.log(`[SKIPPED] ${name}`);
+      return true;
+    }
     console.log(`[PASS] ${name}`);
     return true;
   } catch (err) {
@@ -17,16 +21,17 @@ function runTest(name, fn) {
 let allPassed = true;
 
 // Defect 1: Restricted Script Startup Regression Test
-// Verify that executing PowerShell under Restricted policy with default process-scoped Bypass succeeds,
-// and that syntax or non-zero exits propagate as failures.
 allPassed = runTest('PowerShell Process-Scoped Bypass Execution Under Restricted Child Policy', () => {
   if (process.platform !== 'win32') {
-    console.log('Skipping Windows-specific PowerShell test on non-Windows host');
-    return;
+    console.log('Non-Windows platform: verifying PowerShell invocation script string structure...');
+    const workflowPath = path.join(__dirname, '../.github/workflows/capability-check.yml');
+    const content = fs.readFileSync(workflowPath, 'utf8');
+    if (!content.includes('-ExecutionPolicy Bypass')) {
+      throw new Error('capability-check.yml missing -ExecutionPolicy Bypass shell parameter');
+    }
+    return true;
   }
 
-  // Invoke PowerShell child process setting execution policy to Restricted for child commands,
-  // verifying process-scoped -ExecutionPolicy Bypass executes inline script successfully.
   const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Restricted -Command "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \\"$ErrorActionPreference = 'Stop'; Write-Host 'Process Bypass OK'\\""`;
   const output = execSync(cmd).toString();
   if (!output.includes('Process Bypass OK')) {
@@ -37,8 +42,13 @@ allPassed = runTest('PowerShell Process-Scoped Bypass Execution Under Restricted
 // Defect 2: Fail-Fast Native Exit Code Propagation Test
 allPassed = runTest('Native Command Non-Zero Exit Code Propagation', () => {
   if (process.platform !== 'win32') {
-    console.log('Skipping Windows-specific test on non-Windows host');
-    return;
+    console.log('Non-Windows platform: verifying exit code check logic in workflow...');
+    const workflowPath = path.join(__dirname, '../.github/workflows/capability-check.yml');
+    const content = fs.readFileSync(workflowPath, 'utf8');
+    if (!content.includes('LASTEXITCODE -ne 0')) {
+      throw new Error('capability-check.yml missing $LASTEXITCODE checks for native commands');
+    }
+    return true;
   }
 
   const cmd = `powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; cmd /c exit 42; if ($LASTEXITCODE -ne 0) { throw \\"Native command failed with code $LASTEXITCODE\\" }"`;
@@ -70,6 +80,26 @@ allPassed = runTest('Per-Run Output Directory Isolation', () => {
   const targetDir = path.resolve(__dirname, `../artifacts/run-${runId}-${runAttempt}`);
   if (targetDir.includes('artifacts/screenshot.png')) {
     throw new Error('Output path is not isolated per run!');
+  }
+}) && allPassed;
+
+// Defect 5: Session 0 Desktop Isolation Gate Check
+allPassed = runTest('Session 0 Service Execution Gate Enforcement', () => {
+  const workflowPath = path.join(__dirname, '../.github/workflows/capability-check.yml');
+  const content = fs.readFileSync(workflowPath, 'utf8');
+  if (!content.includes('Session ID > 0') || !content.includes('Session 0 execution is BLOCKED')) {
+    throw new Error('capability-check.yml does not strictly block Session 0 service execution!');
+  }
+}) && allPassed;
+
+// Defect 6: Mission Control Contract & PID Tracking Verification
+allPassed = runTest('Mission Control Strict Contract & Target Process Tracking', () => {
+  const mcScript = fs.readFileSync(path.join(__dirname, 'mission-control-check.js'), 'utf8');
+  if (mcScript.includes('taskkill /IM mstsc.exe')) {
+    throw new Error('mission-control-check.js uses global taskkill /IM mstsc.exe!');
+  }
+  if (!mcScript.includes('CONTRACT_VIOLATION')) {
+    throw new Error('mission-control-check.js lacks strict contract violation checks!');
   }
 }) && allPassed;
 

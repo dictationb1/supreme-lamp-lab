@@ -119,10 +119,10 @@ async function runBrowserCheck() {
     console.log('Clicking action button...');
     await page.click('#action-btn');
 
-    // Assert updated state
+    // Assert updated state (using correct Playwright waitForFunction parameter ordering)
     await page.waitForFunction(() => {
       return document.getElementById('output').innerText === 'Interaction Successful - Lab Verified';
-    }, { timeout: 5000 });
+    }, null, { timeout: 5000 });
 
     const updatedText = await page.textContent('#output');
     console.log(`DOM assertion passed: "${updatedText}"`);
@@ -206,7 +206,11 @@ async function runBrowserCheck() {
   }
 }
 
-runBrowserCheck().catch(err => {
-  console.error('Fatal error in browser check:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  runBrowserCheck().catch(err => {
+    console.error('Fatal error in browser check:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { runBrowserCheck };
