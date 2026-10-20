@@ -140,14 +140,44 @@ jobs:
       - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
         run: |
           $ErrorActionPreference = 'Stop'
+          # Ensure git is available on PATH if installed in standard Windows locations
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            $gitCandidatePaths = @("C:\Program Files\Git\cmd", "C:\Program Files\Git\bin", "C:\Program Files (x86)\Git\cmd")
+            foreach ($p in $gitCandidatePaths) {
+              if (Test-Path "$p\git.exe") {
+                Write-Host "Adding Git path to environment: $p"
+                Add-Content -Path $env:GITHUB_PATH -Value $p
+                $env:PATH = "$p;$env:PATH"
+                break
+              }
+            }
+          }
+
           $appDir = Join-Path $env:RUNNER_TEMP "supreme-lamp"
           if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
 
-          Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir..."
-          git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
-          if ($LASTEXITCODE -ne 0) { throw "Failed to clone supreme-lamp repository" }
+          $appSha = "unknown"
+          if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir via git..."
+            & git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
+            if ($LASTEXITCODE -eq 0) {
+              $appSha = (& git -C $appDir rev-parse HEAD).Trim()
+            }
+          }
 
-          $appSha = (git -C $appDir rev-parse HEAD).Trim()
+          if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
+            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback..."
+            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/refs/heads/main.zip"
+            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-main.zip"
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+            Expand-Archive -Path $zipPath -DestinationPath $env:RUNNER_TEMP -Force
+            Remove-Item -Path $zipPath -Force
+            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-main"
+            if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
+            Rename-Item -Path $extractedDir -NewName "supreme-lamp"
+            $appSha = "main-zip"
+          }
+
           Write-Host "Provisioned supreme-lamp revision: $appSha"
 
           $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
