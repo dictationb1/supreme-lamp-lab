@@ -137,7 +137,7 @@ jobs:
           node scripts/browser-check.js
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
-      - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+      - name: Checkout, Provision & Verify Mission Control Application (supreme-lamp)
         run: |
           $ErrorActionPreference = 'Stop'
           # Ensure git is available on PATH if installed in standard Windows locations
@@ -209,38 +209,48 @@ jobs:
             });
           "
 
-          # Probe readiness
-          $url = "http://127.0.0.1:7331/api/readiness"
-          Write-Host "Waiting for backend readiness at $url..."
-          $ready = $false
-          $deadline = (Get-Date).AddSeconds(30)
-          while ((Get-Date) -lt $deadline) {
-            try {
-              $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
-              if ($resp.StatusCode -eq 200) {
-                $ready = $true
-                Write-Host "Backend reported READY (HTTP 200)."
-                break
+          try {
+            # Probe readiness
+            $url = "http://127.0.0.1:7331/api/readiness"
+            Write-Host "Waiting for backend readiness at $url..."
+            $ready = $false
+            $deadline = (Get-Date).AddSeconds(30)
+            while ((Get-Date) -lt $deadline) {
+              if ($proc.HasExited) {
+                Write-Host "Backend process exited prematurely with code $($proc.ExitCode)!"
+                if (Test-Path $stderrPath) { Get-Content $stderrPath | Write-Host }
+                throw "Backend process PID $($proc.Id) exited prematurely with exit code $($proc.ExitCode) during startup."
               }
-            } catch { }
-            Start-Sleep -Seconds 1
+              try {
+                $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
+                if ($resp.StatusCode -eq 200) {
+                  $ready = $true
+                  Write-Host "Backend reported READY (HTTP 200)."
+                  break
+                }
+              } catch { }
+              Start-Sleep -Seconds 1
+            }
+
+            if (-not $ready) {
+              throw "Backend failed to become ready at $url within 30 seconds."
+            }
+
+            # Set environment variables for Mission Control check within this session
+            $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
+            $env:RDP_TARGET = "127.0.0.1"
+            $env:SUPREME_LAMP_SHA = $appSha
+            $env:ALLOW_MOCK_MISSION_CONTROL = "false"
+
+            Write-Host "Executing Mission Control verification profile while backend process PID $($proc.Id) is active..."
+            node scripts/mission-control-check.js
+            if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+          } finally {
+            Write-Host "Stopping supervised backend process PID $($proc.Id)..."
+            if ($proc -and -not $proc.HasExited) {
+              try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+            }
           }
-
-          if (-not $ready) {
-            throw "Backend failed to become ready at $url within 30 seconds."
-          }
-
-          # Export env vars for Mission Control check step
-          echo "MISSION_CONTROL_URL=http://127.0.0.1:7331" >> $env:GITHUB_ENV
-          echo "RDP_TARGET=127.0.0.1" >> $env:GITHUB_ENV
-          echo "SUPREME_LAMP_SHA=$appSha" >> $env:GITHUB_ENV
-
-      - name: Run Mission Control Verification Profile
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:ALLOW_MOCK_MISSION_CONTROL = "false"
-          node scripts/mission-control-check.js
-          if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
 
       - name: Postflight Lab Process Cleanup
         if: always()
