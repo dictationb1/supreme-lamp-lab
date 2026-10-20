@@ -138,7 +138,7 @@ async function runMissionControlCheck() {
 
   try {
     if (!serverUrl) {
-      capabilities.backendCheck = 'BLOCKED';
+      capabilities.backendCheck = allowMock ? 'SKIPPED' : 'BLOCKED';
       throw new Error('MISSING_CONFIG: MISSION_CONTROL_URL environment variable is required for live Mission Control check and ALLOW_MOCK_MISSION_CONTROL is false.');
     }
 
@@ -237,9 +237,9 @@ async function runMissionControlCheck() {
     if (process.platform === 'win32') {
       const rdpTarget = process.env.RDP_TARGET;
       if (!rdpTarget) {
-        console.log('BLOCKED: Explicit RDP_TARGET environment variable not provided.');
-        capabilities.rdpAutoLoginCheck = 'BLOCKED';
-        if (!failureReason) {
+        console.log(allowMock ? 'SKIPPED: Explicit RDP_TARGET environment variable not provided (Simulation mode).' : 'BLOCKED: Explicit RDP_TARGET environment variable not provided.');
+        capabilities.rdpAutoLoginCheck = allowMock ? 'SKIPPED' : 'BLOCKED';
+        if (!allowMock && !failureReason) {
           failureReason = 'MISSING_CONFIG: RDP_TARGET environment variable is required for live RDP auto-login verification on Windows.';
         }
       } else {
@@ -330,7 +330,8 @@ async function runMissionControlCheck() {
     fs.writeFileSync(resultsPath, JSON.stringify(results, null, 2));
     console.log(`Mission Control results saved to: ${resultsPath}`);
 
-    if (overallStatus === 'FAIL' || overallStatus === 'BLOCKED') {
+    // Exit non-zero for FAIL or BLOCKED, or when simulation is run without ALLOW_MOCK_MISSION_CONTROL=true
+    if (overallStatus === 'FAIL' || overallStatus === 'BLOCKED' || (overallStatus === 'SIMULATED' && !allowMock)) {
       process.exit(1);
     }
   }
