@@ -4,24 +4,31 @@
 
 ---
 
-## 1. Tailscale OIDC Federation සැකසුම (Setup Instructions)
+## 1. Tailscale OIDC Federation සැකසුම (Setup Instructions & Trust Configuration)
 
-Tailscale OIDC Workload Identity Federation භාවිත කිරීමට පහත සැකසුම් අවශ්‍ය වේ:
+Tailscale OIDC Workload Identity Federation හි HTTP 403 (token exchange failed) දෝෂය විසඳීමට පහත පරිදි Tailscale Admin Console හි Custom OIDC Provider එක සකස් කළ යුතුය:
 
-- **Tailscale Workload Identity Federation**: Tailscale admin console හි Custom OIDC provider එකක් සාදන්න.
+- **Tailscale Admin Console Settings**:
   - **Issuer**: `https://token.actions.githubusercontent.com`
-  - **Audience**: `https://github.com/dictationb1/supreme-lamp-lab`
+  - **Audience**: `https://github.com/dictationb1/supreme-lamp-lab` (හෝ `TS_AUDIENCE` හි සකසා ඇති exact Value එක)
   - **Permitted Tags**: `tag:ci`
+
+- **OIDC Claims matching**:
+  - `repository`: `dictationb1/supreme-lamp-lab`
+  - `job_workflow_ref`: `dictationb1/supreme-lamp-lab/.github/workflows/capability-check.yml@refs/heads/jules-16259370363028725758-2a035898`
+  - `actor`: GitHub user/bot identity
+  - `ref`: `refs/heads/jules-16259370363028725758-2a035898` (හෝ `refs/pull/*/merge`)
 
 - **GitHub Repository Secrets**:
   - `TS_OAUTH_CLIENT_ID`: Tailscale OIDC client ID එක GitHub Secrets හි ඇතුළත් කරන්න.
+  - `TS_AUDIENCE`: Target OIDC audience string එක.
 
 ---
 
 ## 2. Windows Runner සූදානම් කිරීම (Windows Self-Hosted Runner)
 
 - **Execution Policy**:
-  - persistent LocalMachine execution policy වෙනස් කිරීමට අවශ්‍ය නැත. Workflow එක process-scoped Bypass shell භාවිත කරයි (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"`).
+  - Persistent LocalMachine execution policy වෙනස් කිරීමට අවශ්‍ය නැත. Workflow එක process-scoped Bypass shell භාවිත කරයි (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"`).
 
 - **Interactive Desktop Session**:
   - Headed browser පරීක්ෂණ සහ native `mstsc.exe` RDP පරීක්ෂණ සඳහා Session ID > 0 සහිත සක්‍රීය Windows User Desktop Session එකක් අවශ්‍ය වේ.
