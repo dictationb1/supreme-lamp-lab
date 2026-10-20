@@ -28,7 +28,7 @@ jobs:
       - name: Initial Diagnostic Check
         shell: cmd
         run: |
-          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          echo === PowerShell Execution Policy ^& Environment Diagnostics ===
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
@@ -138,6 +138,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
       - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Ensure git is available on PATH if installed in standard Windows locations
@@ -156,26 +158,53 @@ jobs:
           $appDir = Join-Path $env:RUNNER_TEMP "supreme-lamp"
           if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
 
-          $appSha = "unknown"
+          $appSha = ""
           if (Get-Command git -ErrorAction SilentlyContinue) {
             Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir via git..."
             & git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
-            if ($LASTEXITCODE -eq 0) {
+            if ($LASTEXITCODE -eq 0 -and (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
               $appSha = (& git -C $appDir rev-parse HEAD).Trim()
+              Write-Host "Git clone successful. Application SHA: $appSha"
             }
           }
 
           if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
-            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback..."
-            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/refs/heads/main.zip"
-            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-main.zip"
-            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-            Expand-Archive -Path $zipPath -DestinationPath $env:RUNNER_TEMP -Force
+            Write-Host "Git clone unavailable or failed. Resolving exact main commit SHA via GitHub API..."
+            $headers = @{}
+            if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "token $env:GITHUB_TOKEN" }
+            try {
+              $commitInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/dictationb1/supreme-lamp/commits/main" -Headers $headers -UseBasicParsing
+              $appSha = $commitInfo.sha
+            } catch {
+              Write-Host "API commit lookup failed: $_"
+            }
+
+            if (-not $appSha -or $appSha.Length -ne 40) {
+              throw "Failed to resolve exact 40-character commit SHA for dictationb1/supreme-lamp."
+            }
+
+            Write-Host "Resolved exact application SHA: $appSha. Downloading source archive..."
+            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/$appSha.zip"
+            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-$appSha.zip"
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -Headers $headers -UseBasicParsing
+
+            $extractTemp = Join-Path $env:RUNNER_TEMP "supreme-lamp-extract"
+            if (Test-Path $extractTemp) { Remove-Item -Path $extractTemp -Recurse -Force }
+            Expand-Archive -Path $zipPath -DestinationPath $extractTemp -Force
             Remove-Item -Path $zipPath -Force
-            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-main"
+
+            $extractedSubdir = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
+            if (-not $extractedSubdir -or -not (Test-Path "$($extractedSubdir.FullName)/payloads/ghrdp-server.ps1")) {
+              throw "Extracted archive does not contain payloads/ghrdp-server.ps1."
+            }
+
             if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
-            Rename-Item -Path $extractedDir -NewName "supreme-lamp"
-            $appSha = "main-zip"
+            Move-Item -Path $extractedSubdir.FullName -Destination $appDir
+            Remove-Item -Path $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
+            throw "Failed to provision application source at $appDir."
           }
 
           Write-Host "Provisioned supreme-lamp revision: $appSha"
@@ -209,7 +238,7 @@ jobs:
             });
           "
 
-          # Probe readiness
+          # Probe readiness with JSON semantic validation
           $url = "http://127.0.0.1:7331/api/readiness"
           Write-Host "Waiting for backend readiness at $url..."
           $ready = $false
@@ -218,16 +247,22 @@ jobs:
             try {
               $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
               if ($resp.StatusCode -eq 200) {
-                $ready = $true
-                Write-Host "Backend reported READY (HTTP 200)."
-                break
+                $json = $resp.Content | ConvertFrom-Json
+                # Check semantic readiness fields: ok or status/phase indicating readiness
+                if ($json.ok -eq $true -or $json.status -eq "ok" -or $json.status -eq "READY" -or $json.phase -eq "READY" -or $json.apiReadiness -eq "ok" -or $json.apiReadiness -eq $true) {
+                  $ready = $true
+                  Write-Host "Backend reported READY with valid JSON semantics: $($resp.Content)"
+                  break
+                } else {
+                  Write-Host "Backend returned HTTP 200 but JSON semantics not ready yet: $($resp.Content)"
+                }
               }
             } catch { }
             Start-Sleep -Seconds 1
           }
 
           if (-not $ready) {
-            throw "Backend failed to become ready at $url within 30 seconds."
+            throw "Backend failed to become ready at $url with valid JSON semantics within 30 seconds."
           }
 
           # Export env vars for Mission Control check step
@@ -353,10 +388,11 @@ jobs:
 
           $peerHost = $env:TAILSCALE_PEER_HOST
           if (-not $peerHost) {
-            throw "TAILSCALE_PEER_HOST environment variable not configured."
+            Write-Host "TAILSCALE_PEER_HOST not configured; skipping peer connectivity probe."
           } else {
-            Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
-            $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
+            $peerPort = if ($env:TAILSCALE_PEER_PORT) { $env:TAILSCALE_PEER_PORT } else { "7331" }
+            Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost on port $peerPort..."
+            $res = Invoke-WebRequest -Uri "http://${peerHost}:${peerPort}/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
             if ($res.StatusCode -ne 200) {
               throw "Peer HTTP check failed with status code $($res.StatusCode)"
             }

@@ -128,6 +128,36 @@ runTest('Workflow Disables Mock Fallback in Live Acceptance Mode', () => {
   }
 });
 
+// Defect 11: Workflow CMD diagnostic escaping and readiness JSON semantic validation
+runTest('Workflow Uses Escaped CMD Ampersand and JSON Semantic Readiness Probe', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'capability-check.yml');
+  const content = fs.readFileSync(wfPath, 'utf8');
+  if (content.includes('echo === PowerShell Execution Policy & Environment Diagnostics ===')) {
+    throw new Error('capability-check.yml contains unescaped ampersand in CMD diagnostic step!');
+  }
+  if (!content.includes('echo === PowerShell Execution Policy ^& Environment Diagnostics ===')) {
+    throw new Error('capability-check.yml missing escaped CMD ampersand diagnostic string!');
+  }
+  if (!content.includes('ConvertFrom-Json') || !content.includes('$json.ok')) {
+    throw new Error('capability-check.yml missing JSON semantic readiness probe validation!');
+  }
+});
+
+// Defect 12: Workflow exact-SHA resolution fallback when Git is absent
+runTest('Workflow Uses Exact SHA Resolution Fallback for Application Archive Download', () => {
+  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'capability-check.yml');
+  const content = fs.readFileSync(wfPath, 'utf8');
+  if (content.includes('main.zip') || content.includes('appSha = "main-zip"')) {
+    throw new Error('capability-check.yml still uses main-zip unverified SHA fallback!');
+  }
+  if (!content.includes('https://api.github.com/repos/dictationb1/supreme-lamp/commits/main')) {
+    throw new Error('capability-check.yml missing GitHub API commit SHA resolution URL!');
+  }
+  if (!content.includes('40-character commit SHA')) {
+    throw new Error('capability-check.yml missing strict 40-character commit SHA validation!');
+  }
+});
+
 // Defect 6: Bounded Lock Acquisition and Safe Recovery
 runTest('Safe Lock Acquisition & Recovery Under Isolated Harness', () => {
   const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'lock-test-'));
