@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -37,6 +37,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Initialize Per-Run Diagnostic Directory
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+          New-Item -ItemType Directory -Force -Path $artDir | Out-Null
+
+          $meta = @{
+            runId = $runId
+            runAttempt = $runAttempt
+            event = $env:GITHUB_EVENT_NAME
+            branch = $env:GITHUB_REF_NAME
+            sha = $env:GITHUB_SHA
+            runnerOS = $env:RUNNER_OS
+            computerName = $env:COMPUTERNAME
+            userName = $env:USERNAME
+            sessionId = (Get-Process -Id $PID).SessionId
+            startTime = (Get-Date).ToString('o')
+          }
+          $meta | ConvertTo-Json | Out-File -FilePath "$artDir/diagnostics.json" -Encoding UTF8
+          Write-Host "Diagnostic directory initialized at $artDir"
+
+      - name: Preflight Lab Process Cleanup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
+
       - name: Verify Windows OS, User and Interactive Session
         run: |
           $ErrorActionPreference = 'Stop'
@@ -51,17 +80,49 @@ jobs:
           }
           Write-Host "OS, User, and Interactive Session check passed successfully."
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Playwright Dependencies
+      - name: Setup Node.js (ZIP Installer)
         run: |
           $ErrorActionPreference = 'Stop'
-          npm ci
+          $nodeVersion = "20.18.1"
+          $expectedSha256 = "56e5aacdeee7168871721b75819ccacf2367de8761b78eaceacdecd41e04ca03"
+          $nodeZipName = "node-v$nodeVersion-win-x64.zip"
+          $url = "https://nodejs.org/dist/v$nodeVersion/$nodeZipName"
+
+          $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+          $zipPath = Join-Path $tempDir $nodeZipName
+          $extractDir = Join-Path $tempDir "node-v$nodeVersion-win-x64"
+
+          if (-not (Test-Path "$extractDir/node.exe")) {
+            Write-Host "Downloading Node.js v$nodeVersion from $url..."
+            Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+
+            Write-Host "Verifying SHA-256 checksum..."
+            $actualHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+            if ($actualHash -ne $expectedSha256.ToLower()) {
+              throw "Node.js ZIP SHA-256 mismatch! Expected: $expectedSha256, Got: $actualHash"
+            }
+            Write-Host "Checksum verified successfully."
+
+            Write-Host "Extracting Node.js archive..."
+            Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
+            Remove-Item -Path $zipPath -Force
+          } else {
+            Write-Host "Node.js v$nodeVersion already cached at $extractDir"
+          }
+
+          Write-Host "Adding Node.js to PATH..."
+          Add-Content -Path $env:GITHUB_PATH -Value $extractDir
+          $env:PATH = "$extractDir;$env:PATH"
+
+          & "$extractDir/node.exe" -v
+          & "$extractDir/npm.cmd" -v
+
+      - name: Install Dependencies & Playwright
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm.cmd ci
           if ($LASTEXITCODE -ne 0) { throw "npm ci failed with code $LASTEXITCODE" }
-          npx playwright install chromium
+          npx.cmd playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw "playwright install failed with code $LASTEXITCODE" }
 
       - name: Run PowerShell & Regression Checks
@@ -76,11 +137,115 @@ jobs:
           node scripts/browser-check.js
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
+      - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Ensure git is available on PATH if installed in standard Windows locations
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            $gitCandidatePaths = @("C:\Program Files\Git\cmd", "C:\Program Files\Git\bin", "C:\Program Files (x86)\Git\cmd")
+            foreach ($p in $gitCandidatePaths) {
+              if (Test-Path "$p\git.exe") {
+                Write-Host "Adding Git path to environment: $p"
+                Add-Content -Path $env:GITHUB_PATH -Value $p
+                $env:PATH = "$p;$env:PATH"
+                break
+              }
+            }
+          }
+
+          $appDir = Join-Path $env:RUNNER_TEMP "supreme-lamp"
+          if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
+
+          $appSha = "unknown"
+          if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir via git..."
+            & git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
+            if ($LASTEXITCODE -eq 0) {
+              $appSha = (& git -C $appDir rev-parse HEAD).Trim()
+            }
+          }
+
+          if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
+            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback..."
+            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/refs/heads/main.zip"
+            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-main.zip"
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+            Expand-Archive -Path $zipPath -DestinationPath $env:RUNNER_TEMP -Force
+            Remove-Item -Path $zipPath -Force
+            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-main"
+            if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
+            Rename-Item -Path $extractedDir -NewName "supreme-lamp"
+            $appSha = "main-zip"
+          }
+
+          Write-Host "Provisioned supreme-lamp revision: $appSha"
+
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+
+          $serverScript = Join-Path $appDir "payloads\ghrdp-server.ps1"
+          $stdoutPath = Join-Path $artDir "backend-stdout.log"
+          $stderrPath = Join-Path $artDir "backend-stderr.log"
+
+          Write-Host "Starting real backend service ($serverScript)..."
+          $proc = Start-Process -FilePath "powershell.exe" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$serverScript`"", "-Port", "7331" `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -PassThru -WindowStyle Hidden
+
+          Write-Host "Started backend process PID: $($proc.Id)"
+
+          # Register backend process in lab registry
+          node -e "
+            const registryUtils = require('./scripts/registry-utils');
+            registryUtils.registerProcess({
+              pid: $($proc.Id),
+              processName: 'powershell-ghrdp-server',
+              runId: '$runId',
+              runAttempt: '$runAttempt'
+            });
+          "
+
+          # Probe readiness
+          $url = "http://127.0.0.1:7331/api/readiness"
+          Write-Host "Waiting for backend readiness at $url..."
+          $ready = $false
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
+              if ($resp.StatusCode -eq 200) {
+                $ready = $true
+                Write-Host "Backend reported READY (HTTP 200)."
+                break
+              }
+            } catch { }
+            Start-Sleep -Seconds 1
+          }
+
+          if (-not $ready) {
+            throw "Backend failed to become ready at $url within 30 seconds."
+          }
+
+          # Export env vars for Mission Control check step
+          echo "MISSION_CONTROL_URL=http://127.0.0.1:7331" >> $env:GITHUB_ENV
+          echo "RDP_TARGET=127.0.0.1" >> $env:GITHUB_ENV
+          echo "SUPREME_LAMP_SHA=$appSha" >> $env:GITHUB_ENV
+
       - name: Run Mission Control Verification Profile
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:ALLOW_MOCK_MISSION_CONTROL = "false"
           node scripts/mission-control-check.js
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+
+      - name: Postflight Lab Process Cleanup
+        if: always()
+        run: |
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
 
       - name: Validate Expected Artifacts
         if: always()
@@ -91,20 +256,13 @@ jobs:
           $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
-          $success = $true
-          if (-not (Test-Path "$artDir/screenshot.png")) {
-            Write-Host "::warning::Required screenshot evidence missing in $artDir"
-            $success = $false
-          }
           if (-not (Test-Path "$artDir/results.json")) {
-            Write-Host "::warning::Required results.json evidence missing in $artDir"
-            $success = $false
+            throw "Missing results.json in $artDir"
           }
-          if ($success) {
-            Write-Host "Artifact validation passed for $artDir"
-          } else {
-            throw "Artifact validation failed for $artDir. Expected screenshot and results.json."
+          if (-not (Test-Path "$artDir/screenshot.png")) {
+            throw "Missing screenshot.png in $artDir"
           }
+          Write-Host "All required artifacts verified in $artDir"
 
       - name: Upload Private Artifacts
         if: always()
@@ -124,21 +282,24 @@ jobs:
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
-          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture failed or incomplete." }
+          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture incomplete." }
 
           $summary = @"
           ## Capability Check Evidence
           - **Run URL**: $runUrl
           - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: $statusMsg Accessible via Github Actions run URL.
+          - **Status**: $statusMsg
           "@
           Write-Host $summary
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+          }
 
   server-tailnet-check:
     name: Temporary Windows Server Tailnet Job
     runs-on: windows-latest
     needs: client-capability-check
+    if: always()
     permissions:
       id-token: write
       contents: read
@@ -148,6 +309,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: OIDC Federated Token Claims Diagnostic (Non-Secret)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Write-Host "=== OIDC Token Diagnostic Information ==="
+          Write-Host "Issuer              : https://token.actions.githubusercontent.com"
+          Write-Host "Repository          : $env:GITHUB_REPOSITORY"
+          Write-Host "Ref                 : $env:GITHUB_REF"
+          Write-Host "Event Name          : $env:GITHUB_EVENT_NAME"
+          Write-Host "Workflow            : $env:GITHUB_WORKFLOW"
+          Write-Host "SHA                 : $env:GITHUB_SHA"
+          Write-Host "Actor               : $env:GITHUB_ACTOR"
+          Write-Host "TS_OAUTH_CLIENT_ID  : $(if ($env:OAUTH_CLIENT_ID) { 'Present' } else { 'Missing/Empty' })"
+          Write-Host "TS_AUDIENCE         : $(if ($env:AUDIENCE) { 'Present' } else { 'Missing/Empty' })"
+        env:
+          OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          AUDIENCE: ${{ secrets.TS_AUDIENCE }}
 
       - name: Check Auth Info Empty
         run: |
@@ -175,9 +353,8 @@ jobs:
 
           $peerHost = $env:TAILSCALE_PEER_HOST
           if (-not $peerHost) {
-            throw "TAILSCALE_PEER_HOST not set."
-          }
-          if ($peerHost) {
+            throw "TAILSCALE_PEER_HOST environment variable not configured."
+          } else {
             Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
             $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
             if ($res.StatusCode -ne 200) {
