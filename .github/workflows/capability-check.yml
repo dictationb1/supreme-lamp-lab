@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -37,6 +37,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Initialize Per-Run Diagnostic Directory
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
+          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
+          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+          New-Item -ItemType Directory -Force -Path $artDir | Out-Null
+
+          $meta = @{
+            runId = $runId
+            runAttempt = $runAttempt
+            event = $env:GITHUB_EVENT_NAME
+            branch = $env:GITHUB_REF_NAME
+            sha = $env:GITHUB_SHA
+            runnerOS = $env:RUNNER_OS
+            computerName = $env:COMPUTERNAME
+            userName = $env:USERNAME
+            sessionId = (Get-Process -Id $PID).SessionId
+            startTime = (Get-Date).ToString('o')
+          }
+          $meta | ConvertTo-Json | Out-File -FilePath "$artDir/diagnostics.json" -Encoding UTF8
+          Write-Host "Diagnostic directory initialized at $artDir"
+
+      - name: Preflight Lab Process Cleanup
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
+
       - name: Verify Windows OS, User and Interactive Session
         run: |
           $ErrorActionPreference = 'Stop'
@@ -51,17 +80,49 @@ jobs:
           }
           Write-Host "OS, User, and Interactive Session check passed successfully."
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Playwright Dependencies
+      - name: Setup Node.js (ZIP Installer)
         run: |
           $ErrorActionPreference = 'Stop'
-          npm ci
+          $nodeVersion = "20.18.1"
+          $expectedSha256 = "56e5aacdeee7168871721b75819ccacf2367de8761b78eaceacdecd41e04ca03"
+          $nodeZipName = "node-v$nodeVersion-win-x64.zip"
+          $url = "https://nodejs.org/dist/v$nodeVersion/$nodeZipName"
+
+          $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+          $zipPath = Join-Path $tempDir $nodeZipName
+          $extractDir = Join-Path $tempDir "node-v$nodeVersion-win-x64"
+
+          if (-not (Test-Path "$extractDir/node.exe")) {
+            Write-Host "Downloading Node.js v$nodeVersion from $url..."
+            Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+
+            Write-Host "Verifying SHA-256 checksum..."
+            $actualHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+            if ($actualHash -ne $expectedSha256.ToLower()) {
+              throw "Node.js ZIP SHA-256 mismatch! Expected: $expectedSha256, Got: $actualHash"
+            }
+            Write-Host "Checksum verified successfully."
+
+            Write-Host "Extracting Node.js archive..."
+            Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
+            Remove-Item -Path $zipPath -Force
+          } else {
+            Write-Host "Node.js v$nodeVersion already cached at $extractDir"
+          }
+
+          Write-Host "Adding Node.js to PATH..."
+          Add-Content -Path $env:GITHUB_PATH -Value $extractDir
+          $env:PATH = "$extractDir;$env:PATH"
+
+          & "$extractDir/node.exe" -v
+          & "$extractDir/npm.cmd" -v
+
+      - name: Install Dependencies & Playwright
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm.cmd ci
           if ($LASTEXITCODE -ne 0) { throw "npm ci failed with code $LASTEXITCODE" }
-          npx playwright install chromium
+          npx.cmd playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw "playwright install failed with code $LASTEXITCODE" }
 
       - name: Run PowerShell & Regression Checks
@@ -79,8 +140,14 @@ jobs:
       - name: Run Mission Control Verification Profile
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:ALLOW_MOCK_MISSION_CONTROL = "true"
           node scripts/mission-control-check.js
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+
+      - name: Postflight Lab Process Cleanup
+        if: always()
+        run: |
+          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
 
       - name: Validate Expected Artifacts
         if: always()
@@ -91,20 +158,13 @@ jobs:
           $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
-          $success = $true
-          if (-not (Test-Path "$artDir/screenshot.png")) {
-            Write-Host "::warning::Required screenshot evidence missing in $artDir"
-            $success = $false
-          }
           if (-not (Test-Path "$artDir/results.json")) {
-            Write-Host "::warning::Required results.json evidence missing in $artDir"
-            $success = $false
+            throw "Missing results.json in $artDir"
           }
-          if ($success) {
-            Write-Host "Artifact validation passed for $artDir"
-          } else {
-            throw "Artifact validation failed for $artDir. Expected screenshot and results.json."
+          if (-not (Test-Path "$artDir/screenshot.png")) {
+            throw "Missing screenshot.png in $artDir"
           }
+          Write-Host "All required artifacts verified in $artDir"
 
       - name: Upload Private Artifacts
         if: always()
@@ -124,16 +184,18 @@ jobs:
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
-          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture failed or incomplete." }
+          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture incomplete." }
 
           $summary = @"
           ## Capability Check Evidence
           - **Run URL**: $runUrl
           - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: $statusMsg Accessible via Github Actions run URL.
+          - **Status**: $statusMsg
           "@
           Write-Host $summary
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+          if ($env:GITHUB_STEP_SUMMARY) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
+          }
 
   server-tailnet-check:
     name: Temporary Windows Server Tailnet Job
@@ -175,9 +237,8 @@ jobs:
 
           $peerHost = $env:TAILSCALE_PEER_HOST
           if (-not $peerHost) {
-            throw "TAILSCALE_PEER_HOST not set."
-          }
-          if ($peerHost) {
+            throw "TAILSCALE_PEER_HOST environment variable not configured."
+          } else {
             Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
             $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
             if ($res.StatusCode -ne 200) {

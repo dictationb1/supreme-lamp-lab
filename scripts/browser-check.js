@@ -2,6 +2,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { chromium } = require('playwright');
+const registryUtils = require('./registry-utils');
 
 function startLocalServer(port = 0) {
   const htmlContent = `<!DOCTYPE html>
@@ -60,6 +61,30 @@ async function runBrowserCheck() {
 
   if (!fs.existsSync(videoDir)) {
     fs.mkdirSync(videoDir, { recursive: true });
+  }
+
+  // Register current process in lab registry
+  let registered = false;
+  try {
+    registryUtils.registerProcess({
+      pid: process.pid,
+      processName: 'node-browser-check',
+      exePath: process.execPath,
+      runId,
+      runAttempt
+    });
+    registered = true;
+  } catch (regErr) {
+    console.warn(`[REGISTRY_WARN] Could not register process: ${regErr.message}`);
+  }
+
+  // Acquire execution lock
+  let lockAcquired = false;
+  try {
+    registryUtils.acquireLock({ runId, runAttempt, timeoutMs: 5000 });
+    lockAcquired = true;
+  } catch (lockErr) {
+    console.warn(`[LOCK_WARN] ${lockErr.message}`);
   }
 
   const startTime = Date.now();
@@ -157,6 +182,14 @@ async function runBrowserCheck() {
     }
     if (serverInstance) {
       try { serverInstance.close(); } catch (e) {}
+    }
+
+    // Release lock and unregister process
+    if (lockAcquired) {
+      registryUtils.releaseLock();
+    }
+    if (registered) {
+      try { registryUtils.unregisterProcess(process.pid); } catch (e) {}
     }
 
     // Find recorded video file
