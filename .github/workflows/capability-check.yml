@@ -137,7 +137,7 @@ jobs:
           node scripts/browser-check.js
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
-      - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+      - name: Provision & Verify Real Mission Control Application (supreme-lamp)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -248,7 +248,6 @@ jobs:
               $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
               if ($resp.StatusCode -eq 200) {
                 $json = $resp.Content | ConvertFrom-Json
-                # Check semantic readiness fields: ok or status/phase indicating readiness
                 if ($json.ok -eq $true -or $json.status -eq "ok" -or $json.status -eq "READY" -or $json.phase -eq "READY" -or $json.apiReadiness -eq "ok" -or $json.apiReadiness -eq $true) {
                   $ready = $true
                   Write-Host "Backend reported READY with valid JSON semantics: $($resp.Content)"
@@ -262,20 +261,23 @@ jobs:
           }
 
           if (-not $ready) {
+            if (Test-Path $stdoutPath) { Write-Host "--- Backend stdout ---"; Get-Content $stdoutPath }
+            if (Test-Path $stderrPath) { Write-Host "--- Backend stderr ---"; Get-Content $stderrPath }
             throw "Backend failed to become ready at $url with valid JSON semantics within 30 seconds."
           }
 
-          # Export env vars for Mission Control check step
-          echo "MISSION_CONTROL_URL=http://127.0.0.1:7331" >> $env:GITHUB_ENV
-          echo "RDP_TARGET=127.0.0.1" >> $env:GITHUB_ENV
-          echo "SUPREME_LAMP_SHA=$appSha" >> $env:GITHUB_ENV
-
-      - name: Run Mission Control Verification Profile
-        run: |
-          $ErrorActionPreference = 'Stop'
+          $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
+          $env:RDP_TARGET = "127.0.0.1"
+          $env:SUPREME_LAMP_SHA = $appSha
           $env:ALLOW_MOCK_MISSION_CONTROL = "false"
+
+          Write-Host "Executing Mission Control check in same step..."
           node scripts/mission-control-check.js
-          if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $stdoutPath) { Write-Host "--- Backend stdout ---"; Get-Content $stdoutPath }
+            if (Test-Path $stderrPath) { Write-Host "--- Backend stderr ---"; Get-Content $stderrPath }
+            throw "Mission Control check failed with code $LASTEXITCODE"
+          }
 
       - name: Postflight Lab Process Cleanup
         if: always()
