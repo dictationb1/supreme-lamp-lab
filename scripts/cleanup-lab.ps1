@@ -90,7 +90,6 @@ foreach ($rec in $records) {
             $shouldClean = $true
         }
     } else {
-        # If no TargetRunId specified, clean up all registered entries except current run
         $currentRunId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
         if ($recRunId -ne $currentRunId) {
             $shouldClean = $true
@@ -102,21 +101,18 @@ foreach ($rec in $records) {
         continue
     }
 
-    # Verify if process is protected
     if ($protectedPids.Contains($recPid)) {
         Write-Host "Skipping process PID $recPid ($recName): Protected ancestor process."
         $remainingRecords.Add($rec)
         continue
     }
 
-    # Check if process is running
     $proc = Get-Process -Id $recPid -ErrorAction SilentlyContinue
     if (-not $proc) {
         Write-Host "Process PID $recPid ($recName) is already terminated. Removing stale registry record."
         continue
     }
 
-    # Protected Process Names Check
     $procNameLower = $proc.ProcessName.ToLower()
     if ($procNameLower -match "runner\.listener" -or $procNameLower -match "runner\.worker" -or $procNameLower -match "explorer" -or $procNameLower -match "svchost") {
         Write-Host "Skipping protected runner/system process PID $recPid ($($proc.ProcessName))."
@@ -124,13 +120,16 @@ foreach ($rec in $records) {
         continue
     }
 
-    # Verify exact OS process creation time to avoid killing recycled PIDs
     $actualCreateTime = $null
     try {
         if ($IsWindows -or ($env:OS -and $env:OS.Contains("Windows"))) {
-            $cimProc = Get-CimInstance Win32_Process -Filter "ProcessId = $recPid" -ErrorAction SilentlyContinue
-            if ($cimProc -and $cimProc.CreationDate) {
-                $actualCreateTime = [Management.ManagementDateTimeConverter]::ToDateTime($cimProc.CreationDate).ToString('o')
+            if ($proc.StartTime) {
+                $actualCreateTime = $proc.StartTime.ToString('o')
+            } else {
+                $cimProc = Get-CimInstance Win32_Process -Filter "ProcessId = $recPid" -ErrorAction SilentlyContinue
+                if ($cimProc -and $cimProc.CreationDate) {
+                    $actualCreateTime = $cimProc.CreationDate.ToString('o')
+                }
             }
         } else {
             $actualCreateTime = $proc.StartTime.ToString('o')
@@ -147,7 +146,6 @@ foreach ($rec in $records) {
         }
     }
 
-    # Execute Bounded Graceful Shutdown
     Write-Host "Terminating verified stale lab process PID $recPid ($recName, Run $recRunId)..."
     try {
         $closed = $proc.CloseMainWindow()
@@ -173,7 +171,6 @@ foreach ($rec in $records) {
     }
 }
 
-# Write updated registry back atomically
 try {
     $updatedJson = $remainingRecords | ConvertTo-Json -Depth 5
     if (-not $updatedJson -or $remainingRecords.Count -eq 0) {

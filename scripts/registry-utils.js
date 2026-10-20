@@ -22,7 +22,7 @@ function getProcessCreationTime(pid) {
   if (!pid || isNaN(pid)) return null;
   try {
     if (process.platform === 'win32') {
-      const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$proc = Get-CimInstance Win32_Process -Filter \\"ProcessId = ${pid}\\"; if ($proc -and $proc.CreationDate) { [Management.ManagementDateTimeConverter]::ToDateTime($proc.CreationDate).ToString('o') }"`;
+      const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { try { $p.StartTime.ToString('o') } catch { $c = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}' -ErrorAction SilentlyContinue; if ($c -and $c.CreationDate) { $c.CreationDate.ToString('o') } } }"`;
       const out = execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).toString().trim();
       return out || null;
     } else {
@@ -49,7 +49,6 @@ function readRegistryFile(regPath = getRegistryPath()) {
     return data;
   } catch (err) {
     console.warn(`[REGISTRY_WARN] Failed to parse registry file at ${regPath}: ${err.message}`);
-    // Preserve corrupt backup before throwing/returning
     const corruptPath = `${regPath}.corrupt.${Date.now()}`;
     try { fs.copyFileSync(regPath, corruptPath); } catch (e) {}
     throw new Error(`REGISTRY_CORRUPT: Failed to parse registry file at ${regPath}. Backup saved to ${corruptPath}. Error: ${err.message}`);
@@ -71,7 +70,6 @@ function writeRegistryFile(records, regPath = getRegistryPath()) {
   try {
     fs.renameSync(tmpPath, regPath);
   } catch (err) {
-    // Fallback for cross-device or Windows locked rename
     fs.copyFileSync(tmpPath, regPath);
     fs.unlinkSync(tmpPath);
   }
@@ -118,7 +116,6 @@ function isProcessAlive(pid, expectedCreateTime) {
   if (!currentCreateTime) return false;
   if (!expectedCreateTime) return true;
 
-  // Strict check matching exact creation identity (ignoring sub-second format differences)
   const t1 = new Date(currentCreateTime).getTime();
   const t2 = new Date(expectedCreateTime).getTime();
   return Math.abs(t1 - t2) < 2000;
@@ -150,7 +147,6 @@ function acquireLock({ runId, runAttempt, timeoutMs = 5000, retryIntervalMs = 25
         // Concurrent creation collision, loop and retry
       }
     } else {
-      // Lock directory exists. Check lock ownership and status
       let lockMeta = null;
       try {
         if (fs.existsSync(metaPath)) {
@@ -159,29 +155,25 @@ function acquireLock({ runId, runAttempt, timeoutMs = 5000, retryIntervalMs = 25
       } catch (e) {}
 
       if (lockMeta) {
-        // If current process already holds the lock
         if (lockMeta.pid === pid && lockMeta.runId === currentRunId) {
           return { lockDir, meta: lockMeta };
         }
 
-        // Check if lock owner process is still alive
         const ownerAlive = isProcessAlive(lockMeta.pid, lockMeta.createTime);
         if (!ownerAlive) {
           console.warn(`[LOCK_RECOVERY] Lock owner process PID ${lockMeta.pid} (Run ${lockMeta.runId}) is dead. Recovering stale lock.`);
           try {
             fs.rmSync(lockDir, { recursive: true, force: true });
-            continue; // Retry acquisition after recovery
+            continue;
           } catch (e) {}
         }
       }
 
-      // Lock is held by an active process or unreadable. Check timeout
       if (Date.now() - startTime >= timeoutMs) {
         const holderInfo = lockMeta ? `Run ${lockMeta.runId} (PID ${lockMeta.pid})` : 'Unknown Process';
         throw new Error(`LOCK_ACQUISITION_FAILED: Timed out waiting for lock held by ${holderInfo} after ${timeoutMs}ms.`);
       }
 
-      // Wait retryIntervalMs
       const sleepEnd = Date.now() + retryIntervalMs;
       while (Date.now() < sleepEnd) {}
     }

@@ -33,7 +33,7 @@ runTest('PowerShell Process-Scoped Bypass Execution Under Restricted Child Polic
   if (process.platform !== 'win32') {
     return { status: 'SKIP', reason: 'PowerShell child policy test is Windows-specific' };
   }
-  const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Restricted -Command "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \\"$ErrorActionPreference = 'Stop'; Write-Host 'Process Bypass OK'\\""`;
+  const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Restricted -Command "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command Write-Host 'Process Bypass OK'"`;
   const output = execSync(cmd).toString();
   if (!output.includes('Process Bypass OK')) {
     throw new Error(`Expected output 'Process Bypass OK' not found. Got: ${output}`);
@@ -85,13 +85,11 @@ runTest('Process Registry UTF-8 Array Schema & Atomic Writes', () => {
   const testRegPath = path.join(tempDir, 'test-registry.json');
 
   try {
-    // Empty read returns []
     const initial = registryUtils.readRegistryFile(testRegPath);
     if (!Array.isArray(initial) || initial.length !== 0) {
       throw new Error('Initial registry read did not return an empty array');
     }
 
-    // Register test entry
     const entry = registryUtils.registerProcess({
       pid: process.pid,
       processName: 'node-test',
@@ -135,7 +133,6 @@ runTest('Safe Lock Acquisition & Recovery Under Isolated Harness', () => {
       throw new Error('Lock directory was not created');
     }
 
-    // Attempting concurrent lock acquisition from active run should timeout gracefully
     try {
       registryUtils.acquireLock({
         runId: 'lock-run-2',
@@ -172,7 +169,6 @@ runTest('Targeted Lab Cleanup Terminates Verified Process Without Affecting Syst
 
   let dummyProc = null;
   try {
-    // Spawn a long-lived isolated dummy process (ping localhost)
     dummyProc = spawn('ping', ['127.0.0.1', '-n', '60'], { stdio: 'ignore' });
     if (!dummyProc.pid) {
       throw new Error('Failed to spawn harness process for cleanup test');
@@ -187,18 +183,15 @@ runTest('Targeted Lab Cleanup Terminates Verified Process Without Affecting Syst
       regPath: testRegPath
     });
 
-    // Confirm process is alive before cleanup
     const preAlive = registryUtils.isProcessAlive(dummyProc.pid);
     if (!preAlive) {
       throw new Error('Harness process PID was not detected as alive before cleanup');
     }
 
-    // Run cleanup script targeting isolated test run ID
     const cleanupScriptPath = path.join(__dirname, 'cleanup-lab.ps1');
     const cleanupCmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${cleanupScriptPath}" -RegistryPath "${testRegPath}" -TargetRunId "${isolatedRunId}"`;
     execSync(cleanupCmd, { stdio: 'pipe' });
 
-    // Confirm process is terminated after cleanup
     const postAlive = registryUtils.isProcessAlive(dummyProc.pid);
     if (postAlive) {
       throw new Error('Harness process PID remained alive after cleanup!');
