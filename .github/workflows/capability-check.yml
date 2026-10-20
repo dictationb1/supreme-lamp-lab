@@ -266,13 +266,13 @@ jobs:
             throw "Backend failed to become ready at $url with valid JSON semantics within 30 seconds."
           }
 
+          Write-Host "Executing Mission Control check in same step..."
           $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
           $env:RDP_TARGET = "127.0.0.1"
           $env:SUPREME_LAMP_SHA = $appSha
           $env:ALLOW_MOCK_MISSION_CONTROL = "false"
 
-          Write-Host "Executing Mission Control check in same step..."
-          node scripts/mission-control-check.js
+          & "node" "scripts/mission-control-check.js"
           if ($LASTEXITCODE -ne 0) {
             if (Test-Path $stdoutPath) { Write-Host "--- Backend stdout ---"; Get-Content $stdoutPath }
             if (Test-Path $stderrPath) { Write-Host "--- Backend stderr ---"; Get-Content $stderrPath }
