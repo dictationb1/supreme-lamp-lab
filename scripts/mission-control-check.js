@@ -15,11 +15,14 @@
 
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { STATUS, CapabilitySet } = require('./lib/status');
 const { request, summarize } = require('./lib/http');
 const { evaluateLogonStatus, evaluateNativeCrossCheck, digestLogonBody } = require('./lib/logon');
+const { classifyRdpAttempt } = require('./lib/dialogs');
+const { digestRdpClientLog } = require('./lib/eventlog');
 const { waitForReady, checkVersion } = require('./lib/readiness');
 const { validatePngBuffer, validateJpegBuffer, validateImageFile } = require('./lib/image');
 const { acquireLock, releaseLock } = require('./lib/lock');
@@ -39,7 +42,7 @@ const DEFS = {
   remote: {
     backend_readiness_remote: { required: true, contract: 'same readiness+version contract over the tailnet' },
     dashboard_client: { required: true, contract: 'headed browser on client renders the real dashboard (title, build meta, #topbar), valid screenshot' },
-    rdp_auto_login: { required: true, contract: 'TCP 3389 reachable; mstsc with stored TERMSRV credential; server 4624 for user newer than baseline with sourceIp==client tailnet IP and LogonType 10 (reported directly, or derived - endpoint accepts only 2/10/11 and only 10 carries a remote source - and cross-checked against /api/native-status authLast); mstsc alive; valid native screenshot' },
+    rdp_auto_login: { required: true, contract: 'TCP 3389 reachable; mstsc with stored TERMSRV credential; server 4624 for the intended user newer than baseline with sourceIp==client tailnet IP and LogonType 10 proven DIRECTLY (reported by the endpoint) or CORRELATED at the same event instant from the XML-parsing collector - never inferred from a remote IP, never from a stale/type-2/unrelated record; no blocking dialog (RDP-file consent => BLOCKED RDP_FILE_CONSENT_REQUIRED); mstsc alive; valid native screenshot' },
     web_desktop: { required: true, contract: '/webdesk-status ok&&0<=frameAgeMs<15000; /webdesk-frame valid JPEG; /webdesk renders img#view with naturalWidth>0' }
   }
 };
@@ -158,6 +161,18 @@ async function runPs(script, psArgs, { env = {}, timeoutMs = 60000, operation = 
   return { code: 0, out, diagnostic: null, timedOut: false };
 }
 
+/**
+ * Parse the single JSON object a PS helper emits, tolerating any non-JSON
+ * noise that leaked onto stdout/stderr around it (runPs concatenates both).
+ */
+function parseJsonLoose(text) {
+  const s = String(text || '');
+  const i = s.indexOf('{');
+  const j = s.lastIndexOf('}');
+  if (i < 0 || j <= i) return null;
+  try { return JSON.parse(s.slice(i, j + 1)); } catch (e) { return null; }
+}
+
 function writeRdpFile(file, host, user) {
   // authentication level 0: do not block on the lab server's self-signed cert
   // prompt for credentials 0: use the stored TERMSRV/<host> credential
@@ -207,30 +222,6 @@ function tcpProbe(host, port, timeoutMs = 6000) {
 }
 
 /**
- * Ask the app's F28 collector (XML-parsing, /api/native-status) about the
- * candidate event. Bounded: the collector ticks every 30s, so allow one
- * tick + margin. A contradiction vetoes the candidate; "unavailable" is
- * recorded in evidence and the logon-status proof decides on its own.
- */
-async function crossCheckLogon(target, candidateTsIso, timeoutMs = 45000) {
-  const deadline = Date.now() + timeoutMs;
-  let last = { state: 'unavailable', detail: 'native-status not fetched' };
-  let lastAuth = null;
-  for (;;) {
-    const r = await request(`${target}/api/native-status`, { timeoutMs: 10000 });
-    if (r.transport === 'ok' && r.json) {
-      lastAuth = (r.json.rdpListener && r.json.rdpListener.authLast) || r.json.authLast || null;
-      last = evaluateNativeCrossCheck(lastAuth, candidateTsIso);
-      if (last.state !== 'unavailable') return { ...last, authLast: lastAuth };
-    } else {
-      last = { state: 'unavailable', detail: `native-status ${summarize(r)}` };
-    }
-    if (Date.now() >= deadline) return { ...last, authLast: lastAuth };
-    await new Promise(res => setTimeout(res, 5000));
-  }
-}
-
-/**
  * One bounded read of the app's observer/collector state. Used before the
  * attempt (is the Security-log observer even able to read, i.e. probeError?)
  * and after a failure (connLog names pre-LSA drops - TLS/cert - that never
@@ -250,7 +241,7 @@ async function nativeStatusSnapshot(target) {
   })) : [];
   return {
     authLast: a ? {
-      result: a.result, logonType: a.logonType == null ? '' : String(a.logonType), eventTs: a.eventTs || '',
+      result: a.result, logonType: a.logonType == null ? '' : String(a.logonType), logonKind: a.logonKind || '', eventTs: a.eventTs || '',
       scanTs: a.scanTs || '', count4624: a.count4624, count4625: a.count4625,
       probeError: a.probeError || '', sub: a.sub || '', subMeaning: a.subMeaning || ''
     } : null,
@@ -265,54 +256,116 @@ function digestNative(snap) {
   const a = snap.authLast || {};
   const c = snap.collector || {};
   const cl = (snap.connLog || []).map(e => `${e.ts || '?'} ${e.log}/${e.id} ${e.reason}`).join(' | ') || 'none';
-  return `authLast result=${a.result} type=${JSON.stringify(a.logonType)} eventTs=${a.eventTs} scanTs=${a.scanTs} ` +
+  return `authLast result=${a.result} type=${JSON.stringify(a.logonType)} kind=${a.logonKind || ''} eventTs=${a.eventTs} scanTs=${a.scanTs} ` +
     `4624=${a.count4624} 4625=${a.count4625} probeError=${JSON.stringify(a.probeError || '')} sub=${a.sub} ${a.subMeaning}; ` +
     `collector alive=${c.alive} scans=${c.scans}; connLog: ${cl}`.slice(0, 600);
 }
 
 function digestClientDiagnostics(d) {
   if (!d) return 'client diagnostics: not collected';
-  const ev = (d.rdpClientEvents || []).map(e => `${e.id}@${e.timeUtc} ${String(e.message || '').slice(0, 110)}`).join(' | ') || 'none';
-  const win = (d.windows || []).map(w => `${w.process}(${w.pid}):${JSON.stringify(w.title)}`).join(' | ') || 'none';
+  const ev = digestRdpClientLog(d.rdpClientLog);
+  const win = (d.windows || []).map(w => {
+    const ctrl = (w.controls || []).map(c => `${c.state ? c.state + ' ' : ''}${JSON.stringify(String(c.text || '').slice(0, 70))}`).filter(s => s && s !== '\"\"').slice(0, 5).join(' ');
+    return `${w.process}(${w.pid}${w.ownerPid ? ' owner=' + w.ownerPid : ''} sess=${w.sessionId}):${JSON.stringify(String(w.title || '').slice(0, 80))}${ctrl ? ` [${ctrl}]` : ''}`;
+  }).join(' | ') || 'none';
   const tcp = (d.tcpConnections || []).map(t => `${t.remote}=${t.state}`).join(' | ') || 'none';
   const p = d.policy || {};
   const pol = `disablePwSave(M=${p.disablePasswordSavingMachine} U=${p.disablePasswordSavingUser}) promptPw=${p.promptForPasswordMachine} ` +
     `allowSaved=${JSON.stringify(p.allowSavedCredentials || {})} allowSavedNtlm=${JSON.stringify(p.allowSavedCredentialsNtlm || {})}`;
   return {
-    events: `rdpClient readable=${d.rdpClientLogReadable} count=${d.rdpClientCount} err=${d.rdpClientError || ''}: ${ev}`.slice(0, 1300),
-    windows: `windows: ${win}; mstsc tcp: ${tcp}; policy: ${pol}`.slice(0, 1300)
+    events: `rdpClient ${ev}${d.windowEnumError ? ` windowEnumErr=${d.windowEnumError}` : ''}: ${(d.rdpClientLog && d.rdpClientLog.events ? d.rdpClientLog.events : []).map(e => `${e.id}@${e.timeUtc} ${String(e.message || '').slice(0, 90)}`).join(' | ') || 'no rows'}`.slice(0, 1400),
+    windows: `windows: ${win}; mstsc tcp: ${tcp}; policy: ${pol}`.slice(0, 1400)
   };
 }
 
+/**
+ * Poll /api/logon-status (user-filtered) and /api/native-status until a
+ * candidate is proven or the budget expires. Evidence rules (see
+ * scripts/lib/logon.js): the logon type is NEVER inferred from a remote IP.
+ *   - 'candidate/direct'  : the endpoint itself reports LogonType 10 for the
+ *     fresh event (a fixed app build lands here); the XML collector may veto
+ *     on a time-correlated contradiction.
+ *   - 'needs-type-proof'  : user + source proven on a fresh event, type
+ *     missing (the pinned app's $Matches clobber). The XML collector must
+ *     then confirm LogonType 10 AT THE SAME EVENT INSTANT; a stale type-2
+ *     record, an unrelated authLast record or no record at all never counts.
+ * onTick may return { abort: { code, status, detail, evidence } } to end the
+ * poll early (e.g. a known blocking dialog is visible - never burn the whole
+ * budget on a generic timeout then).
+ */
 async function pollLogon(target, baselineIso, user, clientIp, timeoutMs, onTick = null) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   let polls = 0;
+  let sawTypeProofGap = null;
+  let lastCross = null;
   while (Date.now() < deadline) {
     polls++;
     const r = await request(`${target}/api/logon-status?since=${encodeURIComponent(baselineIso)}&user=${encodeURIComponent(user)}`, { timeoutMs: 8000 });
     if (r.transport === 'ok' && r.json) {
       last = r.json;
-      const ev = evaluateLogonStatus(r.json, { baselineIso, clientIp });
+      const ev = evaluateLogonStatus(r.json, { baselineIso, clientIp, expectedUser: user });
       if (ev.state === 'wrong-source') return { ok: false, code: 'RDP_LOGON_WRONG_SOURCE', body: last, polls, detail: ev.detail };
       if (ev.state === 'type-mismatch') return { ok: false, code: 'RDP_LOGON_TYPE_MISMATCH', body: last, polls, detail: ev.detail };
-      if (ev.state === 'candidate') {
-        log(`logon candidate (${ev.proof}): ${ev.detail}; cross-checking authLast`);
-        const cross = await crossCheckLogon(target, r.json.ts, 45000);
-        log(`logon cross-check: ${cross.state} - ${cross.detail}`);
-        if (cross.state === 'contradicted') {
+      if (ev.state === 'candidate' || ev.state === 'needs-type-proof') {
+        const nat = await nativeStatusSnapshot(target);
+        const cross = evaluateNativeCrossCheck(nat.authLast, r.json.ts, { baselineIso });
+        lastCross = cross;
+        if (ev.state === 'candidate') {
+          log(`logon candidate (${ev.proof}): ${ev.detail}; cross-check ${cross.state} - ${cross.detail}`);
+          if (cross.state === 'contradicted') {
+            return {
+              ok: false, code: 'RDP_LOGON_TYPE_MISMATCH', body: last, polls, proof: ev.proof,
+              crossCheck: { state: cross.state, detail: cross.detail },
+              detail: `native-status collector contradicts the logon-status candidate: ${cross.detail}`
+            };
+          }
           return {
-            ok: false, code: 'RDP_LOGON_TYPE_MISMATCH', body: last, polls, proof: ev.proof, crossCheck: cross,
-            detail: `native-status collector contradicts the logon-status candidate: ${cross.detail}`
+            ok: true, body: last, polls, proof: ev.proof, proofDetail: ev.detail,
+            crossCheck: { state: cross.state, detail: cross.detail }
           };
         }
-        return { ok: true, body: last, polls, proof: ev.proof, proofDetail: ev.detail, crossCheck: cross };
+        // needs-type-proof: the type must be proven at THIS event instant
+        sawTypeProofGap = { ts: r.json.ts, detail: ev.detail };
+        log(`logon user+source matched at ${r.json.ts}; type proof: ${cross.state} - ${cross.detail}`);
+        if (cross.state === 'confirmed') {
+          return {
+            ok: true, body: last, polls, proof: 'correlated',
+            proofDetail: `fresh 4624 for ${user} from ${clientIp} at ${r.json.ts}; LogonType 10 proven at the same event instant by the XML-parsing collector (${cross.detail})`,
+            crossCheck: { state: cross.state, detail: cross.detail }
+          };
+        }
+        if (cross.state === 'contradicted') {
+          return {
+            ok: false, code: 'RDP_LOGON_TYPE_MISMATCH', body: last, polls,
+            crossCheck: { state: cross.state, detail: cross.detail },
+            detail: `the event at ${r.json.ts} matched ${user} from ${clientIp} but the XML-parsing collector contradicts it: ${cross.detail}`
+          };
+        }
       }
     } else {
       last = { error: summarize(r) };
     }
-    if (onTick) { try { await onTick(polls, last); } catch (e) { annotate.warning('rdp observation', e.message); } }
+    if (onTick) {
+      let abort = null;
+      try { abort = await onTick(polls, last); } catch (e) { annotate.warning('rdp observation', e.message); }
+      if (abort && abort.abort) {
+        return {
+          ok: false, aborted: true, code: abort.abort.code, status: abort.abort.status || STATUS.FAIL,
+          body: last, polls, detail: abort.abort.detail, dialog: abort.abort.dialog || null, evidence: abort.abort.evidence || null
+        };
+      }
+    }
     await new Promise(res => setTimeout(res, 3000));
+  }
+  if (sawTypeProofGap) {
+    return {
+      ok: false, code: 'RDP_LOGON_TYPE_UNKNOWN', body: last, polls,
+      crossCheck: lastCross ? { state: lastCross.state, detail: lastCross.detail } : null,
+      detail: `a fresh 4624 for ${user} from ${clientIp} matched at ${sawTypeProofGap.ts}, but the actual logon type was never proven at that event instant ` +
+        `(pinned app /api/logon-status \$Matches clobber - pending app fix, see patches/; collector: ${lastCross ? lastCross.detail : 'not fetched'}); ` +
+        'LogonType 10 is not inferred from a remote IP, and a stale type-2 / unrelated authLast record is not accepted'
+    };
   }
   return {
     ok: false, code: 'RDP_LOGON_NOT_OBSERVED', body: last, polls,
@@ -377,20 +430,69 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   try { registry.registerProcess({ pid: live.pid, role: 'mstsc-rdp-check' }); } catch (e) { annotate.warning('registry', `mstsc registration failed: ${e.message}`); }
   log(`mstsc pid=${live.pid} -> ${host} as ${user}; baseline ${baselineIso}`);
 
-  // Observe the attempt while it happens (bounded): mstsc's window state
-  // distinguishes "sitting at a dialog" from "connected session", and a
-  // mid-attempt screenshot shows any certificate/credential prompt - a
-  // post-timeout screenshot alone (the old behaviour) can miss both.
+  // Observe the attempt while it happens (bounded): window ENUMERATION for the
+  // launched process tree (owned/modal dialogs included - MainWindowHandle's
+  // hasWindow heuristic misses those, run 39575343527) classifies any blocking
+  // dialog (RDP-file consent / publisher review / certificate / credentials /
+  // connection error), and a mid-attempt screenshot shows it. A known
+  // blocking dialog ends the poll early - the verdict names the dialog
+  // instead of burning the 90s budget on a generic logon timeout.
   const windowSamples = [];
+  const dialogSamples = [];
+  const clientAccount = (process.env.COMPUTERNAME ? `${process.env.COMPUTERNAME}\\` : '') +
+    (process.env.USERNAME || (os.userInfo() && os.userInfo().username) || 'the client-runner account');
+  const dialogSightings = {};
   const observe = async poll => {
-    if (!handle.mstsc) return;
-    if (poll === 1 || poll === 2 || poll === 6 || poll === 14) {
+    if (!handle.mstsc) return null;
+    if (poll === 1 || poll === 2 || poll === 4 || poll === 8 || poll === 14) {
       const ws = await runPs('Get-WindowState.ps1', ['-ProcessId', String(handle.mstsc.pid)], { operation: 'mstsc-window-state', timeoutMs: 30000 });
-      let parsed = null;
-      try { parsed = JSON.parse(ws.out); } catch (e) { parsed = { raw: ws.out.slice(0, 200) }; }
+      let parsed = parseJsonLoose(ws.out);
+      if (!parsed) parsed = { raw: ws.out.slice(0, 200) };
       windowSamples.push({ poll, ...parsed });
       log(`mstsc window sample poll=${poll}: ${JSON.stringify(parsed).slice(0, 220)}`);
-      annotate.notice('rdp mstsc window', `poll=${poll} ${JSON.stringify(parsed).slice(0, 220)}`);
+      annotate.notice('rdp mstsc window', `poll=${poll} ${JSON.stringify(parsed).slice(0, 220)} (liveness only; dialogs are enumerated separately)`);
+
+      const ds = await runPs('Get-RdpDialogState.ps1', ['-ProcessId', String(handle.mstsc.pid)], { operation: 'rdp-dialog-state', timeoutMs: 40000 });
+      let dlg = parseJsonLoose(ds.out);
+      if (!dlg) dlg = { parseError: ds.out.slice(0, 200) };
+      const cls = classifyRdpAttempt({
+        windows: (dlg && dlg.windows) || [],
+        account: clientAccount,
+        sessionId: (parsed && parsed.sessionId) != null ? parsed.sessionId : null
+      });
+      dialogSamples.push({
+        poll,
+        kind: cls.kind || null,
+        status: cls.status || null,
+        code: cls.code || null,
+        evidenceDigest: cls.evidenceDigest,
+        windows: cls.windows,
+        parseError: dlg && dlg.parseError || dlg && dlg.enumError || null
+      });
+      log(`rdp dialog state poll=${poll}: kind=${cls.kind || 'none'} ${cls.evidenceDigest ? cls.evidenceDigest.slice(0, 200) : ''}`);
+      annotate.notice('rdp dialog state', `poll=${poll} kind=${cls.kind || 'none'} ${cls.evidenceDigest}`.slice(0, 500));
+      if (cls.blocking) {
+        // sanitized evidence captured NOW, during the attempt and before cleanup
+        const dlgShot = path.join(outDir, 'native-rdp-dialog.png');
+        const capDlg = await runPs('Capture-Desktop.ps1', ['-Path', dlgShot], { operation: 'rdp-dialog-capture', timeoutMs: 30000 });
+        dialogSamples.push({ poll, dialogScreenshot: dlgShot, capture: capDlg.out });
+        annotate.notice('rdp dialog capture', `poll=${poll} ${capDlg.out}`);
+        dialogSightings[cls.kind] = (dialogSightings[cls.kind] || 0) + 1;
+        // the consent checkbox text is unmistakable: one sighting is decisive;
+        // any other dialog must persist across two samples to abort
+        const decisive = cls.kind === 'rdp_file_consent' || dialogSightings[cls.kind] >= 2;
+        if (decisive) {
+          return {
+            abort: {
+              code: cls.code,
+              status: cls.status,
+              detail: `${cls.reason}${cls.manualAction ? ` Manual action: ${cls.manualAction}` : ''}`,
+              dialog: { kind: cls.kind, windows: cls.windows, evidenceDigest: cls.evidenceDigest, dialogScreenshot: dlgShot },
+              evidence: { dialogSamples }
+            }
+          };
+        }
+      }
     }
     if (poll === 4) {
       const during = path.join(outDir, 'native-rdp-during.png');
@@ -398,6 +500,7 @@ async function checkRdp(caps, args, outDir, readinessBody) {
       log(`during-attempt capture: ${capD.out}`);
       windowSamples.push({ poll, duringCapture: capD.out, duringScreenshot: during });
     }
+    return null;
   };
 
   const logon = await pollLogon(args.target, baselineIso, user, clientIp, 90000, observe);
@@ -413,15 +516,17 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   let clientDiag = null;
   try {
     const cd = await runPs('Get-RdpClientDiagnostics.ps1', ['-ProcessId', String(handle.mstsc.pid), '-SinceUtc', mstscStartedIso], { operation: 'rdp-client-diagnostics', timeoutMs: 60000 });
-    try { clientDiag = JSON.parse(cd.out); } catch (e) { clientDiag = { parseError: cd.out.slice(0, 300) }; }
+    clientDiag = parseJsonLoose(cd.out) || { parseError: cd.out.slice(0, 300) };
   } catch (e) { clientDiag = { error: e.message }; }
   const nativePost = logon.ok ? null : await nativeStatusSnapshot(args.target);
 
   const lastTitle = [...windowSamples].reverse().find(s => s.title !== undefined);
+  const lastDialog = [...dialogSamples].reverse().find(s => s.kind) || null;
   const evidence = {
     logon: logon.body, logonPolls: logon.polls || null, proof: logon.proof || null, proofDetail: logon.proofDetail || null,
     crossCheck: logon.crossCheck ? { state: logon.crossCheck.state, detail: logon.crossCheck.detail } : null,
-    baselineIso, tcp3389: tcp, credential: cred.out, rdpFile: rdpFileInfo, windowSamples,
+    baselineIso, tcp3389: tcp, credential: cred.out, rdpFile: rdpFileInfo, windowSamples, dialogSamples,
+    dialog: logon.dialog || (lastDialog ? { kind: lastDialog.kind, code: lastDialog.code, evidenceDigest: lastDialog.evidenceDigest } : null),
     nativePre, nativePost, clientDiagnostics: clientDiag,
     mstscPid: handle.mstsc.pid, mstscAlive: stillAlive, screenshot: img.valid ? shot : null, capture: cap.out
   };
@@ -430,16 +535,23 @@ async function checkRdp(caps, args, outDir, readinessBody) {
     annotate.error('rdp client events', typeof cdg === 'string' ? cdg : cdg.events);
     if (typeof cdg !== 'string') annotate.error('rdp client windows/policy', cdg.windows);
     annotate.error('rdp observer (post)', digestNative(nativePost));
-    const firstEv = clientDiag && Array.isArray(clientDiag.rdpClientEvents) ? clientDiag.rdpClientEvents[0] : null;
+    const firstEv = clientDiag && clientDiag.rdpClientLog && Array.isArray(clientDiag.rdpClientLog.events) ? clientDiag.rdpClientLog.events[0] : null;
     const evHint = firstEv ? ` rdpClient ${firstEv.id}: ${String(firstEv.message || '').slice(0, 90)}` : '';
-    const tail = `mstscAlive=${stillAlive} title=${JSON.stringify(lastTitle ? lastTitle.title : null)} hasWindow=${lastTitle ? lastTitle.hasWindow : null};${evHint}`;
-    caps.set(name, STATUS.FAIL, `${logon.code}: ${logon.detail}; ${tail}`, evidence);
+    const dlgHint = lastDialog ? ` dialog=${lastDialog.kind || 'none'}(${lastDialog.code || '-'})` : '';
+    const tail = `mstscAlive=${stillAlive} title=${JSON.stringify(lastTitle ? lastTitle.title : null)} hasWindow=${lastTitle ? lastTitle.hasWindow : null} (main-window heuristic only; see dialog evidence);${dlgHint}${evHint}`;
+    // A missing account-level consent is a BLOCKED prerequisite, not a FAIL of
+    // the attempt; every other dialog/connection outcome is a FAIL with its
+    // own code. web_desktop stays BLOCKED behind this capability either way.
+    const st = logon.status === STATUS.BLOCKED ? STATUS.BLOCKED : STATUS.FAIL;
+    const reason = logon.aborted && logon.detail ? `${logon.detail} [mstsc pid=${handle.mstsc.pid}; ${tail}]` : `${logon.code}: ${logon.detail}; ${tail}`;
+    caps.set(name, st, reason, evidence);
   } else if (!stillAlive) caps.set(name, STATUS.FAIL, 'MSTSC_NOT_ALIVE_AFTER_LOGON', evidence);
   else if (!img.valid) caps.set(name, STATUS.FAIL, `NATIVE_SCREENSHOT_INVALID: ${img.reason} (${cap.out})`, evidence);
   else if (img.nearUniform) caps.set(name, STATUS.FAIL, 'NATIVE_SCREENSHOT_UNIFORM: captured desktop is a single colour', evidence);
   else {
     const cross = logon.crossCheck ? ` authLast=${logon.crossCheck.state}` : '';
-    caps.set(name, STATUS.PASS, `4624 ${logon.proof === 'direct' ? 'type 10' : 'type 10 (derived)'} ${logon.body.user}@${logon.body.ts} from ${logon.body.sourceIp};${cross} mstsc alive; screenshot ${img.width}x${img.height}`, evidence);
+    const proofLabel = logon.proof === 'direct' ? 'type 10 (reported by the endpoint)' : 'type 10 (XML collector, correlated at the event instant)';
+    caps.set(name, STATUS.PASS, `4624 ${proofLabel} ${logon.body.user}@${logon.body.ts} from ${logon.body.sourceIp};${cross} mstsc alive; screenshot ${img.width}x${img.height}`, evidence);
   }
   return handle;
 }

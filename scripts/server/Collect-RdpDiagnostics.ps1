@@ -91,10 +91,14 @@ try {
 $since = [DateTime]::Now.AddMinutes(-1 * $SinceMinutes)
 
 # ---- Security 4624/4625 -----------------------------------------------------
+# Zero matching events, an unavailable channel and access denial are three
+# different facts (see scripts/lib/eventlog.js); "no events matched" is never
+# reported as "channel unreadable", and missing events are never proof that no
+# connection was attempted.
 $secRows = @()
 try {
     $raw = @(Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = @(4624, 4625); StartTime = $since } -MaxEvents 120 -ErrorAction Stop)
-    $doc.securityLogReadable = $true
+    $doc.securityLogState = 'readable'
     $doc.securityCounts = @{
         total4624 = @($raw | Where-Object { $_.Id -eq 4624 }).Count
         total4625 = @($raw | Where-Object { $_.Id -eq 4625 }).Count
@@ -118,8 +122,22 @@ try {
         if ($secRows.Count -ge 12) { break }
     }
 } catch {
-    $doc.securityLogReadable = $false
-    $doc.securityError = $_.Exception.Message
+    $fqid = [string]$_.FullyQualifiedErrorId
+    $emsg = [string]$_.Exception.Message
+    if ($emsg -match 'No events were found that match the specified selection criteria' -or $fqid -like 'NoMatchingLogsFound*') {
+        $doc.securityLogState = 'readable'
+        $doc.securityCounts = @{ total4624 = 0; total4625 = 0 }
+        $doc.securityZeroMatchingEvents = $true
+    } elseif ($emsg -match 'Access is denied|UnauthorizedAccess' -or $fqid -match 'UnauthorizedAccess') {
+        $doc.securityLogState = 'access-denied'
+        $doc.securityError = $emsg
+    } elseif ($emsg -match 'There is not an event log|does not exist' -or $fqid -match 'ContainerNotFound|LogNotFound') {
+        $doc.securityLogState = 'channel-missing'
+        $doc.securityError = $emsg
+    } else {
+        $doc.securityLogState = 'query-error'
+        $doc.securityError = $emsg
+    }
 }
 $doc.securityEvents = $secRows
 
@@ -185,7 +203,7 @@ $forUser4625 = @($secRows | Where-Object { $_.id -eq 4625 -and $_.user -eq $User
 $summary = "termService=$($doc.termService) listener3389=[$($doc.listener3389 -join ',')] " +
     "fw3389 enabled=$($doc.firewall3389.enabled) remote=[$($doc.firewall3389.remoteAddress -join ',')] " +
     "account exists=$($doc.account.exists) enabled=$($doc.account.enabled) rdu=$($doc.account.remoteDesktopUsers) adm=$($doc.account.administrators) " +
-    "auditLogon='$($doc.auditLogon)' securityReadable=$($doc.securityLogReadable) " +
+    "auditLogon='$($doc.auditLogon)' securityLogState=$($doc.securityLogState) " +
     "window4624=$($doc.securityCounts.total4624) window4625=$($doc.securityCounts.total4625) forUser4624=$forUser4624 forUser4625=$forUser4625 " +
     "webdeskTask=$($doc.webdeskTask.state) lastRun=$($doc.webdeskTask.lastRunUtc) result=$($doc.webdeskTask.lastResult)"
 Write-Annot 'notice' 'RDP server diagnostics' $summary
@@ -196,7 +214,7 @@ if ($secRows.Count) {
     }) -join '; '
     Write-Annot 'notice' 'RDP server security events' $rowsTxt
 } else {
-    Write-Annot 'warning' 'RDP server security events' "no 4624/4625 for user=$User (or LogonType 10) in the last $SinceMinutes min; securityReadable=$($doc.securityLogReadable) error=$($doc.securityError)"
+    Write-Annot 'warning' 'RDP server security events' "no 4624/4625 for user=$User (or LogonType 10) in the last $SinceMinutes min; securityLogState=$($doc.securityLogState) zeroMatching=$($doc.securityZeroMatchingEvents) error=$($doc.securityError) (missing events are not proof that no connection was attempted)"
 }
 $tsTxt = (@($doc.tsLocalSessionManager) + @($doc.tsRemoteConnectionManager) | ForEach-Object {
     if ($_.error) { "$($_.log) error=$($_.error)" } else { "$($_.log)/$($_.id) @$($_.timeUtc) user=$($_.user) sess=$($_.sessionId) addr=$($_.address) rec=$($_.recordId)" }
