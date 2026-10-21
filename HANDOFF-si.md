@@ -200,3 +200,12 @@ Artifacts (Actions UI එකෙන් බාගත හැක; මෙම sandbox 
 ## 11. Recovery checkpoint
 
 සම්පූර්ණ resume විස්තරය `RECOVERY_CHECKPOINT.md` හි ඇත (branch, PR, commits, සම්පූර්ණ කළ දේ, කළ නොහැකි දේ, ඊළඟ පියවර, evidence pointers).
+
+---
+
+## 12. `mergeStateStatus=CLEAN` ගැන අවධානය
+
+* කේතය පරීක්ෂා කළ head: **`913696e`** (static 100/100, client 100/100, capability run 39605267051 → `NOT_VERIFIED`).
+* ඉන් පසු commits 3 (`e9c1de5`, `487fdaa`, `05a4b93`) **documentation පමණි** සහ `[skip ci]` නිසා **දැන් head එකේ checks කිසිවක් නැත**; එබැවින් GitHub `CLEAN` කියයි.
+* **`CLEAN` යනු "සමත් වූ candidate" එකක සාක්ෂියක් නොවේ.** මෙම repo හි branch protection එකේ required status checks නැති නිසා merge කිරීම තාක්ෂණිකව හැකි වුවත්, එය **නොකළ යුතුය** — කළහොත් මිනිස් prerequity එකක් සම්පූර්ණ නොවී integration එකක් සිදු වේ.
+* checkpoint doc වෙනසක් සඳහා full acceptance run එකක් නැවත ධාවනය කර නැත — එය නැවතත් `RDP_FILE_CONSENT_REQUIRED` පමණක් ලබා දෙනු ඇත (දැනටමත් දන්නා බාහිර බාධාවක් නැවත නැවත ධාවනය නොකිරීමේ නීතිය).
