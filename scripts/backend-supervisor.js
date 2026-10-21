@@ -440,7 +440,7 @@ async function main() {
       writeCapabilities('server-local', caps, { source: 'backend-supervisor', supervisor: { phases: summary.phases.map(p => ({ name: p.name, ok: p.ok, code: p.code || null, severity: p.severity })), powershell: summary.powershell, stopMethod: summary.stopMethod } });
     }
     if (failed) annotate.error(`backend ${failed.name}`, `${failed.code}: ${failed.detail || ''}`);
-    else annotate.notice('backend supervised', `pid=${summary.backend && summary.backend.pid} identity=${summary.backendIdentityState} helper=${summary.powershell && summary.powershell.exe} (${summary.powershell && summary.powershell.source}) guards=${degraded.length} phases=${summary.phases.map(p => p.name).join(',')}`);
+    else annotate.notice('backend supervised', `pid=${summary.backend && summary.backend.pid} identity=${summary.backendIdentityState} helper=${summary.powershell && summary.powershell.helperExe} v${(summary.powershell && summary.powershell.helperVersion) || 'unknown'} (${summary.powershell && summary.powershell.helperExeSource}, sameInterpreter=${summary.powershell && summary.powershell.sameInterpreter}) guards=${degraded.length} phases=${summary.phases.map(p => p.name).join(',')}`);
     setOutput('supervisor_first_failure', failed ? `${failed.name}:${failed.code}` : 'none');
     setOutput('supervisor_degraded_guards', degraded.map(d => `${d.name}:${d.code}`).join(',') || 'none');
   }
