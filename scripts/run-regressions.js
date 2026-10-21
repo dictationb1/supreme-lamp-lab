@@ -43,6 +43,8 @@ const { artifactDir } = require('./lib/results');
 const psLib = require('./lib/ps');
 const reportLib = require('./verification-report');
 const tailnetDiag = require('./tailnet-token-exchange-diagnostic');
+const logonLib = require('./lib/logon');
+const mcCheck = require('./mission-control-check');
 
 const results = [];
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-reg-'));
@@ -1212,6 +1214,143 @@ async function main() {
     assert.strictEqual(reportLib.build(ok).verdict, 'VERIFIED');
     ok.client.outputs.caps_remote = JSON.stringify({ ...JSON.parse(ok.client.outputs.caps_remote), rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP' } });
     assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+  });
+
+  // ===== RDP logon evidence (observer vs login failure) =====
+  await test('logon: direct and derived type-10 proof accepted; stale/wrong-source/console rejected', async () => {
+    const { evaluateLogonStatus, normalizeIp } = logonLib;
+    const ctx = { baselineIso: '2026-10-21T07:59:45.000Z', clientIp: '100.93.94.15' };
+    const fresh = '2026-10-21T08:00:10.250Z';
+    // direct: a future/fixed app build reports the type it parsed
+    let v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3 }, ctx);
+    assert.strictEqual(v.state, 'candidate'); assert.strictEqual(v.proof, 'direct');
+    // derived: the pinned app build always answers logonType:'' when a user
+    // filter is supplied (second -notmatch clobbers $Matches); the endpoint
+    // only sets connected for types 2/10/11, and only type 10 carries the
+    // client's address as Source Network Address
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '', checked: 3, user: 'slabrdp' }, ctx);
+    assert.strictEqual(v.state, 'candidate'); assert.strictEqual(v.proof, 'derived');
+    // IPv4-mapped IPv6 source is the same client address
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '::ffff:100.93.94.15', logonType: '', checked: 1 }, ctx);
+    assert.strictEqual(v.state, 'candidate');
+    assert.strictEqual(normalizeIp('[::FFFF:100.93.94.15]'), '100.93.94.15');
+    // stale event (before the baseline) can never pass, however it is labelled
+    v = evaluateLogonStatus({ connected: true, ts: '2026-10-21T07:59:44.999Z', sourceIp: '100.93.94.15', logonType: '10', checked: 1 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    // a console/cached logon (type 2/11, no remote source) is not our RDP logon
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '-', logonType: '2', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '', logonType: '', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    // another machine's type-10 is a terminal wrong-source, not "keep waiting"
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.64.0.99', logonType: '10', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'wrong-source');
+    // a reported non-10 type WITH our source address contradicts event semantics
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '2', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'type-mismatch');
+    // nothing observed yet / observer could not read the log (checked=0)
+    v = evaluateLogonStatus({ connected: false, ts: '', sourceIp: '', logonType: '', checked: 0 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    v = evaluateLogonStatus(null, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+  });
+
+  await test('logon: native-status cross-check confirms, contradicts, or stays unavailable', async () => {
+    const { evaluateNativeCrossCheck } = logonLib;
+    const cand = '2026-10-21T08:00:10.250Z';
+    const base = { result: 'success', sub: '', subMeaning: '', probeError: '', count4624: 1, count4625: 0, scanTs: '2026-10-21T08:00:31.000Z' };
+    // same event instant, XML-parsed type 10 -> confirmed
+    let v = evaluateNativeCrossCheck({ ...base, eventTs: '2026-10-21T08:00:10.251Z', logonType: '10' }, cand);
+    assert.strictEqual(v.state, 'confirmed');
+    // same instant but the XML collector says interactive (2) -> contradiction
+    v = evaluateNativeCrossCheck({ ...base, eventTs: cand, logonType: '2' }, cand);
+    assert.strictEqual(v.state, 'contradicted');
+    // scanned after the candidate and its latest success is OLDER -> contradiction
+    v = evaluateNativeCrossCheck({ ...base, eventTs: '2026-10-21T07:58:00.000Z', logonType: '10' }, cand);
+    assert.strictEqual(v.state, 'contradicted');
+    // scanned after the candidate and saw nothing at all -> contradiction
+    v = evaluateNativeCrossCheck({ ...base, result: 'none', eventTs: '', logonType: '', count4624: 0 }, cand);
+    assert.strictEqual(v.state, 'contradicted');
+    // not yet scanned since the event -> unavailable (collector ticks at 30s)
+    v = evaluateNativeCrossCheck({ ...base, scanTs: '2026-10-21T08:00:05.000Z', eventTs: '', logonType: '' }, cand);
+    assert.strictEqual(v.state, 'unavailable');
+    // a later failed logon is the collector headline; it cannot veto ours
+    v = evaluateNativeCrossCheck({ ...base, result: 'failed', sub: '0XC000006A', subMeaning: 'wrong-password', eventTs: '2026-10-21T08:00:41.000Z', logonType: '10' }, cand);
+    assert.strictEqual(v.state, 'unavailable');
+    // collector could not read the Security log -> unavailable, loudly noted
+    v = evaluateNativeCrossCheck({ ...base, probeError: 'security-log-unreadable' }, cand);
+    assert.strictEqual(v.state, 'unavailable');
+    assert.match(v.detail, /security-log-unreadable/);
+    v = evaluateNativeCrossCheck(null, cand);
+    assert.strictEqual(v.state, 'unavailable');
+  });
+
+  await test('rdp file: utf8/no-BOM, CRLF, carries the target directives (production launcher shape)', async () => {
+    const dirs = freshDirs();
+    const f = path.join(dirs.art, 'slab-lab.rdp');
+    const info = mcCheck.writeRdpFile(f, '100.72.174.44', 'slabrdp');
+    const b = fs.readFileSync(f);
+    assert.ok(info.bytes > 200 && info.bytes === b.length);
+    assert.ok(!b.includes(0), 'utf16le NUL bytes must never reach mstsc again');
+    assert.notDeepStrictEqual([...b.subarray(0, 2)], [0xff, 0xfe], 'no UTF-16 BOM');
+    assert.notDeepStrictEqual([...b.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'no UTF-8 BOM');
+    const t = b.toString('utf8');
+    assert.ok(t.startsWith('full address:s:100.72.174.44\r\n'), t.slice(0, 60));
+    assert.ok(t.includes('\r\nusername:s:slabrdp\r\n'));
+    assert.ok(t.includes('prompt for credentials:i:0'));
+    assert.ok(t.includes('enablecredsspsupport:i:1'), 'CredSSP/NLA stays on');
+  });
+
+  await test('tcp probe: listening loopback ok, closed port fails bounded', async () => {
+    const srv = net.createServer(() => {});
+    await new Promise(res => srv.listen(0, '127.0.0.1', res));
+    const port = srv.address().port;
+    const ok = await mcCheck.tcpProbe('127.0.0.1', port, 2000);
+    assert.strictEqual(ok.ok, true);
+    await new Promise(res => srv.close(res));
+    const no = await mcCheck.tcpProbe('127.0.0.1', port, 2000);
+    assert.strictEqual(no.ok, false);
+    assert.ok(no.error && no.ms < 2000, JSON.stringify(no));
+  });
+
+  // ===== report: dependency chains =====
+  await test('report: rdp FAIL is first cause; web_desktop BLOCKED is downstream of it (run 39560693766 shape)', async () => {
+    const ok = reportNeeds();
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null },
+      web_desktop: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL' },
+      rdp_auto_login: { s: 'FAIL', r: 'RDP_LOGON_NOT_OBSERVED: no LogonType 10 for slabrdp from 100.93.94.15 since 2026-10-21T07:59:45.000Z within 90000ms' }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    const rep = reportLib.build(ok);
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    assert.strictEqual(rep.firstCause.capability, 'rdp_auto_login', JSON.stringify(rep.firstCause));
+    assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability), ['rdp_auto_login']);
+    assert.deepStrictEqual(rep.diagnostics.downstreamBlocked.map(c => c.capability), ['web_desktop']);
+    assert.strictEqual(rep.diagnostics.downstreamBlocked[0].dependsOn, 'rdp_auto_login');
+    assert.strictEqual(rep.counts.pass, 7);
+    assert.strictEqual(rep.counts.fail, 1);
+    assert.strictEqual(rep.counts.blockedDownstream, 1);
+  });
+
+  await test('report: an independent web_desktop FAIL stays a root cause next to an rdp FAIL', async () => {
+    const ok = reportNeeds();
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null },
+      web_desktop: { s: 'FAIL', r: 'WEBDESK_NO_FRESH_FRAME: status={"ok":false} task=Ready session=no-session capture=NOT RUNNING' },
+      rdp_auto_login: { s: 'FAIL', r: 'RDP_TCP_3389_UNREACHABLE: 100.72.174.44:3389 timeout' }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    const rep = reportLib.build(ok);
+    assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability).sort(), ['rdp_auto_login', 'web_desktop']);
+    assert.deepStrictEqual(rep.diagnostics.downstreamBlocked, []);
+    assert.strictEqual(rep.counts.fail, 2);
   });
 
   // ===== summary =====

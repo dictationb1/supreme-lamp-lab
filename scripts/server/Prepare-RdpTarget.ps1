@@ -39,6 +39,35 @@ try {
         try { Add-LocalGroupMember -Group $g -Member $User -ErrorAction Stop } catch { if ($_.Exception.Message -notmatch 'already a member') { throw } }
     }
     $status.steps += 'user'
+    # Read the account back: creating it is not proof it can log on.
+    $acct = Get-LocalUser -Name $User -ErrorAction Stop
+    if (-not $acct.Enabled) { throw "RDP_USER_DISABLED_AFTER_CREATE: $User" }
+    $inRdp = [bool](Get-LocalGroupMember -Group 'Remote Desktop Users' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$User$" })
+    $inAdm = [bool](Get-LocalGroupMember -Group 'Administrators' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "\\$User$" })
+    if (-not ($inRdp -or $inAdm)) { throw "RDP_USER_NOT_IN_REMOTE_LOGON_GROUPS: $User" }
+    $status.account = @{ enabled = [bool]$acct.Enabled; remoteDesktopUsers = $inRdp; administrators = $inAdm }
+    $status.steps += 'user-verified'
+
+    # The verifier (and the backend's own /api/logon-status) read Security
+    # 4624/4625. If "Audit Logon" is not enabled those events never exist and
+    # a GOOD logon is indistinguishable from a failed one. This host is a
+    # disposable hosted runner, so ensure the subcategory here and prove it
+    # by reading it back before any logon is attempted.
+    function Get-AuditLogonSetting {
+        $txt = (& auditpol.exe /get /subcategory:Logon 2>&1 | Out-String)
+        $line = ($txt -split "`r?`n" | Where-Object { $_ -match '^\s*Logon\s{2,}\S' } | Select-Object -First 1)
+        if ($line) { return ($line -replace '^\s*Logon\s+', '').Trim() }
+        return 'unparsed'
+    }
+    $auditBefore = Get-AuditLogonSetting
+    if ($auditBefore -ne 'Success and Failure') {
+        & auditpol.exe /set /subcategory:Logon /success:enable /failure:enable | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "AUDITPOL_SET_FAILED: exit $LASTEXITCODE" }
+    }
+    $auditAfter = Get-AuditLogonSetting
+    if ($auditAfter -ne 'Success and Failure') { throw "AUDIT_LOGON_NOT_ENABLED: before='$auditBefore' after='$auditAfter'" }
+    $status.auditLogon = @{ before = $auditBefore; after = $auditAfter }
+    $status.steps += 'audit-logon'
 
     Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
     Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -Value 1
@@ -65,6 +94,8 @@ try {
 
     $listen = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
     if (-not $listen) { throw 'RDP_LISTENER_ABSENT: nothing listens on 3389 after enabling TermService' }
+    $status.termService = [string](Get-Service -Name TermService).Status
+    $status.listener3389 = @($listen | ForEach-Object { [string]$_.LocalAddress })
     $status.rdpConfigured = $true
     $status.reason = 'OK'
 } catch {
