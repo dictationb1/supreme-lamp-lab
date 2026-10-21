@@ -33,10 +33,7 @@ name: Live-Run Integration (Mission Control -> client VM)
 # ---------------------------------------------------------------------------
 
 run-name: >-
-  ${{ format('live-run {0} {1}', github.event_name,
-  github.event.client_payload.correlation_id != '' && github.event.client_payload.correlation_id
-  || github.event.inputs.correlation_id != '' && github.event.inputs.correlation_id
-  || (github.event.inputs.origin_run != '' && format('origin:{0}', github.event.inputs.origin_run) || 'sweep')) }}
+  ${{ format('live-run {0}', github.event_name) }}
 on:
   repository_dispatch:
     types: [mission-control.live-run]
@@ -79,14 +76,6 @@ on:
         default: '0'
         type: string
 
-# Queue policy (documented, enforced in scripts/lib/record-store.js):
-#   - one job per (origin run, attempt): the group key is that pair, so a
-#     duplicate delivery of the SAME origin run serialises instead of racing;
-#   - `parallel: false` means a second origin run waits rather than stealing the
-#     VM desktop; a queued request is NEVER re-attached to a different server,
-#     because the record key names the exact run id + attempt it belongs to;
-#   - cancel-in-progress is false: killing a live verification mid-flight would
-#     destroy the evidence the operator is waiting for.
 # Queue policy (enforced in scripts/lib/record-store.js; the group here is only a
 # cheap dedupe of deliveries for the SAME originating run):
 #   - one desktop at a time: the `run-records` claim file is the real lock, and a
