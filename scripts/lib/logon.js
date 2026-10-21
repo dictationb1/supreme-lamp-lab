@@ -2,9 +2,25 @@
 // Pure evaluation of the app backend's RDP logon evidence. Kept dependency-
 // free and exported so scripts/run-regressions.js can pin every branch with
 // recorded response shapes (positive AND negative: a stale event, another
-// source, or a console logon must never satisfy the RDP capability).
+// source, a console logon, or an unproven logon type must never satisfy the
+// RDP capability).
 //
-// Why "derived" proof exists (read this before "simplifying" it away):
+// EVIDENCE CONTRACT (tightened after run 39575343527 attempt 2):
+//   Accept ONLY direct, correlated evidence for ONE fresh event:
+//     * intended user  - the user-filtered /api/logon-status query matched a
+//       4624 whose message names the requested user (connected=true);
+//     * source address - that event's Source Network Address equals this
+//       run's client tailnet IP (reported, never assumed);
+//     * actual logon type - LogonType 10 is taken DIRECTLY from whichever
+//       channel honestly parses it, and cross-correlated to the SAME event
+//       instant. It is NEVER inferred from the presence of a remote IP.
+//   A remote source address alone does not make a type-10 logon. A stale
+//   type-2 record (e.g. the runner's own console logon before the attempt
+//   baseline) or any unrelated authLast record is not evidence of a fresh
+//   RemoteInteractive logon and can neither create nor replace proof.
+//
+// WHY TWO CHANNELS ARE CORRELATED AT THE PINNED APP SHA (read before
+// "simplifying" this away):
 //   The pinned app build (dictationb1/supreme-lamp @978a837,
 //   payloads/ghrdp-server.ps1, the /api/logon-status route) parses the 4624
 //   candidate like this:
@@ -18,31 +34,25 @@
 //   $Matches whenever it *detects* a match (returns False), so the second
 //   -notmatch (the user filter, which has no capture group) clobbers the
 //   capture from the first. $ltSeen is therefore ALWAYS '' when a user
-//   filter is supplied, and the endpoint answers logonType:'' even for a
-//   genuine type-10 logon. The remaining fields (connected, ts, sourceIp)
-//   are set correctly from the matched event.
+//   filter is supplied - and a user filter is always supplied: the route
+//   falls back to the server config's rdpUser when the query omits it. The
+//   remaining fields (connected, ts, sourceIp, user) are set correctly from
+//   the matched event. This is a PENDING APPLICATION DEFECT; the precise
+//   one-line fix lives in patches/ (never silently applied to the staged
+//   app, whose SHA is reported unchanged).
 //
-//   Derived proof does not lower the bar; it reconstructs the same fact
-//   from fields that are not broken, at a pinned app SHA whose endpoint
-//   semantics are known exactly:
-//     * connected=true is ONLY set for a fresh 4624 whose LogonType is in
-//       {2, 10, 11} and whose message names the requested user;
-//     * ts is that event's TimeCreated and must be >= our baseline;
-//     * sourceIp is that event's Source Network Address. Of the accepted
-//       types only 10 (RemoteInteractive) carries a remote source address
-//       (interactive/cached console logons report '-'), so
-//       sourceIp == this run's client tailnet IP identifies the event as
-//       the intended type-10 logon from this client.
-//   mission-control-check additionally cross-checks the app's independent
-//   XML-parsing collector (/api/native-status rdpListener.authLast, F28)
-//   and fails on a contradiction; if a future app build reports
-//   logonType:'10' correctly, the direct branch below takes over again.
-//
-//   The app-side one-line fix is to save $Matches[1] before the user
-//   -notmatch (or parse the event XML <Data Name="LogonType"> like the
-//   F28 collector already does). Until then, do not "fix" this evaluator
-//   to require logonType==='10': that reintroduces a guaranteed FAIL for
-//   every genuine logon (run 39560693766 attempt 2).
+//   The app's independent F28 collector (/api/native-status
+//   rdpListener.authLast) parses the Security event XML <Data> fields by
+//   name (Get-RdpLogonEventFields), so its logonType is honest. It does not
+//   filter by user or source and only remembers the LATEST interactive
+//   success, so it can confirm or veto a candidate but never replaces it:
+//     confirmed    - its latest success IS our event (same instant, type 10)
+//     contradicted - it scanned past our event and disagrees about it
+//     unavailable  - anything else (not scanned yet, superseded by a later
+//                    event, probe error, endpoint/shape missing)
+//   Acceptance of a body whose own logonType is missing therefore REQUIRES
+//   the collector to confirm type 10 at the same event instant. If that
+//   never happens the honest verdict is "type unknown", not "derived".
 
 /** Trim, lowercase, and fold an IPv4-mapped IPv6 literal to its IPv4 form. */
 function normalizeIp(ip) {
@@ -55,15 +65,23 @@ function normalizeIp(ip) {
 }
 
 /**
- * Evaluate one /api/logon-status body against the run's baseline.
- * Returns one of:
- *   { state: 'candidate', proof: 'direct'|'derived', detail }
+ * Evaluate one user-filtered /api/logon-status body against the run's
+ * baseline. Returns one of:
+ *   { state: 'candidate', proof: 'direct', detail }
+ *       - the body itself reports LogonType 10 for a fresh event whose
+ *         source is this run's client (a future app build that reports the
+ *         type correctly lands here immediately)
+ *   { state: 'needs-type-proof', detail }
+ *       - user + source are proven on a fresh event, but the body reports no
+ *         logon type (the pinned app's $Matches clobber). The type must now
+ *         be proven at the same event instant by the XML-parsing collector;
+ *         it is never inferred from the remote IP.
  *   { state: 'wrong-source', detail }   terminal: a type-10 from elsewhere
  *   { state: 'type-mismatch', detail }  terminal: reported type contradicts
  *                                       a remote source address
  *   { state: 'not-observed', detail }   keep polling
  */
-function evaluateLogonStatus(body, { baselineIso, clientIp } = {}) {
+function evaluateLogonStatus(body, { baselineIso, clientIp, expectedUser } = {}) {
   if (!body || typeof body !== 'object') return { state: 'not-observed', detail: 'no logon-status body' };
   if (body.connected !== true) {
     return { state: 'not-observed', detail: `connected=${body.connected} checked=${body.checked == null ? '?' : body.checked}` };
@@ -74,68 +92,92 @@ function evaluateLogonStatus(body, { baselineIso, clientIp } = {}) {
   if (Number.isFinite(baseMs) && tsMs < baseMs) {
     return { state: 'not-observed', detail: `stale event: ts ${body.ts} < baseline ${baselineIso}` };
   }
+  if (expectedUser && body.user != null && String(body.user).trim() &&
+      String(body.user).trim().toLowerCase() !== String(expectedUser).trim().toLowerCase()) {
+    return { state: 'not-observed', detail: `user echo ${JSON.stringify(body.user)} != expected ${JSON.stringify(expectedUser)}` };
+  }
   const lt = body.logonType == null ? '' : String(body.logonType).trim();
   const src = normalizeIp(body.sourceIp);
   const cli = normalizeIp(clientIp);
-  if (!src || src !== cli) {
-    if (lt === '10') {
+  if (lt === '10') {
+    if (!src || src !== cli) {
       return { state: 'wrong-source', detail: `sourceIp ${body.sourceIp} != client tailnet ip ${clientIp}` };
+    }
+    return { state: 'candidate', proof: 'direct', detail: `logonType 10 for ${body.user || 'user'} from ${body.sourceIp} at ${body.ts}` };
+  }
+  if (lt === '2' || lt === '11') {
+    // Interactive/cached console logons carry no remote source address. One
+    // that claims our client IP contradicts event semantics; one that does
+    // not is simply not the outbound RDP logon under test.
+    if (src && src === cli) {
+      return {
+        state: 'type-mismatch',
+        detail: `logonType=${lt} reported with sourceIp == client ip ${clientIp}; ` +
+          'interactive (2) / cached (11) logons do not carry a remote source address'
+      };
+    }
+    return { state: 'not-observed', detail: `logonType=${lt} source ${JSON.stringify(body.sourceIp)} is not the client ip (console/cached logon)` };
+  }
+  if (lt === '') {
+    if (src && src === cli) {
+      return {
+        state: 'needs-type-proof',
+        detail: `fresh 4624 for ${body.user || 'the requested user'} from client ip ${body.sourceIp} at ${body.ts}, ` +
+          'but logonType is missing (pinned app $Matches clobber); the type must be proven at this event instant, never inferred from the source address'
+      };
     }
     return { state: 'not-observed', detail: `source ${JSON.stringify(body.sourceIp)} is not the client ip (logonType=${JSON.stringify(lt)})` };
   }
-  // sourceIp is exactly this run's client tailnet IP, event is fresh.
-  if (lt === '10') return { state: 'candidate', proof: 'direct', detail: `logonType 10 from ${body.sourceIp} at ${body.ts}` };
-  if (lt === '') {
-    return {
-      state: 'candidate', proof: 'derived',
-      detail: `fresh 4624 (endpoint types 2/10/11) from client ip ${body.sourceIp} at ${body.ts}; ` +
-        'remote source address is only carried by LogonType 10'
-    };
-  }
   return {
     state: 'type-mismatch',
-    detail: `logonType=${lt} reported with sourceIp == client ip ${clientIp}; ` +
-      'interactive (2) / cached (11) logons do not carry a remote source address'
+    detail: `unrecognized logonType=${JSON.stringify(lt)} with sourceIp=${JSON.stringify(body.sourceIp)}`
   };
 }
 
 /**
- * Cross-check a candidate against the F28 collector exposed at
- * /api/native-status (rdpListener.authLast). That collector parses the
- * Security event XML <Data> fields by name (Get-RdpLogonEventFields), so
- * its logonType does not suffer the $Matches clobber. It does not filter
- * by user or source and only remembers the LATEST interactive success, so
- * it can confirm or veto a candidate but never replaces it:
- *   confirmed   - its latest success IS our event (same instant, type 10)
- *   contradicted- it scanned past our event and disagrees about that instant,
- *                 or has no interactive success at/after it at all
- *   unavailable - anything else (not scanned yet, superseded by a later
- *                 event, probe error, endpoint/shape missing)
+ * Correlate a 'needs-type-proof' body with the F28 collector
+ * (/api/native-status rdpListener.authLast). The collector's logonType comes
+ * from the event XML and is therefore honest; acceptance requires its latest
+ * interactive success to BE this event (same instant) and to be type 10.
+ *   confirmed    - same instant, LogonType 10, collector has scanned past it
+ *   contradicted - scanned past the candidate and disagrees (wrong type at
+ *                  that instant, or no interactive success at/after it)
+ *   unavailable  - anything else (not scanned yet, superseded by a later
+ *                  event, probe error, shape missing)
+ * A stale record (eventTs before the attempt baseline) is UNRELATED: it can
+ * neither confirm nor veto, and is called out as unrelated in the detail.
  */
-function evaluateNativeCrossCheck(authLast, candidateTsIso, { toleranceMs = 2500 } = {}) {
+function evaluateNativeCrossCheck(authLast, candidateTsIso, { toleranceMs = 2500, baselineIso } = {}) {
   if (!authLast || typeof authLast !== 'object') return { state: 'unavailable', detail: 'authLast absent' };
   if (authLast.probeError) return { state: 'unavailable', detail: `collector probeError=${authLast.probeError}` };
   const candMs = Date.parse(candidateTsIso || '');
   const scanMs = Date.parse(authLast.scanTs || '');
+  const baseMs = Date.parse(baselineIso || '');
   if (!Number.isFinite(candMs)) return { state: 'unavailable', detail: 'candidate ts unparseable' };
   if (!Number.isFinite(scanMs) || scanMs < candMs) {
     return { state: 'unavailable', detail: `collector scanTs ${authLast.scanTs || '?'} predates candidate` };
   }
   const evMs = Date.parse(authLast.eventTs || '');
   const lt = authLast.logonType == null ? '' : String(authLast.logonType).trim();
+  const stale = Number.isFinite(evMs) && Number.isFinite(baseMs) && evMs < baseMs;
   if (authLast.result === 'success' && Number.isFinite(evMs)) {
     if (Math.abs(evMs - candMs) <= toleranceMs) {
       return lt === '10'
-        ? { state: 'confirmed', detail: `authLast success LogonType 10 at ${authLast.eventTs}` }
-        : { state: 'contradicted', detail: `authLast success at candidate instant has LogonType ${JSON.stringify(lt)}` };
+        ? { state: 'confirmed', detail: `authLast success LogonType 10 at ${authLast.eventTs} (same event instant)` }
+        : { state: 'contradicted', detail: `authLast success at the candidate instant has LogonType ${JSON.stringify(lt)} (XML-parsed), not 10` };
     }
     if (evMs < candMs - toleranceMs) {
+      // The collector scanned past the candidate and still reports no
+      // interactive success at/after it. That contradicts the candidate
+      // event being an interactive logon - regardless of what the older
+      // record itself is (it may well be an unrelated stale type-2).
       return {
         state: 'contradicted',
-        detail: `collector scanned past candidate (scanTs ${authLast.scanTs}) but its latest interactive success is ${authLast.eventTs}`
+        detail: `collector scanned past candidate (scanTs ${authLast.scanTs}) but its latest interactive success is ${authLast.eventTs}` +
+          (stale ? ' (an unrelated record from before the attempt baseline)' : '')
       };
     }
-    return { state: 'unavailable', detail: `collector latest success ${authLast.eventTs} supersedes candidate` };
+    return { state: 'unavailable', detail: `collector latest success ${authLast.eventTs} supersedes the candidate` };
   }
   if (authLast.result === 'none') {
     return {

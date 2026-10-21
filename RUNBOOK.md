@@ -89,6 +89,58 @@ token itself is never printed. A quick standalone check:
   .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "<user>"
   ```
 
+### 2.4 One-time RDP-file consent bootstrap (client-runner Windows account)
+
+Since the **April 2026 Windows cumulative updates** (CVE-2026-26151), the
+first time a Windows **account** opens any `.rdp` file on a device, Windows
+blocks on a one-time educational consent dialog (observed live in run
+39575343527 attempt 2):
+
+> **Opening Remote Desktop Connection**
+> ☐ I understand and allow RDP files to open on this device for my account
+> `OK` — *disabled until the box is checked*
+
+Until the account grants that consent, every `.rdp`-file launch (the
+production path: the app's launcher writes an `.rdp` and starts `mstsc.exe
+<file>`, `ghrdp-rdp-launcher.cs`) sits on this dialog forever. The lab now
+*names* it (`rdp_auto_login=BLOCKED`,
+`reason=RDP_FILE_CONSENT_REQUIRED`) instead of burning 90 s on a generic
+timeout. Granting it is **manual, once per Windows account on that device**:
+
+1. Sign in **on the client-runner machine as the account that runs the
+   client runner** — the identity printed in the *Client runner* annotation
+   and by `Set-RdpCredential.ps1` (e.g. `WIN-NFU1JG4VESE\User`). The consent
+   is account-scoped; a different account (or profile) needs its own.
+2. Generate a **trusted lab-generated RDP file** (the exact
+   production-launcher shape: UTF-8/no-BOM, CRLF, read-back validated) and
+   open it so the dialog appears:
+   ```powershell
+   node scripts\rdp-consent-bootstrap.js --host <lab-server-ip> --user slabrdp --open
+   ```
+3. In the dialog, **check** *"I understand and allow RDP files to open on
+   this device for my account"* and press **OK**. Nothing else in the lab
+   will ever answer this dialog for you.
+4. Trigger a **fresh full run**. It must complete with **no manual clicks
+   and no credential entry** before anything can be `VERIFIED`. A manually
+   assisted run is not unattended proof.
+
+The lab deliberately does **not** write `RdpLaunchConsentAccepted`, does
+**not** set the `RedirectionWarningDialogVersion` policy (that suppresses
+the protection globally — Microsoft advises against it), and does not weaken
+NLA/TLS/CredSSP. The bootstrap helper (`scripts/rdp-consent-bootstrap.js`)
+only writes the file and hands it to mstsc.
+
+**What may still appear after the bootstrap** (reported by name if it
+blocks, never silently absorbed): the *per-connection* "Remote Desktop
+Connection Security warning" (publisher/redirection review for opened
+`.rdp` files) is a **separate** Windows protection that can recur on every
+`.rdp`-file launch on current builds. If it blocks an unattended run the
+capability FAILs with `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays
+`NOT_VERIFIED`; resolving that needs an organization-trusted `.rdp` publisher
+path (signed `.rdp` + trusted-publisher policy) — a machine-level change
+that is documented as a decision for the operator, not something the lab
+does silently.
+
 ## 3. Capability contracts (all nine are required for `VERIFIED`)
 
 | capability | where | PASS only if |
@@ -100,7 +152,7 @@ token itself is never printed. A quick standalone check:
 | `tailnet_connectivity` | client | peer `slab-srv-<run>-<attempt>` online in the client's tailnet **and** TCP 7331 reachable |
 | `backend_readiness_remote` | client | same readiness/version contract over the tailnet, and the reported pid equals the server's supervised pid (cross-checked by `report`) |
 | `dashboard_client` | client | same dashboard contract, **headed**, on the client desktop |
-| `rdp_auto_login` | client | `mstsc` with a stored `TERMSRV/<ip>` credential (no prompt); server `/api/logon-status`: `connected===true`, `logonType==='10'`, `ts` ≥ server-clock baseline, `sourceIp` == client tailnet IP; mstsc alive; valid native screenshot |
+| `rdp_auto_login` | client | `mstsc` with a stored `TERMSRV/<ip>` credential (no prompt); a fresh server 4624 for the intended user with `sourceIp` == client tailnet IP **and LogonType 10 proven directly or by same-instant correlation with the XML-parsing collector — never inferred from a remote IP, never from a stale type-2 / unrelated record**; no blocking dialog on screen (missing account consent ⇒ `BLOCKED RDP_FILE_CONSENT_REQUIRED`); mstsc alive; valid native screenshot |
 | `web_desktop` | client | `/webdesk-status` `ok===true && 0<=frameAgeMs<15000`; `/webdesk-frame` valid JPEG; `/webdesk` renders `img#view` with `naturalWidth>0` |
 
 Statuses: `PASS`, `FAIL`, `BLOCKED` (prerequisite missing: config, external
@@ -163,16 +215,35 @@ gh api repos/dictationb1/supreme-lamp-lab/check-runs/<job_id>/annotations --jq '
 
 ## 6. Known gaps / honest limits
 
-* `rdp_auto_login` and `web_desktop` are only provable once §2 is configured;
-  until then they are `BLOCKED`, not `PASS`.
+* `rdp_auto_login` and `web_desktop` are only provable once §2 **and §2.4**
+  are configured; until then they are `BLOCKED` / `FAIL`, not `PASS`, and the
+  verdict stays `NOT_VERIFIED`.
+* **Pending application defect** (patch, never silently applied):
+  `/api/logon-status` at the pinned app SHA always answers `logonType:''`
+  with a user filter (the `$Matches` clobber — see `patches/` and REGRESSION.md
+  defect 10). The lab proves the type via the app's independent XML-parsing
+  collector **correlated at the same event instant**; it never derives a type
+  from a remote IP. If the type cannot be proven at that instant the honest
+  code is `RDP_LOGON_TYPE_UNKNOWN` (or `RDP_LOGON_NOT_OBSERVED` when nothing
+  matched) — a missing event is never proof that no connection was attempted,
+  and "zero matching events" in the RDPClient log is never reported as an
+  unreadable channel (`scripts/lib/eventlog.js` keeps zero-matches /
+  channel-missing / access-denied / query-error apart).
+* The one-time RDP-file consent (§2.4) and the per-connection `.rdp`
+  publisher/redirection review are Windows security features (CVE-2026-26151).
+  The lab detects and names both (`scripts/lib/dialogs.js`), captures
+  sanitized evidence during the attempt, and never clicks, suppresses or
+  auto-accepts them. `mstsc` process liveness (`alive`, `responding`) and the
+  `MainWindowHandle` `hasWindow`/`title` heuristic are **process facts only**;
+  an owned/modal dialog is invisible to that heuristic (run 39575343527:
+  `hasWindow=false` while the consent dialog was on screen). Dialog state
+  comes from window enumeration of the launched process tree in the right
+  session (`Get-RdpDialogState.ps1`).
 * The Web Desktop capture engine (`payloads/ghrdp-pub2.ps1`) has no maintained
   standalone entry point in the app; the lab starts it with the same
   `GhrdpWebDesk` at-logon Interactive task the app's `main.yml` uses, for the
   `slabrdp` session created by the client's mstsc login. If the engine does
   not produce frames, `web_desktop` FAILs with `/webdesk-probe` diagnostics.
-* `mstsc` may still surface a dialog the `.rdp` settings cannot suppress (e.g.
-  a new Windows security prompt); the logon proof then fails and the native
-  screenshot shows the dialog.
 * UI bundle staging follows the app's production rule (`main.yml` ui-prebuilt:
   exact `ui-dist-<sha>.zip`, sidecar, `f59-verify-sha256.mjs`, `index.html`
   > 51200 bytes) instead of the app's F60 helper `Stage-F60UiBundle`, which

@@ -1217,22 +1217,20 @@ async function main() {
   });
 
   // ===== RDP logon evidence (observer vs login failure) =====
-  await test('logon: direct and derived type-10 proof accepted; stale/wrong-source/console rejected', async () => {
+  await test('logon: type 10 is proven directly or by same-instant XML correlation, never inferred from a remote IP', async () => {
     const { evaluateLogonStatus, normalizeIp } = logonLib;
-    const ctx = { baselineIso: '2026-10-21T07:59:45.000Z', clientIp: '100.93.94.15' };
+    const ctx = { baselineIso: '2026-10-21T07:59:45.000Z', clientIp: '100.93.94.15', expectedUser: 'slabrdp' };
     const fresh = '2026-10-21T08:00:10.250Z';
-    // direct: a future/fixed app build reports the type it parsed
-    let v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3 }, ctx);
+    // direct: a fixed app build reports the type it parsed -> candidate
+    let v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'candidate'); assert.strictEqual(v.proof, 'direct');
-    // derived: the pinned app build always answers logonType:'' when a user
-    // filter is supplied (second -notmatch clobbers $Matches); the endpoint
-    // only sets connected for types 2/10/11, and only type 10 carries the
-    // client's address as Source Network Address
+    // the pinned app build answers logonType:'' when a user filter is
+    // supplied (second -notmatch clobbers $Matches). A remote source IP is
+    // NOT a logon type: this is 'needs-type-proof', never a candidate.
     v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '', checked: 3, user: 'slabrdp' }, ctx);
-    assert.strictEqual(v.state, 'candidate'); assert.strictEqual(v.proof, 'derived');
-    // IPv4-mapped IPv6 source is the same client address
+    assert.strictEqual(v.state, 'needs-type-proof');
     v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '::ffff:100.93.94.15', logonType: '', checked: 1 }, ctx);
-    assert.strictEqual(v.state, 'candidate');
+    assert.strictEqual(v.state, 'needs-type-proof');
     assert.strictEqual(normalizeIp('[::FFFF:100.93.94.15]'), '100.93.94.15');
     // stale event (before the baseline) can never pass, however it is labelled
     v = evaluateLogonStatus({ connected: true, ts: '2026-10-21T07:59:44.999Z', sourceIp: '100.93.94.15', logonType: '10', checked: 1 }, ctx);
@@ -1248,11 +1246,49 @@ async function main() {
     // a reported non-10 type WITH our source address contradicts event semantics
     v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '2', checked: 2 }, ctx);
     assert.strictEqual(v.state, 'type-mismatch');
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '11', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'type-mismatch');
+    // the user echo must match the intended user when present
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', user: 'other', checked: 2 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
     // nothing observed yet / observer could not read the log (checked=0)
     v = evaluateLogonStatus({ connected: false, ts: '', sourceIp: '', logonType: '', checked: 0 }, ctx);
     assert.strictEqual(v.state, 'not-observed');
     v = evaluateLogonStatus(null, ctx);
     assert.strictEqual(v.state, 'not-observed');
+  });
+
+  await test('logon: stale type-2 / unrelated authLast records are rejected (run 39575343527 shape)', async () => {
+    const { evaluateNativeCrossCheck, evaluateLogonStatus } = logonLib;
+    const cand = '2026-10-21T10:39:10.250Z';
+    const baseline = '2026-10-21T10:38:40.000Z';
+    const opts = { baselineIso: baseline };
+    // THE observed run: authLast=success type=2 at 10:32:32 (the runner's own
+    // console logon), scanTs after everything. It must neither prove a fresh
+    // RemoteInteractive logon nor stand in for one.
+    const staleType2 = {
+      result: 'success', logonType: '2', logonKind: 'interactive', sub: '', subMeaning: '', probeError: '',
+      count4624: 8, count4625: 0, eventTs: '2026-10-21T10:32:32.2344973Z', scanTs: '2026-10-21T10:40:26.3404905Z'
+    };
+    let v = evaluateNativeCrossCheck(staleType2, cand, opts);
+    assert.notStrictEqual(v.state, 'confirmed', JSON.stringify(v));
+    assert.strictEqual(v.state, 'contradicted', JSON.stringify(v));
+    assert.match(v.detail, /unrelated record from before the attempt baseline/);
+    // and the body that produced the candidate gap is 'needs-type-proof'
+    const body = { connected: true, ts: cand, sourceIp: '100.93.94.15', logonType: '', checked: 13, user: 'slabrdp' };
+    assert.strictEqual(evaluateLogonStatus(body, { baselineIso: baseline, clientIp: '100.93.94.15', expectedUser: 'slabrdp' }).state, 'needs-type-proof');
+    // a type-2 record AT the candidate instant contradicts it (XML-honest)
+    v = evaluateNativeCrossCheck({ ...staleType2, eventTs: cand, logonType: '2', scanTs: '2026-10-21T10:39:31.000Z' }, cand, opts);
+    assert.strictEqual(v.state, 'contradicted');
+    assert.match(v.detail, /not 10/);
+    // an unrelated later success supersedes but never proves OUR instant
+    v = evaluateNativeCrossCheck({ ...staleType2, eventTs: '2026-10-21T10:41:00.000Z', logonType: '10', scanTs: '2026-10-21T10:41:31.000Z' }, cand, opts);
+    assert.strictEqual(v.state, 'unavailable', JSON.stringify(v));
+    // the same-instant XML type-10 record is the ONLY confirmable positive
+    v = evaluateNativeCrossCheck({ ...staleType2, eventTs: '2026-10-21T10:39:10.251Z', logonType: '10', logonKind: 'remote-interactive', scanTs: '2026-10-21T10:39:31.000Z' }, cand, opts);
+    assert.strictEqual(v.state, 'confirmed');
+    // ...and even that is only accepted for the candidate whose own body
+    // matched the intended user + client source (needs-type-proof above).
   });
 
   await test('logon: native-status cross-check confirms, contradicts, or stays unavailable', async () => {
@@ -1351,6 +1387,156 @@ async function main() {
     assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability).sort(), ['rdp_auto_login', 'web_desktop']);
     assert.deepStrictEqual(rep.diagnostics.downstreamBlocked, []);
     assert.strictEqual(rep.counts.fail, 2);
+  });
+
+  // ===== dialogs: the real blocking dialog, named =====
+  await test('dialogs: an owned/modal RDP-file consent dialog with no main window is BLOCKED / RDP_FILE_CONSENT_REQUIRED', async () => {
+    const { classifyRdpAttempt, classifyWindowRows } = require('./lib/dialogs');
+    // Exactly the run 39575343527 attempt-2 shape: mstsc alive with
+    // MainWindowHandle=0 (title="" hasWindow=false) while an OWNED dialog
+    // titled "Remote Desktop Connection" carries the consent checkbox.
+    const rows = [{
+      hwnd: '0x50A1A', pid: 4672, process: 'mstsc', sessionId: 1,
+      ownerPid: 4672, ownerHwnd: '0x30B2C', visible: true,
+      className: '#32770', title: 'Remote Desktop Connection',
+      controls: [
+        { class: 'Static', text: 'Opening Remote Desktop Connection' },
+        { class: 'Static', text: 'You are opening an RDP file which will establish a connection to another computer. Connecting to any remote system can expose your PC and data to security risks. Learn more.' },
+        { class: 'Button', text: 'I understand and allow RDP files to open on this device for my account', state: 'unchecked' },
+        { class: 'Button', text: 'OK', state: '' },
+        { class: 'Button', text: 'Cancel', state: '' }
+      ]
+    }];
+    // the main-window heuristic reported nothing - classification must not
+    // depend on it (window ownership + control texts carry the evidence)
+    assert.deepStrictEqual({ alive: true, title: '', hasWindow: false }.hasWindow, false);
+    const g = classifyWindowRows(rows);
+    assert.strictEqual(g.kind, 'rdp_file_consent');
+    assert.strictEqual(g.seen[0].dialogLike, true, 'owned window must count as dialog-like');
+    const cls = classifyRdpAttempt({ windows: rows, account: 'WIN-NFU1JG4VESE\\User', sessionId: 1 });
+    assert.strictEqual(cls.status, 'BLOCKED');
+    assert.strictEqual(cls.code, 'RDP_FILE_CONSENT_REQUIRED');
+    assert.ok(cls.reason.startsWith('RDP_FILE_CONSENT_REQUIRED:'), cls.reason);
+    assert.match(cls.reason, /WIN-NFU1JG4VESE\\User/);
+    assert.match(cls.manualAction, /I understand and allow RDP files to open/);
+    assert.match(cls.manualAction, /per-account/);
+    assert.match(cls.manualAction, /Do not automate/);
+    // the checkbox is unchecked in the captured evidence
+    assert.match(cls.evidenceDigest, /unchecked/);
+  });
+
+  await test('dialogs: publisher review / certificate warning / credentials prompt / connection error are distinguished', async () => {
+    const { classifyRdpAttempt } = require('./lib/dialogs');
+    const pub = classifyRdpAttempt({
+      windows: [{ pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', ownerHwnd: '0x1', ownerPid: 4672, controls: [{ class: 'Static', text: 'Remote Desktop Connection Security warning' }, { class: 'Static', text: 'Caution: Unknown remote connection. This remote connection could harm the local or remote computer. Publisher: Unknown publisher' }, { class: 'Button', text: 'Connect' }] }]
+    });
+    assert.strictEqual(pub.code, 'RDP_FILE_SECURITY_REVIEW_BLOCKING');
+    assert.strictEqual(pub.status, 'FAIL');
+    const cert = classifyRdpAttempt({
+      windows: [{ pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', ownerHwnd: '0x1', ownerPid: 4672, controls: [{ class: 'Static', text: 'The identity of the remote computer cannot be verified. Do you want to connect anyway?' }, { class: 'Button', text: 'Yes' }] }]
+    });
+    assert.strictEqual(cert.code, 'RDP_CERT_WARNING_BLOCKING');
+    const cred = classifyRdpAttempt({
+      windows: [{ pid: 812, process: 'CredentialUIBroker', sessionId: 1, className: '#32770', title: 'Windows Security', ownerHwnd: '0x2', ownerPid: 812, controls: [{ class: 'Static', text: 'Enter your credentials' }, { class: 'Edit', text: '[has-text]' }, { class: 'Button', text: 'OK' }] }]
+    });
+    assert.strictEqual(cred.code, 'RDP_CREDENTIALS_PROMPT_UNATTENDED');
+    const err = classifyRdpAttempt({
+      windows: [{ pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', ownerHwnd: '0x1', ownerPid: 4672, controls: [{ class: 'Static', text: "Remote Desktop Connection can't connect to the remote computer. Error code: 0x904" }] }]
+    });
+    assert.strictEqual(err.code, 'RDP_CONNECTION_ERROR_DIALOG');
+    // consent outranks everything else when several are visible
+    const both = classifyRdpAttempt({
+      windows: [
+        { pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', controls: [{ class: 'Button', text: 'I understand and allow RDP files to open on this device for my account', state: 'unchecked' }] },
+        { pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', ownerHwnd: '0x1', ownerPid: 4672, controls: [{ class: 'Static', text: 'Caution: Unknown remote connection' }] }
+      ]
+    });
+    assert.strictEqual(both.code, 'RDP_FILE_CONSENT_REQUIRED');
+  });
+
+  await test('dialogs: a live session window or the plain mstsc surface is never a blocking dialog', async () => {
+    const { classifyRdpAttempt } = require('./lib/dialogs');
+    const connected = classifyRdpAttempt({
+      windows: [{ pid: 4672, process: 'mstsc', sessionId: 1, className: 'TscShellContainerClass', title: '100.111.132.118 - Remote Desktop Connection', ownerPid: 0, ownerHwnd: '0x0', controls: [] }]
+    });
+    assert.strictEqual(connected.kind, null);
+    assert.strictEqual(connected.blocking, false);
+    // the plain mstsc surface (start dialog, no identifiable blocking text) is
+    // recorded as unclassified evidence - never a fabricated failure verdict
+    const plain = classifyRdpAttempt({
+      windows: [{ pid: 4672, process: 'mstsc', sessionId: 1, className: '#32770', title: 'Remote Desktop Connection', ownerPid: 0, ownerHwnd: '0x0', controls: [] }]
+    });
+    assert.strictEqual(plain.kind, 'unknown', JSON.stringify(plain));
+    assert.strictEqual(plain.blocking, false);
+    assert.strictEqual(plain.status, null);
+    assert.strictEqual(plain.code, 'RDP_UNCLASSIFIED_DIALOG_VISIBLE');
+    assert.strictEqual(classifyRdpAttempt({ windows: [] }).blocking, false);
+  });
+
+  // ===== event log: three different facts, never conflated =====
+  await test('eventlog: zero matching events vs channel-missing vs access-denied vs query failure', async () => {
+    const { classifyEventQuery, classifyWinEventError, digestRdpClientLog } = require('./lib/eventlog');
+    // the exact run 39575343527 message (Get-WinEvent throws it on 0 rows)
+    const zero = classifyEventQuery({
+      listed: true,
+      queryError: 'No events were found that match the specified selection criteria.',
+      queryErrorId: 'NoMatchingLogsFound,Microsoft.PowerShell.Commands.GetWinEventCommand',
+      queryExceptionType: 'System.Exception'
+    });
+    assert.deepStrictEqual(zero, { channelState: 'readable', eventsMatched: 0, zeroMatchingEvents: true, queryError: null });
+    assert.match(digestRdpClientLog({ listed: true, queryError: 'No events were found that match the specified selection criteria.', queryErrorId: 'NoMatchingLogsFound' }), /zero matching events/);
+    const missing = classifyEventQuery({
+      listed: false,
+      listLogError: 'There is not an event log on the localhost computer that matches "Microsoft-Windows-TerminalServices-RDPClient/Operational".',
+      listLogErrorId: 'ContainerNotFound,Microsoft.PowerShell.Commands.GetWinEventCommand'
+    });
+    assert.strictEqual(missing.channelState, 'channel-missing');
+    assert.strictEqual(missing.zeroMatchingEvents, false);
+    assert.match(digestRdpClientLog({ listed: false, listLogError: missing.queryError }), /channel unavailable/);
+    const denied = classifyEventQuery({
+      listed: true,
+      queryError: 'Attempted to perform an unauthorized operation.',
+      queryErrorId: 'UnauthorizedAccess,Microsoft.PowerShell.Commands.GetWinEventCommand',
+      queryExceptionType: 'System.UnauthorizedAccessException'
+    });
+    assert.strictEqual(denied.channelState, 'access-denied');
+    assert.strictEqual(denied.zeroMatchingEvents, false);
+    assert.match(digestRdpClientLog({ listed: true, queryError: denied.queryError, queryExceptionType: 'System.UnauthorizedAccessException' }), /access denied/);
+    const failed = classifyEventQuery({ listed: true, queryError: 'Some unexpected failure', queryErrorId: 'Unknown' });
+    assert.strictEqual(failed.channelState, 'query-error');
+    const ok = classifyEventQuery({ listed: true, eventsMatched: 3 });
+    assert.deepStrictEqual(ok, { channelState: 'readable', eventsMatched: 3, zeroMatchingEvents: false, queryError: null });
+    // raw error classification is pinned separately too
+    assert.strictEqual(classifyWinEventError('No events were found that match the specified selection criteria.'), 'zero-matches');
+    assert.strictEqual(classifyWinEventError('Access is denied'), 'access-denied');
+  });
+
+  // ===== report: consent prerequisite keeps the stack honestly unmerged =====
+  await test('report: RDP_FILE_CONSENT_REQUIRED is a BLOCKED root cause, web_desktop stays downstream, verdict NOT_VERIFIED', async () => {
+    const ok = reportNeeds();
+    ok.static.result = 'success';
+    ok.server.result = 'success';
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.result = 'failure';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_client_local = JSON.stringify({ browser_synthetic: { s: 'PASS', r: null }, native_screenshot: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null },
+      web_desktop: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=BLOCKED' },
+      rdp_auto_login: { s: 'BLOCKED', r: "RDP_FILE_CONSENT_REQUIRED: the one-time RDP-file consent dialog is open and ungranted for WIN-NFU1JG4VESE\\User (session 1): \"Opening Remote Desktop Connection\" / \"I understand and allow RDP files to open on this device for my account\"." }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    const rep = reportLib.build(ok);
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    assert.strictEqual(rep.firstCause.capability, 'rdp_auto_login');
+    assert.strictEqual(rep.firstCause.status, 'BLOCKED');
+    assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability), ['rdp_auto_login']);
+    assert.deepStrictEqual(rep.diagnostics.downstreamBlocked.map(c => c.capability), ['web_desktop']);
+    assert.strictEqual(rep.diagnostics.downstreamBlocked[0].dependsOn, 'rdp_auto_login');
+    assert.strictEqual(rep.counts.blockedDownstream, 1);
+    assert.strictEqual(rep.counts.pass, 7);
+    assert.strictEqual(reportLib.causeCategory(rep.firstCause.reason), 'RDP_FILE_CONSENT_REQUIRED');
   });
 
   // ===== summary =====
