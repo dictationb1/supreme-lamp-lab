@@ -173,3 +173,9 @@ gh api repos/dictationb1/supreme-lamp-lab/check-runs/<job_id>/annotations --jq '
 * `mstsc` may still surface a dialog the `.rdp` settings cannot suppress (e.g.
   a new Windows security prompt); the logon proof then fails and the native
   screenshot shows the dialog.
+* UI bundle staging follows the app's production rule (`main.yml` ui-prebuilt:
+  exact `ui-dist-<sha>.zip`, sidecar, `f59-verify-sha256.mjs`, `index.html`
+  > 51200 bytes) instead of the app's F60 helper `Stage-F60UiBundle`, which
+  cannot run on current PowerShell (it passes an `object[]` to
+  `ExtractToFile`; see RECOVERY_CHECKPOINT "App-repo finding 2"). Once the app
+  fixes the helper, Stage-App can call it again.

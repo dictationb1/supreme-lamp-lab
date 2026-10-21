@@ -81,6 +81,24 @@ inside that scope the bootstrap's same-named function shadows the intended one, 
 same empty-owner URL. Suggested app fix: rename one of the two functions (e.g. `Stage-F60UiBundleFromRelease`)
 or make both `[CmdletBinding()]` so a mismatched parameter throws.
 
+## Evidence: run 39544601888 attempt 1 (head aa530d9, pull_request)
+
+- server 119040265559: release read, sidecar download, bundle download and sha256 verification now pass;
+  staging stopped at `app\scripts\f60-stage-and-start.ps1:232`:
+  `Cannot find an overload for "ExtractToFile" and the argument count: "3"`.
+  Root cause (app): `$entry = @($z.Entries | … | Select-Object -First 1)` is an `object[]`, passed to
+  `[ZipFileExtensions]::ExtractToFile($entry, $idx, $true)`; overload resolution fails (worse on .NET 10, which
+  adds a second 3-arg overload `(entry, string, ZipExtractionOptions)`). Same code in `f60-bootstrap.ps1:715`,
+  unchanged at app HEAD daf13685.
+- Lab fix: Stage-App keeps the app's `Stage-F60FromCheckout` and release transport, and stages the bundle by
+  the app's PRODUCTION rule (`main.yml` ui-prebuilt step): exact `ui-dist-<sha>.zip` + sidecar ->
+  `scripts/f59-verify-sha256.mjs` -> top-level `index.html` > 51200 bytes -> `ui\index.html` + `ui-v2.html`.
+
+### App-repo finding 2 (not fixed here)
+
+`[System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0], $idx, $true)` (or drop the `@()`), in
+both `scripts/f60-stage-and-start.ps1` and `scripts/f60-bootstrap.ps1`.
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.

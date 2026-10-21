@@ -51,18 +51,14 @@ foreach ($f in @($keep.StageScript, $keep.Transport)) { if (-not (Test-Path -Lit
 # and they are simple functions, so a mismatched -Workspace is silently swallowed into
 # $args. Loading the transport last (run 39544022089) bound the bootstrap variant:
 # Owner was empty, the URL became /repos//owner/name/... and curl -f reported
-# "release ui-dist not readable". Transport first, cold-lane stage script second,
-# then assert the bound signature so a shadowed definition fails loudly.
+# "release ui-dist not readable". Neither variant is called any more (see the UI
+# bundle block below); the order is kept so the stage script's definitions win.
 $labKeep = $keep
 . $labKeep.Transport -DefineOnly
 . $labKeep.StageScript -DefineOnly
 $keep = $labKeep
-foreach ($fn in @('Stage-F60FromCheckout', 'Stage-F60UiBundle', 'Get-F60ReleaseAssetInfo', 'Get-F60File')) {
+foreach ($fn in @('Stage-F60FromCheckout', 'Get-F60ReleaseAssetInfo', 'Get-F60File')) {
     if (-not (Get-Command -Name $fn -ErrorAction SilentlyContinue)) { throw "STAGE_FUNCTION_MISSING: $fn not defined after dot-sourcing the app scripts" }
-}
-$uiParams = (Get-Command -Name 'Stage-F60UiBundle').Parameters
-if (-not $uiParams.ContainsKey('Workspace') -or $uiParams.ContainsKey('Owner')) {
-    throw ('STAGE_FUNCTION_SHADOWED: Stage-F60UiBundle is bound to the wrong definition (params: ' + (($uiParams.Keys | Sort-Object) -join ',') + ')')
 }
 
 if (Test-Path -LiteralPath $keep.StageRoot) {
@@ -70,7 +66,49 @@ if (Test-Path -LiteralPath $keep.StageRoot) {
     Remove-Item -LiteralPath $keep.StageRoot -Recurse -Force
 }
 $fromCheckout = Stage-F60FromCheckout -Root $keep.StageRoot -Workspace $keep.AppDir -BuildSha $keep.Sha
-$bundle = Stage-F60UiBundle -Root $keep.StageRoot -Workspace $keep.AppDir -Tag 'ui-dist' -BundleSha $keep.Sha -Repo $keep.Repo -Token $keep.Token
+
+# --- commit-matched UI bundle --------------------------------------------------
+# Follows the app's PRODUCTION rule (.github/workflows/main.yml "ui-prebuilt" step):
+#   exact asset ui-dist-<sha>.zip + its .sha256 sidecar -> scripts/f59-verify-sha256.mjs
+#   (fail-closed) -> unzip -> out/index.html must exist and be > 51200 bytes
+# using the app's own release transport (Get-F60ReleaseAssetInfo / Get-F60File).
+# The F60 helper Stage-F60UiBundle is NOT used: both copies pass @(...) (an object[])
+# to [ZipFileExtensions]::ExtractToFile, which fails overload resolution on the
+# hosted pwsh ("Cannot find an overload for ExtractToFile ... 3", run 39544601888).
+# That is an app defect, reported in RECOVERY_CHECKPOINT.md.
+$repoParts = $keep.Repo -split '/', 2
+$zipName = 'ui-dist-' + $keep.Sha + '.zip'
+$sideName = $zipName + '.sha256'
+$rel = Get-F60ReleaseAssetInfo -Tag 'ui-dist' -Owner $repoParts[0] -Repo $repoParts[1] -Token $keep.Token
+$assets = @($rel.assets)
+$zipAsset = $assets | Where-Object { [string]$_.name -eq $zipName } | Select-Object -First 1
+$sideAsset = $assets | Where-Object { [string]$_.name -eq $sideName } | Select-Object -First 1
+if (-not $zipAsset) { throw "UI_BUNDLE_MISSING: release ui-dist has no $zipName (never a different commit's bundle)" }
+if (-not $sideAsset) { throw "UI_BUNDLE_UNVERIFIABLE: release ui-dist has no sidecar $sideName" }
+$tmpBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+$dl = Join-Path $tmpBase ('ui-dl-' + $keep.Sha.Substring(0, 12))
+if (Test-Path -LiteralPath $dl) { Remove-Item -LiteralPath $dl -Recurse -Force }
+$null = New-Item -ItemType Directory -Path $dl -Force
+$sideOut = Join-Path $dl $sideName
+$null = Get-F60File -Url ([string]$sideAsset.url) -Out $sideOut -Label 'ui-dist sidecar' -AuthToken $keep.Token -Accept 'application/octet-stream' -MinBytes 8 -NoPin
+$expected = (([System.IO.File]::ReadAllText($sideOut)) -replace '\s', '').ToLowerInvariant()
+if ($expected -notmatch '^[0-9a-f]{64}$') { throw "UI_BUNDLE_SIDECAR_INVALID: $sideName does not contain a 64-hex sha256" }
+$zipOut = Join-Path $dl $zipName
+$null = Get-F60File -Url ([string]$zipAsset.url) -Out $zipOut -Label ('ui bundle ' + $zipName) -ExpectedSha $expected -AuthToken $keep.Token -Accept 'application/octet-stream' -MinBytes 51200
+& node (Join-Path $keep.AppDir 'scripts\f59-verify-sha256.mjs') $zipOut $expected --label $zipName
+if ($LASTEXITCODE -ne 0) { throw "UI_BUNDLE_VERIFY_FAILED: scripts/f59-verify-sha256.mjs rejected $zipName" }
+$extract = Join-Path $dl 'out'
+Expand-Archive -LiteralPath $zipOut -DestinationPath $extract -Force
+$idxSrc = Join-Path $extract 'index.html'
+if (-not (Test-Path -LiteralPath $idxSrc)) { throw "UI_BUNDLE_NO_INDEX: $zipName has no top-level index.html" }
+$bundleBytes = (Get-Item -LiteralPath $idxSrc).Length
+if ($bundleBytes -le 51200) { throw "UI_BUNDLE_TOO_SMALL: index.html is $bundleBytes bytes (main.yml requires > 51200)" }
+$uiDir = Join-Path $keep.StageRoot 'ui'
+$null = New-Item -ItemType Directory -Path $uiDir -Force
+Copy-Item -LiteralPath $idxSrc -Destination (Join-Path $uiDir 'index.html') -Force
+Copy-Item -LiteralPath $idxSrc -Destination (Join-Path $keep.StageRoot 'ui-v2.html') -Force
+Write-Host "[stage] UI bundle $zipName sha256=$expected ($bundleBytes bytes) -> ui\index.html + ui-v2.html"
+$bundle = @{ asset = $zipName; bytes = $bundleBytes; sha256 = $expected }
 
 $ui = Join-Path $keep.StageRoot 'ui.html'
 if (-not (Test-Path -LiteralPath $ui)) { throw 'STAGE_UI_MISSING: ui.html was not staged' }
@@ -87,6 +125,7 @@ $result = [ordered]@{
     missing         = @($fromCheckout.missing)
     uiBundle        = $bundle.asset
     uiBundleBytes   = $bundle.bytes
+    uiBundleSha256  = $bundle.sha256
     serverSha256    = (Get-FileHash -LiteralPath $server -Algorithm SHA256).Hash.ToLowerInvariant()
     uiHtmlSha256    = (Get-FileHash -LiteralPath $ui -Algorithm SHA256).Hash.ToLowerInvariant()
 }
