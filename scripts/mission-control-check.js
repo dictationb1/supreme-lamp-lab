@@ -15,7 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const { STATUS, CapabilitySet } = require('./lib/status');
 const { request, summarize } = require('./lib/http');
 const { waitForReady, checkVersion } = require('./lib/readiness');
@@ -23,6 +23,7 @@ const { validatePngBuffer, validateJpegBuffer, validateImageFile } = require('./
 const { acquireLock, releaseLock } = require('./lib/lock');
 const registry = require('./lib/registry');
 const proc = require('./lib/proc');
+const ps = require('./lib/ps');
 const { writeCapabilities, artifactDir } = require('./lib/results');
 const annotate = require('./lib/annotate');
 
@@ -141,11 +142,18 @@ async function checkDashboard(caps, name, browser, args, outDir) {
   }
 }
 
-function runPs(script, psArgs, env = {}) {
-  const r = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(PS_DIR, script), ...psArgs], {
-    encoding: 'utf8', timeout: 60000, windowsHide: true, env: { ...process.env, ...env }
+// Async, bounded PowerShell helper. A helper timeout is reported as its own
+// failure category with the stderr retained, never as a silent empty result.
+async function runPs(script, psArgs, { env = {}, timeoutMs = 60000, operation = script } = {}) {
+  const r = await ps.runPowerShell({
+    script: path.join(PS_DIR, script), args: psArgs, timeoutMs, env, operation, site: `mission-control-check.js:${operation}`
   });
-  return { code: r.status, out: `${r.stdout || ''}${r.stderr || ''}`.trim() };
+  const out = `${r.stdout || ''}${r.stderr || ''}`.trim();
+  if (!r.ok) {
+    const code = r.errorCode === 'POWERSHELL_TIMEOUT' ? 124 : (r.code === null ? 125 : r.code);
+    return { code, out: `${r.errorCode}: ${out || r.errorMessage}`, diagnostic: ps.describe(r), timedOut: Boolean(r.timedOut) };
+  }
+  return { code: 0, out, diagnostic: null, timedOut: false };
 }
 
 function writeRdpFile(file, host, user) {
@@ -199,14 +207,14 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   // second-precision serverTs
   const baselineIso = new Date(Date.parse(readinessBody.serverTs) - 2000).toISOString();
   const handle = { host, rdpFile: path.join(outDir, 'slab-lab.rdp'), credSet: false, mstsc: null };
-  const cred = runPs('Set-RdpCredential.ps1', ['-Action', 'set', '-TargetHost', host, '-User', user]);
-  if (cred.code !== 0) { caps.set(name, cred.code === 3 ? STATUS.BLOCKED : STATUS.FAIL, `CREDENTIAL_SET_FAILED: ${cred.out}`); return handle; }
+  const cred = await runPs('Set-RdpCredential.ps1', ['-Action', 'set', '-TargetHost', host, '-User', user], { operation: 'rdp-credential-set' });
+  if (cred.code !== 0) { caps.set(name, cred.code === 3 ? STATUS.BLOCKED : STATUS.FAIL, `CREDENTIAL_SET_FAILED: ${cred.out}`, { diagnostic: cred.diagnostic }); return handle; }
   handle.credSet = true;
   writeRdpFile(handle.rdpFile, host, user);
 
   const child = spawn(mstscExe, [handle.rdpFile], { detached: false, stdio: 'ignore', windowsHide: false });
   await new Promise(res => setTimeout(res, 1500));
-  const live = proc.getProcess(child.pid);
+  const live = await proc.getProcessAsync(child.pid, { timeoutMs: 20000, operation: 'mstsc-identity' });
   if (!live) { caps.set(name, STATUS.FAIL, 'MSTSC_EXITED_IMMEDIATELY'); return handle; }
   handle.mstsc = { pid: live.pid, createTime: live.createTime };
   try { registry.registerProcess({ pid: live.pid, role: 'mstsc-rdp-check' }); } catch (e) { annotate.warning('registry', `mstsc registration failed: ${e.message}`); }
@@ -215,9 +223,9 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   const logon = await pollLogon(args.target, baselineIso, user, clientIp, 90000);
   await new Promise(res => setTimeout(res, 4000)); // let the session paint before capturing
   const shot = path.join(outDir, 'native-rdp-session.png');
-  const cap = runPs('Capture-Desktop.ps1', ['-Path', shot]);
+  const cap = await runPs('Capture-Desktop.ps1', ['-Path', shot], { operation: 'rdp-native-capture' });
   const img = validateImageFile(shot, { minWidth: 640, minHeight: 400 });
-  const stillAlive = (() => { const p = proc.getProcess(handle.mstsc.pid); return Boolean(p && p.createTime === handle.mstsc.createTime); })();
+  const stillAlive = await (async () => { const p = await proc.getProcessAsync(handle.mstsc.pid, { timeoutMs: 20000, operation: 'mstsc-liveness' }); return Boolean(p && p.createTime === handle.mstsc.createTime); })();
   const evidence = { logon: logon.body, baselineIso, mstscPid: handle.mstsc.pid, mstscAlive: stillAlive, screenshot: img.valid ? shot : null, capture: cap.out };
   if (!logon.ok) caps.set(name, STATUS.FAIL, `${logon.code}: ${logon.detail}`, evidence);
   else if (!stillAlive) caps.set(name, STATUS.FAIL, 'MSTSC_NOT_ALIVE_AFTER_LOGON', evidence);
@@ -227,16 +235,19 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   return handle;
 }
 
-function cleanupRdp(handle) {
+async function cleanupRdp(handle) {
   if (!handle) return;
   if (handle.mstsc) {
-    const p = proc.getProcess(handle.mstsc.pid);
+    // identity-verified kill only; unknown identity leaves the process to the
+    // registry-backed postflight cleanup instead of a blind pid kill
+    let p = null;
+    try { p = await proc.getProcessAsync(handle.mstsc.pid, { timeoutMs: 15000, operation: 'mstsc-cleanup-identity' }); } catch (e) { annotate.warning('rdp cleanup', `identity unavailable: ${e.message}`); }
     if (p && p.createTime === handle.mstsc.createTime) proc.terminate(p.pid);
     try { registry.unregisterProcess({ pid: handle.mstsc.pid, createTime: handle.mstsc.createTime }); } catch (e) { /* postflight will retry */ }
   }
   if (handle.credSet) {
-    const r = runPs('Set-RdpCredential.ps1', ['-Action', 'remove', '-TargetHost', handle.host]);
-    log(`credential cleanup: ${r.out}`);
+    const r = await runPs('Set-RdpCredential.ps1', ['-Action', 'remove', '-TargetHost', handle.host], { operation: 'rdp-credential-remove' });
+    log(`credential cleanup: ${r.code === 0 ? 'ok' : r.out}`);
   }
   try { if (handle.rdpFile && fs.existsSync(handle.rdpFile)) fs.unlinkSync(handle.rdpFile); } catch (e) { /* ignore */ }
 }
@@ -337,7 +348,7 @@ async function main() {
       else caps.set(n, status, e.message);
     }
   } finally {
-    try { cleanupRdp(rdpHandle); } catch (e) { annotate.warning('rdp cleanup', e.message); }
+    try { await cleanupRdp(rdpHandle); } catch (e) { annotate.warning('rdp cleanup', e.message); }
     if (browser) await browser.close().catch(() => {});
     try { registry.unregisterProcess({ pid: process.pid }); } catch (e) { /* postflight */ }
     if (lock) releaseLock(lock);

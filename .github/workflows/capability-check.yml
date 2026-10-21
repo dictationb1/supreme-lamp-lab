@@ -177,11 +177,21 @@ jobs:
           tags: tag:ci
           hostname: slab-diag-${{ github.run_id }}-${{ github.run_attempt }}
           retry: 1
+      - name: Classify the join failure (documented token-exchange probe)
+        id: tailnet
+        if: always()
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+          TAILSCALE_JOIN_OUTCOME: ${{ steps.tailscale.outcome }}
+        run: node scripts/tailnet-token-exchange-diagnostic.js
       - name: Diagnostic verdict
         env:
           OUTCOME: ${{ steps.tailscale.outcome }}
+          CATEGORY: ${{ steps.tailnet.outputs.tailnet_category }}
+          DETAIL: ${{ steps.tailnet.outputs.tailnet_detail }}
         run: |
-          if [ "$OUTCOME" = "success" ]; then echo "::notice title=Tailscale join::OK"; else echo "::error title=Tailscale join::outcome=$OUTCOME (see OIDC subject annotation)"; exit 1; fi
+          if [ "$OUTCOME" = "success" ]; then echo "::notice title=Tailscale join::OK"; else echo "::error title=Tailscale join::outcome=$OUTCOME category=$CATEGORY detail=$DETAIL"; exit 1; fi
 
   server:
     name: server
@@ -204,7 +214,11 @@ jobs:
       tailscale_outcome: ${{ steps.tailscale.outcome }}
       ts_configured: ${{ steps.tscfg.outputs.configured }}
       oidc_sub: ${{ steps.oidc.outputs.oidc_sub }}
-      recommended_subject: ${{ steps.oidc.outputs.recommended_subject }}
+      audience_matches: ${{ steps.oidc.outputs.audience_matches }}
+      tailnet_category: ${{ steps.tailnet.outputs.tailnet_category }}
+      tailnet_detail: ${{ steps.tailnet.outputs.tailnet_detail }}
+      backend_identity_state: ${{ steps.supervise.outputs.backend_identity_state }}
+      supervisor_degraded_guards: ${{ steps.supervise.outputs.supervisor_degraded_guards }}
       rdp_configured: ${{ steps.rdp.outputs.rdp_configured }}
       rdp_reason: ${{ steps.rdp.outputs.rdp_reason }}
     defaults:
@@ -285,6 +299,15 @@ jobs:
           hostname: slab-srv-${{ github.run_id }}-${{ github.run_attempt }}
           retry: 1
 
+      - name: Classify the join failure (documented token-exchange probe)
+        id: tailnet
+        if: always()
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+          TAILSCALE_JOIN_OUTCOME: ${{ steps.tailscale.outcome }}
+        run: node scripts/tailnet-token-exchange-diagnostic.js
+
       - name: Tailnet address
         if: always() && steps.tailscale.outcome == 'success'
         run: |
@@ -325,10 +348,15 @@ jobs:
         if: always() && steps.tailscale.outcome != 'success'
         env:
           OUTCOME: ${{ steps.tailscale.outcome }}
+          CATEGORY: ${{ steps.tailnet.outputs.tailnet_category }}
+          DETAIL: ${{ steps.tailnet.outputs.tailnet_detail }}
           SUB: ${{ steps.oidc.outputs.oidc_sub }}
-          RECOMMENDED: ${{ steps.oidc.outputs.recommended_subject }}
+          AUD_MATCH: ${{ steps.oidc.outputs.audience_matches }}
         run: |
-          Write-Host "::error title=tailnet_connectivity BLOCKED::tailscale step outcome=$env:OUTCOME; OIDC sub=$env:SUB; Tailscale trust credential subject must match, e.g. $env:RECOMMENDED"
+          # The category/detail come from the token-exchange probe (the observed
+          # outcome). The OIDC subject is reported as a fact, never as the cause.
+          Write-Host "::error title=tailnet_connectivity BLOCKED::tailscale step outcome=$env:OUTCOME; category=$env:CATEGORY; detail=$env:DETAIL"
+          Write-Host "::notice title=tailnet facts::observed OIDC sub=$env:SUB audMatchesConfigured=$env:AUD_MATCH (facts recorded for comparison with the configured trust credential; not a diagnosis)"
           exit 1
 
   client:

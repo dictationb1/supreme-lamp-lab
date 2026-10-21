@@ -5,11 +5,21 @@
 // the subject pattern a Tailscale workload-identity credential must match.
 // The raw token is never printed or written anywhere.
 //
-// Why: run 39526409955 failed with "token exchange failed with status 403".
-// This repository uses GitHub's immutable subject format
-//   repo:<owner>@<owner_id>/<repo>@<repo_id>:...
-// so a Tailscale credential configured for the documented name-only pattern
-// "repo:dictationb1/supreme-lamp-lab:*" can never match.
+// Scope: this step reports FACTS about the token this job would present. It
+// does not decide why a join failed. Earlier runs of this lab annotated
+// "OIDC subject mismatch" as if the cause were proven; it was not - the join
+// error text was never captured. The authoritative classification now lives in
+// scripts/tailnet-token-exchange-diagnostic.js, which exercises the documented
+// token-exchange endpoint and reports the real outcome.
+//
+// Two useful facts are still recorded here:
+//   * the exact `sub` this workflow presents (immutable format
+//     repo:<owner>@<id>/<repo>@<id>:<...> on repositories with immutable OIDC
+//     subjects), which an administrator can compare with the configured
+//     subject pattern;
+//   * whether the `aud` claim equals the configured TS_AUDIENCE.
+// A legacy name-only pattern cannot match an immutable subject; that is a
+// statement about the pattern, NOT a diagnosis of the current failure.
 
 const fs = require('fs');
 const path = require('path');
@@ -69,19 +79,22 @@ async function main() {
         sub: c.sub, iss: c.iss, repository: c.repository, repository_id: c.repository_id,
         repository_owner: c.repository_owner, repository_owner_id: c.repository_owner_id,
         ref: c.ref, event_name: c.event_name, workflow_ref: c.workflow_ref, job_workflow_ref: c.job_workflow_ref,
-        runner_environment: c.runner_environment, environment: c.environment || null
+        runner_environment: c.runner_environment, environment: c.environment || null,
+        // aud is the configured audience; keep the match flag, not the value
+        aud_present: typeof c.aud === 'string'
       };
       out.analysis = analyse(c);
       const a = out.analysis;
-      annotate.notice('OIDC subject', `sub=${a.subject} immutableFormat=${a.immutableSubjectFormat}`);
-      if (a.immutableSubjectFormat && !a.matchesDocumentedLegacyPattern) {
-        annotate.warning('OIDC subject mismatch', `The documented Tailscale subject "${DOCUMENTED_LEGACY_PATTERN}" CANNOT match "${a.subject}" (immutable subject format). A Tailscale tailnet admin must set the trust credential subject to "${a.recommendedSubjectPattern}" (or a narrower ref-specific form).`);
-      }
+      out.audienceMatchesConfigured = typeof c.aud === 'string' && process.env.OIDC_AUDIENCE ? c.aud === process.env.OIDC_AUDIENCE : null;
+      annotate.notice('OIDC subject', `sub=${a.subject} immutableFormat=${a.immutableSubjectFormat} audMatchesConfigured=${out.audienceMatchesConfigured}`);
+      // Facts only. No causal claim: the join error itself is classified by
+      // tailnet-token-exchange-diagnostic.js.
+      annotate.notice('OIDC subject facts', `issuer=${c.iss || 'unknown'} event=${c.event_name || 'unknown'} ref=${c.ref || 'unknown'}; immutable subject pattern ${a.recommendedSubjectPattern || '(unavailable)'}; legacy pattern ${DOCUMENTED_LEGACY_PATTERN} cannot match an immutable subject (${a.matchesDocumentedLegacyPattern ? 'unexpectedly matched' : 'no match'}) - cause of any join failure is reported by the token-exchange probe`);
     }
   }
   fs.writeFileSync(path.join(artifactDir(), 'oidc-claims.json'), JSON.stringify(out, null, 2));
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `oidc_sub=${(out.claims && out.claims.sub) || ''}\noidc_status=${out.status}\nrecommended_subject=${(out.analysis && out.analysis.recommendedSubjectPattern) || ''}\naudience_configured=${Boolean(out.audienceConfigured)}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `oidc_sub=${(out.claims && out.claims.sub) || ''}\noidc_status=${out.status}\nrecommended_subject=${(out.analysis && out.analysis.recommendedSubjectPattern) || ''}\naudience_configured=${Boolean(out.audienceConfigured)}\naudience_matches=${out.audienceMatchesConfigured === null ? '' : out.audienceMatchesConfigured}\n`);
   }
   console.log(JSON.stringify(out, null, 2));
 }

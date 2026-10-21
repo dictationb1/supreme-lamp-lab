@@ -20,6 +20,15 @@ const { spawn } = require('child_process');
 const ROOT = path.resolve(__dirname, '..');
 const S = p => path.join(ROOT, 'scripts', p);
 const FAKE = S('test/fixtures/fake-backend.js');
+const FIXTURE_PS = {
+  hang: S('test/fixtures/hang-ps.js'),
+  fail: S('test/fixtures/fail-ps.js'),
+  ok: S('test/fixtures/ok-ps.js')
+};
+// Env that makes lib/ps.js spawn <node> <fixture> instead of PowerShell.
+function fakePsEnv(fixture, extra = {}) {
+  return { LAB_PS_EXE: process.execPath, LAB_PS_ARGV_PREFIX: JSON.stringify([FIXTURE_PS[fixture]]), ...extra };
+}
 const SHA = '978a8375ee77b392ce11694ccee7722fd6ca4f71';
 const IS_WIN = process.platform === 'win32';
 
@@ -29,6 +38,9 @@ const { request, formatErrorChain } = require('./lib/http');
 const { validatePngBuffer, validateJpegBuffer } = require('./lib/image');
 const { redact } = require('./lib/redact');
 const proc = require('./lib/proc');
+const psLib = require('./lib/ps');
+const reportLib = require('./verification-report');
+const tailnetDiag = require('./tailnet-token-exchange-diagnostic');
 
 const results = [];
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-reg-'));
@@ -478,7 +490,11 @@ async function main() {
     const n3 = JSON.parse(JSON.stringify(needs)); n3.server.outputs.tailscale_outcome = 'failure'; n3.server.outputs.oidc_sub = 'repo:o@1/r@2:pull_request';
     n3.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'BLOCKED', r: 'SERVER_NEVER_JOINED_TAILNET' } }); delete n3.client.outputs.caps_remote;
     const r3 = build(n3);
-    assert.match(r3.capabilities.tailnet_connectivity.reason, /EXTERNAL_TAILSCALE_JOIN_FAILED.*repo:o@1/);
+    // the reason reports the observed category; the OIDC subject is not used as
+    // an inferred cause (it is recorded separately in diagnostics.oidcSubject)
+    assert.match(r3.capabilities.tailnet_connectivity.reason, /EXTERNAL_TAILSCALE_JOIN_FAILED: category=JOIN_FAILED_UNCLASSIFIED/);
+    assert.strictEqual(r3.diagnostics.oidcSubject, 'repo:o@1/r@2:pull_request');
+    assert.doesNotMatch(r3.capabilities.tailnet_connectivity.reason, /subject must match|subject=repo/i);
     assert.strictEqual(r3.capabilities.rdp_auto_login.status, 'BLOCKED');
     const n4 = JSON.parse(JSON.stringify(needs)); n4.static.result = 'failure';
     assert.strictEqual(build(n4).verdict, 'NOT_VERIFIED');
@@ -583,7 +599,7 @@ async function main() {
   await test('supervisor: healthy fixture passes okfile+listener+readiness, then is stopped', async () => {
     const { r, summary, outputs } = await sup('ok');
     assert.strictEqual(r.code, 0, r.out + r.err);
-    assert.deepStrictEqual(summary.phases.map(p => `${p.name}:${p.ok}`), ['okfile:true', 'listener:true', 'readiness:true']);
+    assert.deepStrictEqual(summary.phases.map(p => `${p.name}:${p.ok}`), ['identity:true', 'okfile:true', 'listener:true', 'readiness:true']);
     assert.ok(outputs.backend_pid);
     await new Promise(res => setTimeout(res, 300));
     assert.ok(!alive(Number(outputs.backend_pid)), 'backend must be stopped by the supervisor');
@@ -670,6 +686,254 @@ async function main() {
       } finally { stopFake(f); }
     }, { skipIf: browserSkip });
   }
+
+
+  // ===== helper runner (the run 39548093609 ability 2 failure mode) =====
+  // The original defect: execFileSync('powershell.exe', ..., {timeout:30000})
+  // blocked the event loop, threw a bare "spawnSync powershell.exe ETIMEDOUT"
+  // and lost the helper's own output. These tests pin the replacement contract.
+  await test('ps: hanging helper reaches a bounded timeout, keeps stderr and reports its call site', async () => {
+    const t0 = Date.now();
+    const r = await psLib.runPowerShell({ script: '/nonexistent/Get-ProcessSnapshot.ps1', args: ['-ProcessIds', '1'], timeoutMs: 1200, operation: 'process-identity', env: fakePsEnv('hang') });
+    const elapsed = Date.now() - t0;
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'POWERSHELL_TIMEOUT');
+    assert.ok(r.timedOut, 'timedOut flag must be set');
+    assert.ok(elapsed >= 1000 && elapsed < 6000, `bounded: elapsed=${elapsed}ms`);
+    assert.ok(r.effectiveTimeoutMs <= 1200, 'timeout clamped to the requested budget');
+    assert.match(r.stderr, /HANGING_HELPER/, 'stderr captured before the timeout');
+    assert.match(r.stdout, /partial-output-before-hang/, 'stdout captured before the timeout');
+    assert.match(r.callSite, /run-regressions\.js:\d+/, `call site recorded: ${r.callSite}`);
+    assert.strictEqual(r.operation, 'process-identity');
+    const d = psLib.describe(r);
+    assert.match(d, /POWERSHELL_TIMEOUT/);
+    assert.match(d, /site=/);
+    assert.match(d, /stderr=/);
+  });
+
+  await test('ps: the enclosing deadline clamps the helper budget (no overrun past the deadline)', async () => {
+    const t0 = Date.now();
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 30000, deadlineAt: Date.now() + 700, operation: 'deadline-clamp', env: fakePsEnv('hang') });
+    const elapsed = Date.now() - t0;
+    assert.strictEqual(r.errorCode, 'POWERSHELL_TIMEOUT');
+    assert.ok(r.budgetClamped, 'must report that the budget was clamped');
+    assert.ok(elapsed < 4000, `must not outlive the deadline: ${elapsed}ms`);
+  });
+
+  await test('ps: an exhausted budget never spawns a helper', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, deadlineAt: Date.now() - 1, operation: 'exhausted', env: fakePsEnv('hang') });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'BUDGET_EXHAUSTED');
+    assert.strictEqual(r.elapsedMs < 500, true, `returned immediately: ${r.elapsedMs}ms`);
+  });
+
+  await test('ps: non-zero exit retains stderr, exit code and operation', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, operation: 'failing-helper', env: fakePsEnv('fail') });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'POWERSHELL_EXIT_NONZERO');
+    assert.strictEqual(r.code, 7);
+    assert.match(r.stderr, /SIMULATED_HELPER_FAILURE/);
+    assert.match(psLib.describe(r), /exit=7/);
+  });
+
+  await test('ps: success keeps stdout and resolves the resolved executable', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, operation: 'ok-helper', env: fakePsEnv('ok') });
+    assert.strictEqual(r.ok, true, psLib.describe(r));
+    assert.strictEqual(JSON.parse(r.stdout.trim()).platform, 'win32');
+    assert.ok(r.exe, 'the executed helper binary is recorded');
+  });
+
+  await test('proc: a helper failure becomes a structured, sanitized diagnostic (not a bare ETIMEDOUT)', async () => {
+    const env = fakePsEnv('hang');
+    Object.assign(process.env, env);
+    psLib.resetResolvedForTests();
+    try {
+      process.env.LAB_PROC_FORCE_POWERSHELL = '1';
+      let err = null;
+      try { await proc.getProcessAsync(1234, { timeoutMs: 900, operation: 'process-identity-timeout-test', env: fakePsEnv('hang') }); } catch (e) { err = e; }
+      assert.ok(err, 'must throw a structured error');
+      assert.match(err.message, /POWERSHELL_HELPER_FAILED/);
+      assert.match(err.message, /POWERSHELL_TIMEOUT/);
+      assert.match(err.message, /op=process-identity-timeout-test/);
+      assert.match(err.message, /site=scripts\/lib\/proc\.js/);
+      assert.strictEqual(err.code, 'POWERSHELL_TIMEOUT');
+      assert.strictEqual(err.operation, 'process-identity-timeout-test');
+      assert.ok(err.diagnostic.timeoutMs <= 900);
+      assert.match(err.diagnostic.stderr, /HANGING_HELPER/);
+    } finally {
+      delete process.env.LAB_PS_EXE; delete process.env.LAB_PS_ARGV_PREFIX; delete process.env.LAB_PROC_FORCE_POWERSHELL;
+      psLib.resetResolvedForTests();
+    }
+  });
+
+  await test('supervisor: a helper timeout is an UNVERIFIED guard, never a backend crash', async () => {
+    const dirs = freshDirs(); const port = await freePort();
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]),
+      '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc',
+      '--identity-timeout-ms', '900', '--listener-timeout-ms', '900', '--ready-timeout-ms', '15000', '--startup-budget-ms', '30000'],
+      { env: childEnv(dirs, { MODE: 'ok', EXPECT_SHA: SHA, LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 90000 });
+    const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
+    const byName = Object.fromEntries(summary.phases.map(p => [p.name, p]));
+    // the backend is healthy: readiness must still be established
+    assert.strictEqual(byName.readiness.ok, true, JSON.stringify(summary.phases));
+    assert.strictEqual(byName.okfile.ok, true, JSON.stringify(summary.phases));
+    assert.strictEqual(r.code, 0, r.out + r.err);
+    // the helpers failed: recorded as degraded guards with their diagnostics
+    assert.strictEqual(byName.identity.ok, false);
+    assert.strictEqual(byName.identity.code, 'GUARD_IDENTITY_UNVERIFIED');
+    assert.strictEqual(byName.identity.severity, 'DEGRADED');
+    assert.strictEqual(byName.listener.code, 'GUARD_LISTENER_UNVERIFIED');
+    assert.strictEqual(byName.listener.severity, 'DEGRADED');
+    assert.ok(summary.helperFailures.length >= 2, JSON.stringify(summary.helperFailures));
+    for (const h of summary.helperFailures) { assert.ok(h.callSite, 'call site retained'); assert.ok(h.timeoutMs, 'timeout retained'); }
+    // never misreported as a crash, and identity is explicitly UNVERIFIED
+    for (const p of summary.phases) assert.ok(!/^BACKEND_(EXITED|DIED)/.test(p.code || ''), `no crash claim: ${p.code}`);
+    assert.strictEqual(summary.backendIdentityState, 'UNVERIFIED');
+    assert.strictEqual(summary.livenessAtExit.alive, true, 'liveness evidence captured before cleanup');
+    // safe cleanup without a verified identity: the direct child handle only
+    assert.strictEqual(summary.stopMethod, 'child-handle');
+    await new Promise(res => setTimeout(res, 400));
+    assert.ok(!alive(Number(byName.okfile && (summary.backend && summary.backend.pid)) || 0) || !summary.backend, 'supervised backend stopped');
+  });
+
+  await test('supervisor: a crashed backend is still distinguished from an unverified one', async () => {
+    const dirs = freshDirs(); const port = await freePort();
+    await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]),
+      '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc', '--identity-timeout-ms', '900', '--listener-timeout-ms', '900'],
+      { env: childEnv(dirs, { MODE: 'exit-early', EXPECT_SHA: SHA, LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 90000 });
+    const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
+    const fatal = summary.phases.find(p => !p.ok && p.severity === 'FATAL');
+    assert.ok(fatal, JSON.stringify(summary.phases));
+    assert.match(fatal.code, /BACKEND_EXITED/);
+    assert.strictEqual(summary.livenessAtExit.alive, false);
+  });
+
+  await test('cleanup: a helper timeout performs no kills and fails loudly', async () => {
+    const dirs = freshDirs();
+    // a real, unrelated-ish process owned by this run's record: it must survive
+    const sleeper = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await new Promise(r => setTimeout(r, 250));
+    const rec = { schema: 2, runId: 'reg-run', runAttempt: '1', pid: sleeper.pid, createTime: 'win32:unused-for-this-test', name: 'node', role: 'backend', anchor: null };
+    fs.mkdirSync(dirs.state, { recursive: true });
+    fs.writeFileSync(path.join(dirs.state, 'process-registry.json'), JSON.stringify({ schema: 2, records: [rec] }, null, 2));
+    try {
+      const r = await run(process.execPath, [S('cleanup-lab.js'), '--mode', 'postflight', '--deadline-ms', '1200', '--out', path.join(dirs.art, 'cleanup.json')],
+        { env: childEnv(dirs, { LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 60000 });
+      const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'cleanup.json'), 'utf8'));
+      assert.strictEqual(r.code, 4, `cleanup must fail with its own code: ${r.code} ${r.out}${r.err}`);
+      assert.match(String(summary.error), /CLEANUP_SNAPSHOT_FAILED/);
+      assert.strictEqual(summary.aborted, 'NO_KILLS_PERFORMED');
+      assert.strictEqual(summary.terminated, 0);
+      assert.ok(summary.helperDiagnostic && summary.helperDiagnostic.callSite, 'helper diagnostic retained');
+      assert.ok(alive(sleeper.pid), 'nothing may be killed when the identity snapshot is unavailable');
+    } finally { try { sleeper.kill('SIGKILL'); } catch (e) { /* gone */ } }
+  });
+
+  // ===== tailnet failure classification =====
+  await test('tailnet: the true category is retained (rejection is not inferred from a subject)', async () => {
+    const base = { configured: true, oidcOk: true, joinOutcome: 'failure' };
+    const rejected = tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 403, tokenIssued: false, message: 'invalid subject token' } });
+    assert.strictEqual(rejected.category, 'TRUST_CREDENTIAL_REJECTED');
+    assert.match(rejected.detail, /HTTP 403/);
+    assert.match(rejected.detail, /invalid subject token/);
+
+    const accepted = tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 200, tokenIssued: true } });
+    assert.strictEqual(accepted.category, 'JOIN_FAILED_AFTER_SUCCESSFUL_EXCHANGE');
+    assert.match(accepted.detail, /NOT a subject\/audience mismatch/);
+
+    assert.strictEqual(tailnetDiag.classify({ ...base, joinOutcome: 'success', exchange: { transport: 'ok', status: 200, tokenIssued: true } }).category, 'JOIN_OK');
+    assert.strictEqual(tailnetDiag.classify({ configured: false, oidcOk: false }).category, 'MISSING_CONFIG');
+    assert.strictEqual(tailnetDiag.classify({ configured: true, oidcOk: false }).category, 'OIDC_UNAVAILABLE');
+    assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'error', status: null, errorChain: 'ENOTFOUND' } }).category, 'TAILSCALE_API_UNREACHABLE');
+    assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 503 } }).category, 'TAILSCALE_API_ERROR');
+  });
+
+  // ===== report: both failures preserved =====
+  const reportNeeds = (over = {}) => ({
+    static: { result: 'success', outputs: {} },
+    server: {
+      result: 'failure',
+      outputs: {
+        caps_server_local: JSON.stringify({
+          backend_readiness_server_local: { s: 'FAIL', r: 'SUPERVISOR_IDENTITY: GUARD_IDENTITY_UNVERIFIED: POWERSHELL_HELPER_FAILED: POWERSHELL_TIMEOUT op=process-identity site=scripts/lib/proc.js:120' },
+          dashboard_server_local: { s: 'BLOCKED', r: 'DEPENDS_ON_BACKEND: SUPERVISOR_IDENTITY' }
+        }),
+        tailscale_outcome: 'failure',
+        ts_configured: 'true',
+        tailnet_category: 'TRUST_CREDENTIAL_REJECTED',
+        tailnet_detail: 'exchange rejected HTTP 403: invalid subject token',
+        oidc_sub: 'repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request',
+        supervisor_first_failure: 'identity:GUARD_IDENTITY_UNVERIFIED',
+        supervisor_degraded_guards: 'identity:GUARD_IDENTITY_UNVERIFIED,listener:GUARD_LISTENER_UNVERIFIED',
+        backend_identity_state: 'UNVERIFIED',
+        rdp_configured: 'true'
+      },
+      ...(over.server || {})
+    },
+    client: {
+      result: 'failure',
+      outputs: {
+        caps_client_local: JSON.stringify({ browser_synthetic: { s: 'PASS', r: null }, native_screenshot: { s: 'PASS', r: null } }),
+        caps_tailnet: JSON.stringify({ tailnet_connectivity: { s: 'BLOCKED', r: 'SERVER_NEVER_JOINED_TAILNET' } }),
+        caps_remote: JSON.stringify({
+          backend_readiness_remote: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, dashboard_client: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' },
+          web_desktop: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }
+        })
+      },
+      ...(over.client || {})
+    }
+  });
+
+  await test('report: a supervisor guard timeout and a tailnet rejection are BOTH preserved', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    const caps = rep.independentCauses.map(c => c.capability);
+    assert.ok(caps.includes('backend_readiness_server_local'), JSON.stringify(caps));
+    assert.ok(caps.includes('tailnet_connectivity'), JSON.stringify(caps));
+    // both subsystems visible, neither hidden behind a single first-cause field
+    assert.ok(rep.bySubsystem.server_local && rep.bySubsystem.server_local.length, JSON.stringify(rep.bySubsystem));
+    assert.ok(rep.bySubsystem.tailnet_or_remote && rep.bySubsystem.tailnet_or_remote.length, JSON.stringify(rep.bySubsystem));
+    // the tailnet reason carries the observed category and does not assert a subject
+    const tn = rep.capabilities.tailnet_connectivity;
+    assert.match(tn.reason, /category=TRUST_CREDENTIAL_REJECTED/);
+    assert.doesNotMatch(JSON.stringify(rep.capabilities), /subject must match/i);
+    assert.strictEqual(rep.diagnostics.tailnetCategory, 'TRUST_CREDENTIAL_REJECTED');
+  });
+
+  await test('report: an unverified diagnostic is never labelled a proven backend crash', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.strictEqual(rep.diagnostics.backendFailureClass, 'UNVERIFIED_DIAGNOSTIC_TIMEOUT');
+    assert.strictEqual(rep.diagnostics.backendHealthProven, false);
+    assert.strictEqual(reportLib.classifyBackendFailure('SUPERVISOR_OKFILE: BACKEND_EXITED_BEFORE_LISTENING: exit={"code":3}'), 'BACKEND_PROCESS_FAILED');
+    assert.strictEqual(reportLib.classifyBackendFailure('READINESS_WRONG_PROCESS: pid 9 != 7'), 'BACKEND_UNHEALTHY');
+  });
+
+  await test('report: prerequisites (BLOCKED) are listed separately from the causal FAIL', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.deepStrictEqual(rep.diagnostics.prerequisitesMissing.sort(),
+      ['backend_readiness_remote', 'dashboard_client', 'dashboard_server_local', 'rdp_auto_login', 'tailnet_connectivity', 'web_desktop'].sort());
+    const causal = rep.independentCauses.filter(c => c.status === 'FAIL').map(c => c.capability);
+    assert.ok(causal.includes('backend_readiness_server_local'), JSON.stringify(rep.independentCauses));
+    assert.strictEqual(rep.independentCauses.find(c => c.capability === 'tailnet_connectivity').category, 'TRUST_CREDENTIAL_REJECTED');
+  });
+
+  await test('report: VERIFIED is still impossible without every capability PASS', async () => {
+    const needs = reportNeeds();
+    const rep = reportLib.build(needs);
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    // a single failing required capability blocks the verdict
+    const ok = reportNeeds();
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null }, web_desktop: { s: 'PASS', r: null }, rdp_auto_login: { s: 'PASS', r: null }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    assert.strictEqual(reportLib.build(ok).verdict, 'VERIFIED');
+    ok.client.outputs.caps_remote = JSON.stringify({ ...JSON.parse(ok.client.outputs.caps_remote), rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP' } });
+    assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+  });
 
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');

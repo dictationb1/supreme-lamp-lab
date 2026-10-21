@@ -26,6 +26,34 @@ const REQUIRED = {
   rdp_auto_login: { job: 'client', scope: 'remote' }
 };
 
+/**
+ * How a failure was *observed*, independent of which capability it broke.
+ * A helper/diagnostic timeout means "not verified", never "backend crashed".
+ */
+function classifyBackendFailure(reason) {
+  const r = String(reason || '');
+  if (/BACKEND_EXITED|BACKEND_DIED|BACKEND_LISTEN_FAIL/.test(r)) return 'BACKEND_PROCESS_FAILED';
+  if (/POWERSHELL_TIMEOUT|GUARD_IDENTITY_UNVERIFIED|GUARD_LISTENER_UNVERIFIED|GUARD_OWNERSHIP_UNVERIFIED|BUDGET_EXHAUSTED/.test(r)) return 'UNVERIFIED_DIAGNOSTIC_TIMEOUT';
+  if (/READINESS_|VERSION_/.test(r)) return 'BACKEND_UNHEALTHY';
+  return 'UNKNOWN';
+}
+
+/** Extract an explicit `category=CODE` marker or a named failure token. */
+function causeCategory(reason) {
+  const r = String(reason || '');
+  const m = r.match(/category=([A-Z0-9_]+)/);
+  if (m) return m[1];
+  const t = r.match(/\b(TRUST_CREDENTIAL_REJECTED|TOKEN_EXCHANGE_[A-Z_]+|MISSING_CONFIG|OIDC_UNAVAILABLE|JOIN_FAILED_[A-Z_]+|SERVER_NEVER_JOINED_TAILNET|SUPERVISOR_[A-Z_]+|DEPENDS_ON_[A-Z_]+|BACKEND_[A-Z_]+|READINESS_[A-Z_]+|VERSION_[A-Z_]+)\b/);
+  return t ? t[1] : null;
+}
+
+function subsystemOf(capability) {
+  if (capability === 'tailnet_connectivity' || capability === 'backend_readiness_remote' || capability === 'dashboard_client' ||
+      capability === 'web_desktop' || capability === 'rdp_auto_login') return 'tailnet_or_remote';
+  if (capability === 'backend_readiness_server_local' || capability === 'dashboard_server_local') return 'server_local';
+  return 'client_local';
+}
+
 function parseCaps(raw) {
   if (!raw) return null;
   try { return JSON.parse(raw); } catch (e) { return { __invalid: e.message }; }
@@ -55,11 +83,15 @@ function build(needs) {
   }
   const server = jobs.server ? jobs.server.outputs : {};
   const client = jobs.client ? jobs.client.outputs : {};
-  // External tailnet failure is authoritative from the server side
+  // External tailnet failure is authoritative from the server side. The reason
+  // carries the OBSERVED category (token-exchange probe), not a guess about the
+  // credential subject.
   if (server.tailscale_outcome && server.tailscale_outcome !== 'success') {
+    const category = server.tailnet_category || 'JOIN_FAILED_UNCLASSIFIED';
+    const detail = server.tailnet_detail || `server tailscale step outcome=${server.tailscale_outcome}`;
     const why = server.ts_configured === 'false'
       ? 'MISSING_CONFIG: repository secrets TS_OAUTH_CLIENT_ID / TS_AUDIENCE are not set; the server cannot join the tailnet'
-      : `EXTERNAL_TAILSCALE_JOIN_FAILED: server tailscale step outcome=${server.tailscale_outcome}; OIDC sub=${server.oidc_sub || 'unknown'}; required Tailscale trust-credential subject=${server.recommended_subject || 'see oidc-claims.json'}`;
+      : `EXTERNAL_TAILSCALE_JOIN_FAILED: category=${category}; ${detail}`;
     if (caps.tailnet_connectivity.status !== STATUS.FAIL) { caps.tailnet_connectivity.status = STATUS.BLOCKED; caps.tailnet_connectivity.reason = why; }
     for (const c of ['backend_readiness_remote', 'dashboard_client', 'web_desktop', 'rdp_auto_login']) {
       if (caps[c].status === STATUS.NOT_RUN || caps[c].status === STATUS.BLOCKED) { caps[c].status = STATUS.BLOCKED; caps[c].reason = `DEPENDS_ON_TAILNET: ${why}`; }
@@ -80,7 +112,44 @@ function build(needs) {
   const staticOk = jobs.static ? jobs.static.result === 'success' : false;
   const verdict = agg.accepted && staticOk ? 'VERIFIED' : 'NOT_VERIFIED';
   const firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : agg.firstCause;
-  return { verdict, aggregate: agg.status, firstCause, capabilities: caps, jobs: Object.fromEntries(Object.entries(jobs).map(([k, v]) => [k, v.result])) };
+
+  // EVERY independently observed failure, so a single "first cause" field can
+  // never hide a second one (e.g. a supervisor guard timeout AND a tailnet join
+  // failure in the same attempt).
+  const independentCauses = Object.entries(caps)
+    .filter(([, c]) => c.required && c.status !== STATUS.PASS)
+    .map(([name, c]) => ({
+      capability: name,
+      subsystem: subsystemOf(name),
+      status: c.status,
+      category: causeCategory(c.reason),
+      reason: c.reason
+    }));
+  const bySubsystem = {};
+  for (const c of independentCauses) {
+    bySubsystem[c.subsystem] = bySubsystem[c.subsystem] || [];
+    bySubsystem[c.subsystem].push(`${c.capability}=${c.status}` + (c.category ? ` (${c.category})` : ''));
+  }
+  const backendFailure = classifyBackendFailure(caps.backend_readiness_server_local && caps.backend_readiness_server_local.reason);
+  const diagnostics = {
+    supervisorFirstFailure: server.supervisor_first_failure || null,
+    supervisorDegradedGuards: server.supervisor_degraded_guards || null,
+    backendIdentityState: server.backend_identity_state || null,
+    backendFailureClass: backendFailure,
+    backendHealthProven: caps.backend_readiness_server_local.status === STATUS.PASS,
+    tailscaleStepOutcome: server.tailscale_outcome || null,
+    tailnetCategory: server.tailnet_category || (server.ts_configured === 'false' ? 'MISSING_CONFIG' : null),
+    tailnetDetail: server.tailnet_detail || null,
+    oidcSubject: server.oidc_sub || null,
+    audienceMatchesConfigured: server.audience_matches === undefined ? null : server.audience_matches,
+    rdpConfigured: server.rdp_configured || null,
+    rdpReason: server.rdp_reason || null,
+    prerequisitesMissing: independentCauses.filter(c => c.status === STATUS.BLOCKED).map(c => c.capability)
+  };
+  return {
+    verdict, aggregate: agg.status, firstCause, independentCauses, bySubsystem, diagnostics,
+    capabilities: caps, jobs: Object.fromEntries(Object.entries(jobs).map(([k, v]) => [k, v.result]))
+  };
 }
 
 async function runners() {
@@ -115,14 +184,22 @@ async function main() {
   const rows = Object.entries(report.capabilities).map(([k, c]) => `| ${k} | ${c.status} | ${String(c.reason || '').replace(/\|/g, '\\|').slice(0, 220)} |`);
   const md = [`## Verification verdict: **${report.verdict}**`, '', `run ${report.runId} attempt ${report.runAttempt} · lab ${report.labCommit} · app ${report.appCommit}`, '',
     report.firstCause ? `First cause: \`${report.firstCause.capability}\` = ${report.firstCause.status} — ${report.firstCause.reason}` : '', '',
+    report.independentCauses && report.independentCauses.length > 1
+      ? `Independent causes (${report.independentCauses.length}): ${report.independentCauses.map(c => `\`${c.capability}\` ${c.status}${c.category ? ` [${c.category}]` : ''}`).join('; ')}`
+      : '', '',
     '| capability | status | reason |', '|---|---|---|', ...rows].join('\n');
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
   console.log(md);
   const msg = `verdict=${report.verdict} ${Object.entries(report.capabilities).map(([k, c]) => `${k}=${c.status}`).join(' ')}`;
   if (report.verdict === 'VERIFIED') annotate.notice('Verification verdict', msg);
   else annotate.error('Verification verdict', `${msg} :: first cause ${report.firstCause && report.firstCause.capability}: ${report.firstCause && report.firstCause.reason}`);
+  if (report.verdict !== 'VERIFIED' && report.independentCauses && report.independentCauses.length) {
+    for (const c of report.independentCauses) {
+      annotate.error(`independent cause ${c.capability}`, `${c.subsystem} ${c.status}${c.category ? ` ${c.category}` : ''}: ${String(c.reason || '').slice(0, 700)}`);
+    }
+  }
   process.exit(report.verdict === 'VERIFIED' ? 0 : 1);
 }
 
 if (require.main === module) main();
-module.exports = { build, REQUIRED };
+module.exports = { build, REQUIRED, classifyBackendFailure, causeCategory, subsystemOf };

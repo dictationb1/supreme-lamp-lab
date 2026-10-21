@@ -12,7 +12,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const ps = require('./lib/ps');
 const { STATUS, CapabilitySet } = require('./lib/status');
 const { validatePngBuffer, validateImageFile } = require('./lib/image');
 const { acquireLock, releaseLock } = require('./lib/lock');
@@ -77,14 +77,16 @@ async function browserSynthetic(caps, outDir) {
   }
 }
 
-function nativeScreenshot(caps, outDir) {
+async function nativeScreenshot(caps, outDir) {
   const name = 'native_screenshot';
   if (process.platform !== 'win32') { caps.set(name, STATUS.BLOCKED, 'PLATFORM: native desktop capture is implemented for Windows interactive runners only'); return; }
   const shot = path.join(outDir, 'native-desktop.png');
-  const r = spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'ps', 'Capture-Desktop.ps1'), '-Path', shot], { encoding: 'utf8', timeout: 60000, windowsHide: true });
+  // bounded + async: a wedged capture helper reports its own diagnostic instead
+  // of blocking the capability run until the job timeout
+  const r = await ps.runPowerShell({ script: path.join(__dirname, 'ps', 'Capture-Desktop.ps1'), args: ['-Path', shot], timeoutMs: 60000, operation: 'native-capture', site: 'browser-check.js:nativeScreenshot' });
   const out = `${r.stdout || ''}${r.stderr || ''}`.trim();
   const img = validateImageFile(shot, { minWidth: 640, minHeight: 400 });
-  if (r.status !== 0 || !img.valid) caps.set(name, STATUS.FAIL, `NATIVE_CAPTURE_FAILED: exit=${r.status} ${out} ${img.reason || ''}`.trim());
+  if (!r.ok || !img.valid) caps.set(name, STATUS.FAIL, `NATIVE_CAPTURE_FAILED: ${r.ok ? 'exit=0' : ps.describe(r)} ${out} ${img.reason || ''}`.trim(), { diagnostic: r.ok ? null : r.errorCode });
   else if (img.nearUniform) caps.set(name, STATUS.FAIL, `NATIVE_SCREENSHOT_UNIFORM: ${out} (locked or blank desktop?)`, { screenshot: shot });
   else caps.set(name, STATUS.PASS, `${out}; ${img.width}x${img.height}`, { screenshot: shot });
 }
@@ -101,7 +103,7 @@ async function main() {
     }
     try { registry.registerProcess({ pid: process.pid, role: 'browser-check' }); } catch (e) { console.warn(`[registry] ${e.message}`); }
     await browserSynthetic(caps, outDir);
-    nativeScreenshot(caps, outDir);
+    await nativeScreenshot(caps, outDir);
   } catch (e) {
     for (const n of Object.keys(DEFS)) if (caps.get(n).status === STATUS.NOT_RUN) caps.set(n, STATUS.FAIL, e.message);
   } finally {
