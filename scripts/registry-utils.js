@@ -61,7 +61,7 @@ function writeRegistryFile(records, regPath = getRegistryPath()) {
   }
   const dir = path.dirname(regPath);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
   }
   const jsonContent = JSON.stringify(records, null, 2);
   const tmpPath = `${regPath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 8)}`;
@@ -71,7 +71,7 @@ function writeRegistryFile(records, regPath = getRegistryPath()) {
     fs.renameSync(tmpPath, regPath);
   } catch (err) {
     fs.copyFileSync(tmpPath, regPath);
-    fs.unlinkSync(tmpPath);
+    try { fs.unlinkSync(tmpPath); } catch (e) {}
   }
 }
 
@@ -131,22 +131,22 @@ function acquireLock({ runId, runAttempt, timeoutMs = 5000, retryIntervalMs = 25
   const metaPath = path.join(lockDir, 'lock-meta.json');
 
   while (true) {
-    if (!fs.existsSync(lockDir)) {
-      try {
-        fs.mkdirSync(lockDir, { recursive: true });
-        const meta = {
-          runId: currentRunId,
-          runAttempt: currentRunAttempt,
-          pid,
-          createTime,
-          acquiredAt: new Date().toISOString()
-        };
-        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
-        return { lockDir, meta };
-      } catch (err) {
-        // Concurrent creation collision, loop and retry
+    try {
+      fs.mkdirSync(lockDir);
+      const meta = {
+        runId: currentRunId,
+        runAttempt: currentRunAttempt,
+        pid,
+        createTime,
+        acquiredAt: new Date().toISOString()
+      };
+      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+      return { lockDir, meta };
+    } catch (err) {
+      if (err.code !== 'EEXIST') {
+        throw err;
       }
-    } else {
+
       let lockMeta = null;
       try {
         if (fs.existsSync(metaPath)) {

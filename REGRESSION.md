@@ -10,7 +10,7 @@ This catalogue documents reproduced defect triggers, root causes, regression tes
 - **Regression Test**: `scripts/run-regressions.js` -> `PowerShell Process-Scoped Bypass Execution Under Restricted Child Policy`.
 - **Expected Verdict**: `PASS` (Job executes inline commands via process-scoped Bypass without altering persistent system policy).
 - **Time Limit**: 10 seconds.
-- **Evidence Files**: Workflow execution logs, `Get-ExecutionPolicy -List` diagnostic output.
+- **Evidence Files**: Workflow execution logs.
 
 ---
 
@@ -56,8 +56,8 @@ This catalogue documents reproduced defect triggers, root causes, regression tes
 
 ### Defect 6: Non-Linux Incompatible Tailscale Action & OAuth Parameter Mismatch
 - **Trigger**: Tailscale job failed on Windows or attempted OIDC federation with incompatible action version or secret mismatch.
-- **Root Cause**: `tailscale/github-action@v2` lacks Windows OIDC support.
-- **Regression Test**: Workflow YAML validation for `tailscale/github-action@v3` with `id-token: write` and OIDC parameter configuration.
+- **Root Cause**: Unpinned action version or missing explicit audience/client ID parameters.
+- **Regression Test**: Workflow YAML validation for pinned `tailscale/github-action` release with `id-token: write` and OIDC parameter configuration.
 - **Expected Verdict**: `PASS`.
 - **Time Limit**: 30 seconds.
 - **Evidence Files**: `.github/workflows/capability-check.yml`.
@@ -65,9 +65,39 @@ This catalogue documents reproduced defect triggers, root causes, regression tes
 ---
 
 ### Defect 7: Mission Control Verification & Native Desktop Auto-Login
-- **Trigger**: Lack of verification for backend readiness JSON, Web Desktop first frame, and native mstsc RDP client.
-- **Root Cause**: Missing Mission Control test script and desktop screenshot verification.
+- **Trigger**: Lack of verification for backend readiness JSON, Web Desktop frame/canvas, and native mstsc RDP client.
+- **Root Cause**: False PASS on generic body element, missing desktop screenshot error propagation, destroyed PowerShell statement boundaries in screenshot command.
 - **Regression Test**: `scripts/mission-control-check.js`.
-- **Expected Verdict**: `PASS` (Verifies readiness JSON, dashboard telemetry, Web Desktop canvas, and captures native desktop screenshot).
+- **Expected Verdict**: `PASS` (Verifies readiness JSON, dashboard telemetry, Web Desktop canvas/frame, and captures valid native desktop screenshot).
 - **Time Limit**: 15 seconds.
 - **Evidence Files**: `artifacts/run-<id>-<attempt>/mc-dashboard.png`, `native-desktop-mstsc.png`, `mission-control-results.json`.
+
+---
+
+### Defect 8: Process Cleanup Safety & Atomic Lock Race Conditions
+- **Trigger**: TOCTOU race conditions in lock acquisition and killing unrelated processes on recycled PIDs.
+- **Root Cause**: `existsSync` check before `mkdirSync`, missing creation time verification in cleanup.
+- **Regression Test**: `scripts/run-regressions.js` -> `Safe Lock Acquisition & Recovery Under Isolated Harness`.
+- **Expected Verdict**: `PASS`.
+- **Time Limit**: 5 seconds.
+- **Evidence Files**: `scripts/registry-utils.js`, `scripts/cleanup-lab.ps1`.
+
+---
+
+### Defect 9: Web Desktop False PASS Rejection
+- **Trigger**: Web Desktop capability marked PASS when page contained only generic `body` or `#app`.
+- **Root Cause**: Fallback to `#app` or `body` in Web Desktop check.
+- **Regression Test**: `scripts/run-regressions.js` -> `Web Desktop Verification Rejects Generic Body-Only HTML Page`.
+- **Expected Verdict**: `PASS`.
+- **Time Limit**: 2 seconds.
+- **Evidence Files**: `scripts/mission-control-check.js`.
+
+---
+
+### Defect 10: Invalid Readiness Schema Rejection
+- **Trigger**: Unverified or invalid backend readiness responses passed capability check.
+- **Root Cause**: Synthesizing fallback identity/commit values on missing readiness schema fields.
+- **Regression Test**: `scripts/run-regressions.js` -> `Mission Control Rejects Invalid Readiness Schema Without Identity or Commit`.
+- **Expected Verdict**: `PASS`.
+- **Time Limit**: 2 seconds.
+- **Evidence Files**: `scripts/mission-control-check.js`.
