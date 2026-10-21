@@ -15,7 +15,7 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const zlib = require('zlib');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const S = p => path.join(ROOT, 'scripts', p);
@@ -1229,24 +1229,24 @@ async function main() {
     // NOT a logon type: this is 'needs-type-proof', never a candidate.
     v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '', checked: 3, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'needs-type-proof');
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '::ffff:100.93.94.15', logonType: '', checked: 1 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '::ffff:100.93.94.15', logonType: '', checked: 1, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'needs-type-proof');
     assert.strictEqual(normalizeIp('[::FFFF:100.93.94.15]'), '100.93.94.15');
     // stale event (before the baseline) can never pass, however it is labelled
-    v = evaluateLogonStatus({ connected: true, ts: '2026-10-21T07:59:44.999Z', sourceIp: '100.93.94.15', logonType: '10', checked: 1 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: '2026-10-21T07:59:44.999Z', sourceIp: '100.93.94.15', logonType: '10', checked: 1, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'not-observed');
     // a console/cached logon (type 2/11, no remote source) is not our RDP logon
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '-', logonType: '2', checked: 2 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '-', logonType: '2', checked: 2, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'not-observed');
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '', logonType: '', checked: 2 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '', logonType: '', checked: 2, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'not-observed');
     // another machine's type-10 is a terminal wrong-source, not "keep waiting"
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.64.0.99', logonType: '10', checked: 2 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.64.0.99', logonType: '10', checked: 2, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'wrong-source');
     // a reported non-10 type WITH our source address contradicts event semantics
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '2', checked: 2 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '2', checked: 2, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'type-mismatch');
-    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '11', checked: 2 }, ctx);
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '11', checked: 2, user: 'slabrdp' }, ctx);
     assert.strictEqual(v.state, 'type-mismatch');
     // the user echo must match the intended user when present
     v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', user: 'other', checked: 2 }, ctx);
@@ -1420,7 +1420,9 @@ async function main() {
     assert.match(cls.reason, /WIN-NFU1JG4VESE\\User/);
     assert.match(cls.manualAction, /I understand and allow RDP files to open/);
     assert.match(cls.manualAction, /per-account/);
-    assert.match(cls.manualAction, /Do not automate/);
+    assert.match(cls.manualAction, /do not automate this checkbox/i);
+    assert.match(cls.manualAction, /RdpLaunchConsentAccepted/);
+    assert.match(cls.manualAction, /do not disable the warning globally/i);
     // the checkbox is unchecked in the captured evidence
     assert.match(cls.evidenceDigest, /unchecked/);
     // Live shape from run 39594245349: the modern dialog's check-box label is
@@ -1557,6 +1559,254 @@ async function main() {
     assert.strictEqual(rep.counts.pass, 7);
     assert.strictEqual(reportLib.causeCategory(rep.firstCause.reason), 'RDP_FILE_CONSENT_REQUIRED');
   });
+
+  // ===== one-time RDP-file consent: SETUP procedure, target validation =====
+  await test('rdp target: placeholders, loopback, documentation and expired shapes are refused', async () => {
+    const { validateTarget } = require('./lib/rdp-target');
+    // The RUNBOOK placeholder copied literally (observed failure mode)
+    for (const bad of ['<server-ip>', '<lab-server-ip>', '', '   ', 'server-ip', '${SERVER_IP}', '%SERVER_IP%', 'TODO']) {
+      const v = validateTarget(bad);
+      assert.strictEqual(v.ok, false, `placeholder accepted: ${JSON.stringify(bad)}`);
+      assert.ok(v.error, `no reason given for ${JSON.stringify(bad)}`);
+    }
+    // Addresses that can never be the outbound lab target
+    for (const bad of ['127.0.0.1', '127.1.2.3', '::1', 'localhost', '0.0.0.0', '192.0.2.10', '198.51.100.7', '169.254.3.3']) {
+      assert.strictEqual(validateTarget(bad).ok, false, `accepted non-target ${bad}`);
+    }
+    assert.strictEqual(validateTarget('http://100.79.2.101:7331').ok, false);
+    assert.strictEqual(validateTarget('100.79.2.101/32').ok, false);
+    assert.strictEqual(validateTarget('barehost').ok, false);
+    assert.strictEqual(validateTarget('box.invalid').ok, false);
+    // Real lab shapes are accepted, ports normalised, tailnet kept intact
+    let v = validateTarget('100.79.2.101');
+    assert.strictEqual(v.ok, true); assert.strictEqual(v.kind, 'ipv4'); assert.deepStrictEqual(v.warnings, []);
+    v = validateTarget(' 100.79.2.101 ');
+    assert.strictEqual(v.host, '100.79.2.101');
+    v = validateTarget('100.79.2.101:3389');
+    assert.strictEqual(v.ok, true); assert.deepStrictEqual(v.warnings, []);
+    v = validateTarget('100.79.2.101:7331');
+    assert.strictEqual(v.ok, true); assert.match(v.warnings.join(' '), /ignored; RDP is 3389/);
+    v = validateTarget('slab-srv-39598371464-1.tail7cf774.ts.net');
+    assert.strictEqual(v.ok, true); assert.strictEqual(v.kind, 'hostname');
+    // A public address is allowed but flagged: the operator must confirm it
+    v = validateTarget('203.0.113.9');
+    assert.strictEqual(v.ok, false, 'TEST-NET must be refused');
+    v = validateTarget('8.8.8.8');
+    assert.strictEqual(v.ok, true); assert.match(v.warnings.join(' '), /not a tailnet/);
+    v = validateTarget('[fd7a:115c:a1e0::1]:3389');
+    assert.strictEqual(v.ok, true); assert.strictEqual(v.kind, 'ipv6');
+  });
+
+  await test('consent bootstrap: unknown flags / placeholder hosts are refused instead of writing a useless .rdp', async () => {
+    const boot = require('./rdp-consent-bootstrap');
+    assert.deepStrictEqual(boot.parseArgs(['node', 'x', '--host', '100.79.2.101']).errors, []);
+    assert.match(boot.parseArgs(['node', 'x', '--hots', '100.79.2.101']).errors.join(' '), /unknown argument/);
+    assert.match(boot.parseArgs(['node', 'x', '--host']).errors.join(' '), /needs a value/);
+    assert.ok(boot.parseArgs(['node', 'x']).host === null);
+    // CLI: placeholder -> exit 64, nothing written
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'boot-'));
+    const outDir = path.join(dir, 'out');
+    let r = spawnSync(process.execPath, [S('rdp-consent-bootstrap.js'), '--host', '<server-ip>', '--out', outDir], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64, `exit ${r.status}: ${r.stderr}`);
+    assert.match(r.stderr, /refused/);
+    assert.ok(!fs.existsSync(path.join(outDir, 'slab-consent-bootstrap.rdp')), 'a refused target must not write an .rdp');
+    // CLI: unknown flag -> exit 64
+    r = spawnSync(process.execPath, [S('rdp-consent-bootstrap.js'), '--host', '100.79.2.101', '--bogus'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64);
+    // CLI: a valid live-shaped target -> the production .rdp shape, and the
+    // output names the account + checkout the operator must use
+    r = spawnSync(process.execPath, [S('rdp-consent-bootstrap.js'), '--host', '100.79.2.101', '--out', outDir], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, r.stderr);
+    assert.match(r.stdout, /412 bytes, 17 directives/);
+    assert.match(r.stdout, /current account: .+\\/);
+    assert.match(r.stdout, /checkout: .*supreme-lamp-lab/);
+    assert.match(r.stdout, /I understand and allow RDP files to open on this device for my account/);
+    assert.match(r.stdout, /Cancel closes the dialog exactly like OK/);
+    const text = fs.readFileSync(path.join(outDir, 'slab-consent-bootstrap.rdp'), 'utf8');
+    assert.match(text, /full address:s:100\.79\.2\.101/);
+    assert.ok(!text.includes('<server-ip>'));
+  });
+
+  await test('consent setup: the state machine never turns "dialog closed" or "no dialog" into a consent claim', async () => {
+    const { evaluateSamples, EXIT } = require('./lib/consent-state');
+    const s = kind => ({ at: '2026-10-21T12:00:00Z', kind });
+    // nothing yet
+    assert.strictEqual(evaluateSamples([]).state, 'AWAITING_SAMPLES');
+    // the observed live shape: owned/modal consent dialog, unchecked
+    let v = evaluateSamples([s('rdp_file_consent')]);
+    assert.strictEqual(v.state, 'PENDING_CONSENT'); assert.strictEqual(v.exitCode, EXIT.BLOCKED);
+    // dialog answered (operator pressed OK) and mstsc lives on
+    v = evaluateSamples([s('rdp_file_consent'), s(null), s(null)], { mstscAlive: true });
+    assert.strictEqual(v.state, 'CONSENT_DIALOG_CLEARED');
+    assert.match(v.detail, /only a fresh unattended run/i);
+    // ...but CANCEL closes the same dialog: gone + process dead is NOT a grant
+    v = evaluateSamples([s('rdp_file_consent'), s(null), s(null), s(null)], { mstscAlive: false });
+    assert.strictEqual(v.state, 'CONSENT_DIALOG_CLOSED_UNCONFIRMED');
+    assert.strictEqual(v.exitCode, EXIT.UNCONFIRMED);
+    assert.match(v.detail, /Cancel/);
+    // a session window proves the file got past the gate
+    v = evaluateSamples([s('rdp_file_consent'), s('connected_session')]);
+    assert.strictEqual(v.state, 'SESSION_CONNECTED');
+    // no dialog at all in the window is ambiguous, never a grant
+    v = evaluateSamples([s(null), s(null), s(null)], { mstscAlive: true });
+    assert.strictEqual(v.state, 'NO_DIALOG_SEEN'); assert.strictEqual(v.exitCode, EXIT.NO_DIALOG);
+    // the FOUR other Windows dialog families stay separate from the consent
+    const fam = {
+      rdp_file_security_review: 'BLOCKED_SECURITY_REVIEW',
+      certificate_warning: 'BLOCKED_CERTIFICATE_WARNING',
+      credentials_prompt: 'BLOCKED_CREDENTIALS_PROMPT',
+      connection_error: 'BLOCKED_CONNECTION_ERROR'
+    };
+    for (const [kind, state] of Object.entries(fam)) {
+      v = evaluateSamples([s('rdp_file_consent'), s(kind), s(kind)], { mstscAlive: true });
+      assert.strictEqual(v.state, state, `${kind} -> ${v.state}`);
+      assert.strictEqual(v.exitCode, EXIT.BLOCKED);
+      assert.match(v.detail, new RegExp(kind));
+      // also when no consent was ever seen
+      assert.strictEqual(evaluateSamples([s(kind), s(kind), s(kind)]).state, state);
+    }
+    // one sample after consent is not "cleared" (needs 2)
+    assert.strictEqual(evaluateSamples([s('rdp_file_consent'), s(null)]).state, 'AWAITING_SAMPLES');
+  });
+
+  await test('dialogs: the consent manual action names the SETUP procedure, not an unexplained placeholder', async () => {
+    const { classifyRdpAttempt } = require('./lib/dialogs');
+    const cls = classifyRdpAttempt({
+      account: 'WIN-NFU1JG4VESE\\User',
+      sessionId: 1,
+      windows: [{
+        pid: 8836, ownerPid: 8836, process: 'mstsc', sessionId: 1, className: '#32770',
+        title: 'Remote Desktop Connection',
+        controls: [{ class: 'Static', text: 'You are opening an RDP file which will establish a connection to another computer.' }]
+      }]
+    });
+    assert.strictEqual(cls.code, 'RDP_FILE_CONSENT_REQUIRED');
+    // The exact account + session the operator must be signed in as
+    assert.match(cls.reason, /WIN-NFU1JG4VESE\\User/);
+    assert.match(cls.manualAction, /WIN-NFU1JG4VESE\\User/);
+    // No copy-pasteable placeholder and no expired address advice
+    assert.ok(!/<[a-z-]*(ip|host|server)[a-z-]*>/i.test(cls.manualAction), cls.manualAction);
+    assert.ok(!/--host\s*</.test(cls.manualAction));
+    assert.match(cls.manualAction, /mode=consent-setup/);
+    assert.match(cls.manualAction, /Never reuse an address from an older run/);
+  });
+
+  await test('consent setup CLI: bounded window enforced, placeholder target refused, non-Windows refused', async () => {
+    const setup = require('./rdp-consent-setup');
+    assert.strictEqual(setup.MAX_TIMEOUT_MS, 900000);
+    let r = spawnSync(process.execPath, [S('rdp-consent-setup.js'), '--host', '<server-ip>'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64, r.stderr); assert.match(r.stderr, /refused/);
+    r = spawnSync(process.execPath, [S('rdp-consent-setup.js'), '--host', '100.79.2.101', '--timeout-ms', '9999999'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64); assert.match(r.stderr, /bounded maximum/);
+    r = spawnSync(process.execPath, [S('rdp-consent-setup.js'), '--host', '100.79.2.101', '--bogus'], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64);
+    r = spawnSync(process.execPath, [S('rdp-consent-setup.js')], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 64); assert.match(r.stderr, /--host is required/);
+    if (!IS_WIN) {
+      r = spawnSync(process.execPath, [S('rdp-consent-setup.js'), '--host', '100.79.2.101'], { encoding: 'utf8' });
+      assert.strictEqual(r.status, 69, r.stderr);
+      assert.match(r.stderr, /must run on the Windows client runner/);
+    }
+  });
+
+  await test('SETUP runs can never emit a verification verdict (setup-summary is explicitly verdict-free)', async () => {
+    const dirs = freshDirs();
+    const out = path.join(dirs.art, 'setup-summary.json');
+    let r = spawnSync(process.execPath, [S('setup-summary.js')], {
+      encoding: 'utf8',
+      env: { ...process.env, MODE: 'consent-setup', SETUP_STATE: 'CONSENT_DIALOG_CLEARED', SETUP_DETAIL: 'dialog gone', LAB_SHA: 'a22353a', NEEDS_JSON: JSON.stringify({ static: { result: 'success' }, server: { result: 'success' }, client: { result: 'success' } }), SETUP_SUMMARY_PATH: out }
+    });
+    assert.strictEqual(r.status, 0, r.stderr);
+    const doc = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.strictEqual(doc.kind, 'SETUP');
+    assert.strictEqual(doc.verdict, 'NO_VERDICT_SETUP_MODE');
+    assert.match(doc.note, /not a verification run/i);
+    // The ONLY verdict field is the explicit "no verdict" marker: a SETUP run
+    // must not be representable as a passing verification.
+    assert.ok(!doc.capabilities, 'a SETUP summary must not carry capability verdicts');
+    assert.ok(!('verified' in doc));
+    assert.ok(!/^VERIFIED$/.test(String(doc.verdict)));
+    assert.strictEqual(doc.setupState, 'CONSENT_DIALOG_CLEARED');
+    // a SETUP window with no live target is a real failure, not a pass
+    r = spawnSync(process.execPath, [S('setup-summary.js')], {
+      encoding: 'utf8',
+      env: { ...process.env, MODE: 'consent-setup', SETUP_STATE: 'BLOCKED_NO_LIVE_TARGET', SETUP_SUMMARY_PATH: out }
+    });
+    assert.strictEqual(r.status, 1);
+  });
+
+  await test('logon: intended identity must be proven (empty/foreign user echo) and the attempt window is bounded at both ends', async () => {
+    const { evaluateLogonStatus, evaluateNativeCrossCheck, DEFAULT_MAX_AFTER_BASELINE_MS } = logonLib;
+    const ctx = { baselineIso: '2026-10-21T07:59:45.000Z', clientIp: '100.93.94.15', expectedUser: 'slabrdp' };
+    const fresh = '2026-10-21T08:00:10.250Z';
+    // no echo -> the app did not say which filter it applied -> not proven
+    let v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3 }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    assert.match(v.detail, /user echo is empty/);
+    // a foreign echo -> someone else's event
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3, user: 'Administrator' }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    assert.match(v.detail, /!= expected/);
+    // exact echo (any case/space) is accepted
+    v = evaluateLogonStatus({ connected: true, ts: fresh, sourceIp: '100.93.94.15', logonType: '10', checked: 3, user: ' SLABRDP ' }, ctx);
+    assert.strictEqual(v.state, 'candidate');
+    // upper bound: an event long after the attempt is not part of it
+    const late = new Date(Date.parse(ctx.baselineIso) + DEFAULT_MAX_AFTER_BASELINE_MS + 60000).toISOString();
+    v = evaluateLogonStatus({ connected: true, ts: late, sourceIp: '100.93.94.15', logonType: '10', checked: 3, user: 'slabrdp' }, ctx);
+    assert.strictEqual(v.state, 'not-observed');
+    assert.match(v.detail, /outside the 30-minute attempt window/);
+    // cross-check can never confirm through another account's event
+    const sameInstant = { result: 'success', sub: '', subMeaning: '', probeError: '', count4624: 1, count4625: 0, scanTs: '2026-10-21T08:00:31.000Z', eventTs: '2026-10-21T08:00:10.251Z', logonType: '10' };
+    v = evaluateNativeCrossCheck({ ...sameInstant, targetUserName: 'someone-else' }, fresh, { expectedUser: 'slabrdp' });
+    assert.strictEqual(v.state, 'contradicted');
+    assert.match(v.detail, /not the intended/);
+    // ...and confirms honestly when the collector does report the account
+    v = evaluateNativeCrossCheck({ ...sameInstant, targetUserName: 'slabrdp' }, fresh, { expectedUser: 'slabrdp' });
+    assert.strictEqual(v.state, 'confirmed');
+    assert.match(v.detail, /"slabrdp"/);
+    // the pinned app does not report it: confirmation says so instead of implying identity proof
+    v = evaluateNativeCrossCheck(sameInstant, fresh, { expectedUser: 'slabrdp' });
+    assert.strictEqual(v.state, 'confirmed');
+    assert.match(v.detail, /does not report the account/);
+  });
+
+  // The application observer defect, exercised with REAL PowerShell. The pinned
+  // app (978a837) reads $Matches[1] after a scalar -notmatch user filter; the
+  // patch in patches/ saves the capture first. This test runs the two orders
+  // side by side and requires the observed live symptom ('' type) for the
+  // buggy order and '10' for the fixed one. It is SKIPPED where no PowerShell
+  // exists - a skip is never a pass.
+  await test('app defect: -notmatch clobbers $Matches before LogonType is read (real PowerShell)', async () => {
+    const exe = process.env.LAB_PWSH || (IS_WIN ? (spawnSync('pwsh', ['-v'], { encoding: 'utf8' }).status === 0 ? 'pwsh' : 'powershell') : 'pwsh');
+    const script = `
+$msg = 'An account was successfully logged on.\\r\\n\\tLogon Type:\\t\\t10\\r\\n\\tSource Network Address:\\t100.93.94.15\\r\\n\\tTarget User Name:\\tslabrdp'
+$userQ = 'slabrdp'
+# --- order at app 978a837 (payloads/ghrdp-server.ps1 /api/logon-status) ---
+if ($msg -notmatch 'Logon Type:\\s+(2|10|11)\\b') { throw 'type regex did not match' }
+if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { throw 'user regex did not match' }
+$buggy = [string]$Matches[1]
+$buggyKeys = ($Matches.Keys | Sort-Object) -join ','
+# --- order after the patch: save the capture BEFORE the user filter ---
+if ($msg -notmatch 'Logon Type:\\s+(2|10|11)\\b') { throw 'type regex did not match' }
+$ltThis = [string]$Matches[1]
+if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { throw 'user regex did not match' }
+$fixed = $ltThis
+$obj = [ordered]@{ ps = $PSVersionTable.PSVersion.ToString(); buggy = $buggy; buggyKeys = $buggyKeys; fixed = $fixed }
+$obj | ConvertTo-Json -Compress
+`;
+    const r = spawnSync(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', timeout: 120000 });
+    assert.strictEqual(r.status, 0, `powershell failed: ${r.stdout} ${r.stderr}`);
+    const out = JSON.parse(String(r.stdout).trim().split('\n').pop());
+    // The observed live symptom: the endpoint reported logonType='' for a real
+    // type-10 event because the second -notmatch replaced $Matches.
+    assert.strictEqual(out.buggy, '', `expected the clobber, got ${JSON.stringify(out)}`);
+    assert.strictEqual(out.fixed, '10', `the patch must yield the real type, got ${JSON.stringify(out)}`);
+    assert.ok(!out.buggyKeys.includes('1'), `user-filter $Matches has no group 1: ${out.buggyKeys}`);
+  }, { skipIf: () => {
+    const exe = process.env.LAB_PWSH || (IS_WIN ? 'powershell' : 'pwsh');
+    const p = spawnSync(exe, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { encoding: 'utf8', timeout: 30000 });
+    return p.status === 0 ? null : `no PowerShell (${exe}) on this host - the real-PowerShell reproduction runs on the Windows client job`;
+  } });
 
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');

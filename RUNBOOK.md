@@ -89,57 +89,144 @@ token itself is never printed. A quick standalone check:
   .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "<user>"
   ```
 
-### 2.4 One-time RDP-file consent bootstrap (client-runner Windows account)
+### 2.4 One-time RDP-file consent bootstrap (client-runner Windows account) — a SETUP step, not a verification
 
-Since the **April 2026 Windows cumulative updates** (CVE-2026-26151), the
-first time a Windows **account** opens any `.rdp` file on a device, Windows
-blocks on a one-time educational consent dialog (observed live in run
-39575343527 attempt 2):
+**Verified attribution.** The April 14 2026 Windows security updates changed how
+`.rdp` files are opened: a one-time educational consent, then a per-connection
+review. Microsoft tracks this under **CVE-2026-26151** ("Insufficient UI warning
+of dangerous operations in Windows Remote Desktop allows ... spoofing",
+CVSS 7.1, CWE-357) — vendor advisory
+<https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-26151>, NVD
+<https://nvd.nist.gov/vuln/detail/CVE-2026-26151>. Updates: KB5083769 (Win11
+24H2/25H2), KB5083768 (26H1), KB5082052 (23H2), KB5082200 (Win10), KB5082063
+(Windows Server).
 
-> **Opening Remote Desktop Connection**
-> ☐ I understand and allow RDP files to open on this device for my account
-> `OK` — *disabled until the box is checked*
+Two **separate** dialogs exist on the client. They are never treated alike:
 
-Until the account grants that consent, every `.rdp`-file launch (the
-production path: the app's launcher writes an `.rdp` and starts `mstsc.exe
-<file>`, `ghrdp-rdp-launcher.cs`) sits on this dialog forever. The lab now
-*names* it (`rdp_auto_login=BLOCKED`,
-`reason=RDP_FILE_CONSENT_REQUIRED`) instead of burning 90 s on a generic
-timeout. Granting it is **manual, once per Windows account on that device**:
+| # | dialog | when | what it means here |
+|---|---|---|---|
+| A | **Opening Remote Desktop Connection** — ☐ *I understand and allow RDP files to open on this device for my account* — `OK` greyed out until checked | once per **account per device** | the prerequisite this section bootstraps. Reported as `rdp_auto_login=BLOCKED` / `RDP_FILE_CONSENT_REQUIRED` |
+| B | **Remote Desktop Connection Security warning** — *Caution: Unknown remote connection* / publisher + redirection checkboxes, all off by default | **every** `.rdp` launch while the file is unsigned | a per-connection review. Reported by its own code `RDP_FILE_SECURITY_REVIEW_BLOCKING`; **not** the account consent, and **not** fixed by step A |
 
-1. Sign in **on the client-runner machine as the account that runs the
-   client runner** — the identity printed in the *Client runner* annotation
-   and by `Set-RdpCredential.ps1` (e.g. `WIN-NFU1JG4VESE\User`). The consent
-   is account-scoped; a different account (or profile) needs its own.
-2. Generate a **trusted lab-generated RDP file** (the exact
-   production-launcher shape: UTF-8/no-BOM, CRLF, read-back validated) and
-   open it so the dialog appears:
-   ```powershell
-   node scripts\rdp-consent-bootstrap.js --host <lab-server-ip> --user slabrdp --open
-   ```
-3. In the dialog, **check** *"I understand and allow RDP files to open on
-   this device for my account"* and press **OK**. Nothing else in the lab
-   will ever answer this dialog for you.
-4. Trigger a **fresh full run**. It must complete with **no manual clicks
-   and no credential entry** before anything can be `VERIFIED`. A manually
-   assisted run is not unattended proof.
+The lab never clicks either dialog, never writes `RdpLaunchConsentAccepted`,
+never sets `RedirectionWarningDialogVersion` (the documented "turn the
+protection off" policy — Microsoft advises against it), and never weakens
+NLA/TLS/CredSSP.
 
-The lab deliberately does **not** write `RdpLaunchConsentAccepted`, does
-**not** set the `RedirectionWarningDialogVersion` policy (that suppresses
-the protection globally — Microsoft advises against it), and does not weaken
-NLA/TLS/CredSSP. The bootstrap helper (`scripts/rdp-consent-bootstrap.js`)
-only writes the file and hands it to mstsc.
+#### 2.4.1 SETUP procedure (recommended) — bounded, and explicitly not a verification run
 
-**What may still appear after the bootstrap** (reported by name if it
-blocks, never silently absorbed): the *per-connection* "Remote Desktop
-Connection Security warning" (publisher/redirection review for opened
-`.rdp` files) is a **separate** Windows protection that can recur on every
-`.rdp`-file launch on current builds. If it blocks an unattended run the
-capability FAILs with `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays
-`NOT_VERIFIED`; resolving that needs an organization-trusted `.rdp` publisher
-path (signed `.rdp` + trusted-publisher policy) — a machine-level change
-that is documented as a decision for the operator, not something the lab
-does silently.
+Normal CI now detects dialog A on its **first** poll and cleans up immediately.
+That is correct for an unattended run, but it gives a human no time to act — so
+the bootstrap has its own bounded mode:
+
+```text
+GitHub → Actions → "Capability Check Workflow" → Run workflow
+  Branch: the current lab candidate (see the PR)
+  mode:   consent-setup
+  setup_timeout_ms: 600000        # 10 min; hard maximum 900000 (15 min)
+```
+
+What that run does, in order:
+
+1. `static` job: the usual regressions + the app-source pin + the Node pin check.
+2. `server` job: stages the real backend at the pinned app SHA, joins the
+   tailnet and **prints the live target** for this attempt
+   (`slab-srv-<run_id>-<attempt>` + its `100.x` address). It holds the backend
+   for the client job.
+3. `client` job (interactive session on the client-runner VM): runs the full
+   Windows regression suite, then `scripts/rdp-consent-setup.js`, which
+   * prints the real account, session, checkout directory and target;
+   * writes the **same production-shaped `.rdp`** the verified path uses
+     (UTF-8/no-BOM, CRLF, 17 directives, read-back validated) and hands it to
+     `mstsc.exe` — the production launch path is preserved, not replaced;
+   * only **reads** window state (`Get-RdpDialogState.ps1` → `lib/dialogs.js`),
+     records one screenshot of the dialog and reports what it sees;
+   * exits at its deadline with one state from `lib/consent-state.js`.
+4. `report` job: writes a **SETUP summary with no verdict**
+   (`verdict: NO_VERDICT_SETUP_MODE`). A SETUP run can never be `VERIFIED`.
+
+Operator steps during the SETUP window:
+
+1. Be signed in on the **client-runner VM** as the account that runs the
+   runner — confirmed from the live run evidence as
+   **`WIN-NFU1JG4VESE\User`, interactive session 1**. Confirm it yourself on
+   the VM: `whoami` → `win-nfu1jg4vese\user`, and `$PID`'s session via
+   `(Get-Process -Id $PID).SessionId` → `1`. The SETUP run prints the same pair
+   (`account` / `session:` lines) — trust that printout over this document.
+2. Watch the desktop for **"Opening Remote Desktop Connection"**.
+3. **Check** *"I understand and allow RDP files to open on this device for my
+   account"*, then press **OK** (disabled until checked).
+4. Leave the window alone until the SETUP job reports its state.
+
+How to know the setup action finished (the honest signals):
+
+| SETUP state | meaning | what to do |
+|---|---|---|
+| `PENDING_CONSENT` | dialog A still on screen, ungranted | check the box, press OK |
+| `CONSENT_DIALOG_CLEARED` | A was seen and is gone, `mstsc` still running | the operator answered *something*; only the next full run proves it |
+| `SESSION_CONNECTED` | A gone **and** a session window is up | the file got past the gate; continue to the full run |
+| `CONSENT_DIALOG_CLOSED_UNCONFIRMED` | A gone **and** `mstsc` exited, no session | **Cancel looks identical to OK.** Repeat the SETUP procedure and press OK |
+| `BLOCKED_SECURITY_REVIEW` | dialog **B** is on screen | a different problem — see 2.4.3 |
+| `BLOCKED_CERTIFICATE_WARNING`, `BLOCKED_CREDENTIALS_PROMPT`, `BLOCKED_CONNECTION_ERROR` | other, separately-named blockers | read the state; each is its own finding |
+| `NO_DIALOG_SEEN` | no dialog at all in the window | ambiguous: either already granted, or `mstsc` never reached the gate. **Not** proof of consent |
+
+#### 2.4.2 Manual fallback (only if the SETUP run cannot be used)
+
+Run this **on the client-runner VM, in the checkout directory**, as the same
+account. The helper refuses placeholders, loopback and malformed targets, and it
+refuses unknown flags, so a typo cannot silently produce an `.rdp` aimed at
+nothing.
+
+```powershell
+# 1. Confirm the account and the checkout you are in
+whoami
+Get-Location
+
+# 2. Only from a run that is live RIGHT NOW, copy the target it printed:
+#    server job notice "Server tailnet address" -> slab-srv-<run>-<attempt> = 100.x.y.z
+node scripts\rdp-consent-bootstrap.js --host 100.x.y.z --user slabrdp --open
+
+# 3. Check the box in the dialog, press OK
+```
+
+* **Target:** an address printed by the **current** run only. The lab server is
+  ephemeral (`slab-srv-<run_id>-<attempt>`); an address copied from an older
+  run's logs is expired and is not an authorized target.
+* **Checkout directory:** the directory the SETUP run prints as `checkout:`.
+  The self-hosted client runner's checkout is
+  `C:\Windows\System32\actions-runner\_work\supreme-lamp-lab\supreme-lamp-lab`
+  (the runner root is the `...\actions-runner` that appears in the artifacts
+  path `...\actions-runner\_work\_temp\artifacts\run-...`). Confirm with
+  `Test-Path .\scripts\rdp-consent-bootstrap.js` before running anything.
+* The helper writes the `.rdp` under `%TEMP%\slab-rdp-consent\` unless
+  `--out` is given, prints the account, session, checkout and target, and never
+  answers the dialog.
+
+#### 2.4.3 After the consent: what may still block (not the same thing)
+
+* **Unsigned `.rdp` → the per-connection review (dialog B) on every launch.**
+  This is a *different* protection and step A does not remove it. If it blocks
+  an unattended run, the capability FAILs with
+  `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays `NOT_VERIFIED`; the
+  honest next step is an **organization-trusted `.rdp` publisher path** (a
+  signed `.rdp` + a trusted-publisher policy). That is a machine-wide trust
+  change: **scope** = the client-runner VM's certificate/publisher trust store
+  and the lab's `.rdp` signing identity; **bootstrap** = an operator decision to
+  create/install that identity and re-sign the launcher's `.rdp`. The lab does
+  not do this silently, does not trust every publisher, and does not suppress
+  certificate validation. A manually clicked dialog never proves auto-login.
+* **Persistence.** Windows shows the one-time consent **once per account per
+  device**. This lab has *not* verified that it survives a re-image, a profile
+  reset or a runner re-provision on this VM, and it has *not* verified it for any
+  other account. Treat it as "one-time per account, per device, until the device
+  or profile changes" and re-run the SETUP procedure if dialog A reappears.
+
+#### 2.4.4 The only proof
+
+After the SETUP step, trigger a **full** `workflow_dispatch` run (or let the PR
+run). It must complete with **no manual clicks and no credential entry**, with
+all nine capabilities PASS, before any of it is called `VERIFIED`. Record any
+intervention and exclude that run from unattended proof.
 
 ## 3. Capability contracts (all nine are required for `VERIFIED`)
 

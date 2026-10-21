@@ -309,7 +309,7 @@ async function pollLogon(target, baselineIso, user, clientIp, timeoutMs, onTick 
       if (ev.state === 'type-mismatch') return { ok: false, code: 'RDP_LOGON_TYPE_MISMATCH', body: last, polls, detail: ev.detail };
       if (ev.state === 'candidate' || ev.state === 'needs-type-proof') {
         const nat = await nativeStatusSnapshot(target);
-        const cross = evaluateNativeCrossCheck(nat.authLast, r.json.ts, { baselineIso });
+        const cross = evaluateNativeCrossCheck(nat.authLast, r.json.ts, { baselineIso, expectedUser: user });
         lastCross = cross;
         if (ev.state === 'candidate') {
           log(`logon candidate (${ev.proof}): ${ev.detail}; cross-check ${cross.state} - ${cross.detail}`);
