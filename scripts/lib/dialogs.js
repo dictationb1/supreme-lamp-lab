@@ -184,11 +184,13 @@ function classifyRdpAttempt({ windows, account, sessionId } = {}) {
         '"Opening Remote Desktop Connection" / "I understand and allow RDP files to open on this device for my account". ' +
         'This is an account-level Windows security consent (April 2026 RDP-file protection); the lab never clicks it for you.',
       manualAction:
-        `On the Windows client runner, signed in as ${acct}${sess}: open a trusted lab-generated .rdp file once ` +
-        '(node scripts/rdp-consent-bootstrap.js --host <server-ip> --user slabrdp --open), check ' +
-        '"I understand and allow RDP files to open on this device for my account", and press OK. ' +
+        `On the Windows client runner, signed in as ${acct}${sess}: use the bounded SETUP procedure (RUNBOOK §2.4) - ` +
+        'workflow_dispatch with mode=consent-setup on the current lab candidate. It prints the exact one-line command with ' +
+        "THIS attempt's live server address, opens the production-shaped .rdp and keeps the desktop window open for a bounded " +
+        'period; check "I understand and allow RDP files to open on this device for my account", then press OK. ' +
         'The consent is per-account and per-device - it must be repeated if a different Windows account runs the client runner. ' +
-        'Do not automate this checkbox, do not write RdpLaunchConsentAccepted, and do not disable the warning globally.'
+        'Never reuse an address from an older run (the lab server is ephemeral), do not automate this checkbox, ' +
+        'do not write RdpLaunchConsentAccepted, and do not disable the warning globally.'
     };
   }
   if (kind === 'unknown') {

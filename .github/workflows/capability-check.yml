@@ -12,6 +12,7 @@ name: Capability Check Workflow
 run-name: >-
   capability ${{ github.event_name }}
   ${{ github.event.pull_request.number && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}
+  ${{ inputs.mode && inputs.mode != 'full' && format('[{0}]', inputs.mode) || '' }}
   ${{ inputs.correlation_id && format('[{0}]', inputs.correlation_id) || '' }}
 
 on:
@@ -31,11 +32,16 @@ on:
         default: ''
         type: string
       mode:
-        description: 'full = all capabilities; auth-diagnostic = OIDC/Tailscale join diagnosis only'
+        description: 'full = all capabilities (acceptance); consent-setup = bounded SETUP for the one-time RDP-file consent (no verdict); auth-diagnostic = OIDC/Tailscale join diagnosis only'
         required: false
         default: full
         type: choice
-        options: [full, auth-diagnostic]
+        options: [full, consent-setup, auth-diagnostic]
+      setup_timeout_ms:
+        description: 'consent-setup only: how long the SETUP window stays open (ms, max 900000). Bounded on purpose - no indefinite hosted jobs.'
+        required: false
+        default: '600000'
+        type: string
 
 concurrency:
   group: capability-${{ github.event.pull_request.number || github.ref }}
@@ -388,6 +394,8 @@ jobs:
       caps_tailnet: ${{ steps.peer.outputs.caps_tailnet }}
       caps_remote: ${{ steps.remote.outputs.caps_remote }}
       backend_pid_remote: ${{ steps.remote.outputs.backend_pid_remote }}
+      setup_state: ${{ steps.setup.outputs.setup_state }}
+      setup_detail: ${{ steps.setup.outputs.setup_detail }}
     defaults:
       run:
         shell: powershell
@@ -427,7 +435,7 @@ jobs:
 
       - name: Client-local capabilities (synthetic browser, native screenshot)
         id: browser
-        if: always()
+        if: always() && inputs.mode != 'consent-setup'
         env:
           ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -445,7 +453,7 @@ jobs:
 
       - name: Remote capabilities (readiness, dashboard, RDP auto-login, Web Desktop)
         id: remote
-        if: always()
+        if: always() && inputs.mode != 'consent-setup'
         env:
           PEER_IP: ${{ steps.peer.outputs.peer_ip }}
           RDP_HOST: ${{ steps.peer.outputs.peer_ip }}
@@ -459,6 +467,51 @@ jobs:
             node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-port 7331 --ready-timeout-ms 180000
           }
           exit $LASTEXITCODE
+
+      - name: SETUP ONLY - bounded RDP-file consent window (no verification verdict)
+        id: setup
+        if: always() && inputs.mode == 'consent-setup'
+        timeout-minutes: 16
+        env:
+          PEER_IP: ${{ steps.peer.outputs.peer_ip }}
+          SETUP_TIMEOUT_MS: ${{ inputs.setup_timeout_ms }}
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # SETUP, not an acceptance run. The verification path detects the consent
+          # dialog on its first poll and cleans up immediately (correct for an
+          # unattended run, but it gives a human no time to act). This step opens the
+          # production-shaped .rdp once and holds the desktop window open for a
+          # bounded period so the operator can answer the one-time account consent.
+          # It never clicks the dialog, never writes consent state and produces no
+          # capability verdict.
+          if (-not $env:PEER_IP) {
+            Write-Host "::error title=SETUP blocked::no live server peer for this attempt; the target must be an address the current run printed"
+            "setup_state=BLOCKED_NO_LIVE_TARGET" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 1
+          }
+          $ms = 600000
+          if ($env:SETUP_TIMEOUT_MS) { [void][int]::TryParse($env:SETUP_TIMEOUT_MS, [ref]$ms) }
+          if ($ms -gt 900000) { $ms = 900000 }
+          node scripts/rdp-consent-setup.js --host $env:PEER_IP --user slabrdp --timeout-ms $ms --poll-ms 5000
+          $code = $LASTEXITCODE
+          $state = 'UNKNOWN'
+          $detail = ''
+          $json = Join-Path $env:ARTIFACT_DIR 'setup-consent.json'
+          if (Test-Path $json) {
+            try {
+              $doc = Get-Content -Raw -Path $json | ConvertFrom-Json
+              $state = [string]$doc.state
+              $detail = ([string]$doc.message).Replace("`n", ' ').Replace("`r", ' ')
+            } catch { $state = 'UNKNOWN_UNPARSEABLE_EVIDENCE' }
+          }
+          "setup_state=$state" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "setup_detail=$($detail.Substring(0, [Math]::Min(300, $detail.Length)))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "::notice title=SETUP result::$state - $detail"
+          Write-Host "SETUP exit code $code (0 = answered/connected, 4 = a different dialog is blocking, 5 = no dialog seen, 7 = closed without evidence)"
+          # Only a procedure/usage failure fails the job; an unanswered or blocked
+          # SETUP window is a reported state, not a fake verification failure.
+          if ($code -eq 64 -or $code -eq 69) { exit 1 }
+          exit 0
 
       - name: Postflight owned-process cleanup (this run attempt only)
         if: always()
@@ -491,7 +544,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.23.3'
+      - name: SETUP summary (no verdict - this run never verifies anything)
+        if: inputs.mode == 'consent-setup'
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          MODE: ${{ inputs.mode }}
+          LAB_SHA: ${{ github.sha }}
+          SETUP_STATE: ${{ needs.client.outputs.setup_state }}
+          SETUP_DETAIL: ${{ needs.client.outputs.setup_detail }}
+          SETUP_SUMMARY_PATH: ${{ runner.temp }}/setup-summary.json
+        run: node scripts/setup-summary.js
+
       - name: Build verification report (VERIFIED only if all required capabilities PASS)
+        if: inputs.mode != 'consent-setup'
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           APP_SHA: ${{ needs.static.outputs.app_sha }}
@@ -504,9 +569,17 @@ jobs:
           REPORT_PATH: ${{ runner.temp }}/verification-report.json
         run: node scripts/verification-report.js
       - name: Upload verification report
-        if: always()
+        if: always() && inputs.mode != 'consent-setup'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: verification-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/verification-report.json
           if-no-files-found: error
+
+      - name: Upload setup summary
+        if: always() && inputs.mode == 'consent-setup'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: setup-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/setup-summary.json
+          if-no-files-found: warn

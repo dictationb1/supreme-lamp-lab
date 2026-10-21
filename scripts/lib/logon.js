@@ -54,6 +54,11 @@
 //   the collector to confirm type 10 at the same event instant. If that
 //   never happens the honest verdict is "type unknown", not "derived".
 
+// How long after the attempt baseline an event may still belong to the
+// attempt. The capability polls for 90s; anything older than this is a
+// different session's event, anything later is clock skew.
+const DEFAULT_MAX_AFTER_BASELINE_MS = 30 * 60 * 1000;
+
 /** Trim, lowercase, and fold an IPv4-mapped IPv6 literal to its IPv4 form. */
 function normalizeIp(ip) {
   let s = String(ip == null ? '' : ip).trim().toLowerCase();
@@ -81,7 +86,7 @@ function normalizeIp(ip) {
  *                                       a remote source address
  *   { state: 'not-observed', detail }   keep polling
  */
-function evaluateLogonStatus(body, { baselineIso, clientIp, expectedUser } = {}) {
+function evaluateLogonStatus(body, { baselineIso, clientIp, expectedUser, maxAfterBaselineMs } = {}) {
   if (!body || typeof body !== 'object') return { state: 'not-observed', detail: 'no logon-status body' };
   if (body.connected !== true) {
     return { state: 'not-observed', detail: `connected=${body.connected} checked=${body.checked == null ? '?' : body.checked}` };
@@ -92,9 +97,36 @@ function evaluateLogonStatus(body, { baselineIso, clientIp, expectedUser } = {})
   if (Number.isFinite(baseMs) && tsMs < baseMs) {
     return { state: 'not-observed', detail: `stale event: ts ${body.ts} < baseline ${baselineIso}` };
   }
-  if (expectedUser && body.user != null && String(body.user).trim() &&
-      String(body.user).trim().toLowerCase() !== String(expectedUser).trim().toLowerCase()) {
-    return { state: 'not-observed', detail: `user echo ${JSON.stringify(body.user)} != expected ${JSON.stringify(expectedUser)}` };
+  // UPPER bound of the attempt window. The endpoint's own query is
+  // `StartTime=since`, so a timestamp far beyond the baseline can only come
+  // from a negative-duration/parse quirk or severe clock skew - not from the
+  // attempt under test. A window needs both ends to be "the correct attempt
+  // time window".
+  const maxAfter = Number.isFinite(maxAfterBaselineMs) ? maxAfterBaselineMs : DEFAULT_MAX_AFTER_BASELINE_MS;
+  if (Number.isFinite(baseMs) && tsMs > baseMs + maxAfter) {
+    return {
+      state: 'not-observed',
+      detail: `event ts ${body.ts} is ${Math.round((tsMs - baseMs) / 1000)}s after the attempt baseline ${baselineIso}, ` +
+        `outside the ${Math.round(maxAfter / 60000)}-minute attempt window (clock skew or a foreign event)`
+    };
+  }
+  // INTENDED USER. The event was selected server-side by this user filter, so
+  // the echo is the app's own statement of which filter it applied. A missing
+  // echo means we cannot show that our filter was applied at all, and a
+  // different echo means it filtered for someone else - neither proves the
+  // intended identity, so neither may contribute to acceptance. (The pinned
+  // app always echoes the requested/config rdpUser.)
+  if (expectedUser) {
+    const echo = body.user == null ? '' : String(body.user).trim();
+    if (!echo) {
+      return {
+        state: 'not-observed',
+        detail: `user echo is empty: the endpoint did not report which user filter selected this event, so ${JSON.stringify(String(expectedUser))} is unproven`
+      };
+    }
+    if (echo.toLowerCase() !== String(expectedUser).trim().toLowerCase()) {
+      return { state: 'not-observed', detail: `user echo ${JSON.stringify(body.user)} != expected ${JSON.stringify(expectedUser)}` };
+    }
   }
   const lt = body.logonType == null ? '' : String(body.logonType).trim();
   const src = normalizeIp(body.sourceIp);
@@ -147,7 +179,7 @@ function evaluateLogonStatus(body, { baselineIso, clientIp, expectedUser } = {})
  * A stale record (eventTs before the attempt baseline) is UNRELATED: it can
  * neither confirm nor veto, and is called out as unrelated in the detail.
  */
-function evaluateNativeCrossCheck(authLast, candidateTsIso, { toleranceMs = 2500, baselineIso } = {}) {
+function evaluateNativeCrossCheck(authLast, candidateTsIso, { toleranceMs = 2500, baselineIso, expectedUser } = {}) {
   if (!authLast || typeof authLast !== 'object') return { state: 'unavailable', detail: 'authLast absent' };
   if (authLast.probeError) return { state: 'unavailable', detail: `collector probeError=${authLast.probeError}` };
   const candMs = Date.parse(candidateTsIso || '');
@@ -160,10 +192,26 @@ function evaluateNativeCrossCheck(authLast, candidateTsIso, { toleranceMs = 2500
   const evMs = Date.parse(authLast.eventTs || '');
   const lt = authLast.logonType == null ? '' : String(authLast.logonType).trim();
   const stale = Number.isFinite(evMs) && Number.isFinite(baseMs) && evMs < baseMs;
+  // The collector parses TargetUserName from the event XML but the pinned app
+  // does not surface it yet (Get-RdpLogonAuthLast allowlists only result/sub/
+  // eventTs/scanTs/counts/logonType). When a build does report it, a
+  // same-instant record for a DIFFERENT account is not our logon: the
+  // cross-check must never confirm through someone else's event.
+  const reportedUser = authLast.targetUserName != null ? String(authLast.targetUserName)
+    : (authLast.user != null ? String(authLast.user) : '');
+  const wantUser = expectedUser ? String(expectedUser).trim().toLowerCase() : '';
+  if (authLast.result === 'success' && Number.isFinite(evMs) && Math.abs(evMs - candMs) <= toleranceMs &&
+      wantUser && reportedUser && reportedUser.trim().toLowerCase() !== wantUser) {
+    return {
+      state: 'contradicted',
+      detail: `authLast success at the candidate instant is for ${JSON.stringify(reportedUser)}, not the intended ${JSON.stringify(String(expectedUser))}`
+    };
+  }
   if (authLast.result === 'success' && Number.isFinite(evMs)) {
     if (Math.abs(evMs - candMs) <= toleranceMs) {
+      const who = reportedUser ? ` for ${JSON.stringify(reportedUser)}` : ' (collector does not report the account; identity rests on the user-filtered endpoint query)';
       return lt === '10'
-        ? { state: 'confirmed', detail: `authLast success LogonType 10 at ${authLast.eventTs} (same event instant)` }
+        ? { state: 'confirmed', detail: `authLast success LogonType 10 at ${authLast.eventTs}${who} (same event instant)` }
         : { state: 'contradicted', detail: `authLast success at the candidate instant has LogonType ${JSON.stringify(lt)} (XML-parsed), not 10` };
     }
     if (evMs < candMs - toleranceMs) {
@@ -199,4 +247,4 @@ function digestLogonBody(body) {
     `logonType=${JSON.stringify(lt)} sourceIp=${body.sourceIp || ''} ts=${body.ts || ''} ageSec=${body.ageSeconds == null ? '?' : body.ageSeconds}`).slice(0, 180);
 }
 
-module.exports = { normalizeIp, evaluateLogonStatus, evaluateNativeCrossCheck, digestLogonBody };
+module.exports = { normalizeIp, evaluateLogonStatus, evaluateNativeCrossCheck, digestLogonBody, DEFAULT_MAX_AFTER_BASELINE_MS };
