@@ -147,8 +147,10 @@ async function runMissionControlCheck() {
     try {
       readinessRes = await fetch(`${serverUrl}/api/readiness`, { signal: AbortSignal.timeout(3000) });
     } catch (fetchErr) {
+      const causeDetails = fetchErr.cause ? ` [cause: ${fetchErr.cause.code || fetchErr.cause.name || fetchErr.cause.message} (${fetchErr.cause.address}:${fetchErr.cause.port}, syscall: ${fetchErr.cause.syscall})]` : '';
+      const detailedErrorMsg = `${fetchErr.message}${causeDetails}`;
       if (allowMock) {
-        console.log(`Mission Control server at ${serverUrl} not responding. Starting mock Mission Control server (ALLOW_MOCK_MISSION_CONTROL=true)...`);
+        console.log(`Mission Control server at ${serverUrl} not responding (${detailedErrorMsg}). Starting mock Mission Control server (ALLOW_MOCK_MISSION_CONTROL=true)...`);
         try {
           const parsedUrl = new URL(serverUrl);
           const port = parseInt(parsedUrl.port || '8080', 10);
@@ -160,7 +162,7 @@ async function runMissionControlCheck() {
         }
       } else {
         capabilities.backendCheck = 'FAIL';
-        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable: ${fetchErr.message}. Mocks are disabled.`);
+        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable: ${detailedErrorMsg}. Mocks are disabled.`);
       }
     }
 

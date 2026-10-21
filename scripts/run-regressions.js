@@ -116,6 +116,55 @@ runTest('Process Registry UTF-8 Array Schema & Atomic Writes', () => {
   }
 });
 
+// Defect 11: HTTP 200 invalid schema detection in Mission Control readiness probe
+runTest('Readiness Rejects HTTP 200 Response With Missing Schema Fields', () => {
+  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'schema-test-'));
+  let mockPortServer = null;
+  try {
+    const http = require('http');
+    mockPortServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true })); // missing backendIdentity / sourceCommit / services
+    });
+
+    return new Promise((resolve, reject) => {
+      mockPortServer.listen(0, '127.0.0.1', () => {
+        const port = mockPortServer.address().port;
+        const env = { ...process.env, RUNNER_TEMP: tempDir, MISSION_CONTROL_URL: `http://127.0.0.1:${port}`, ALLOW_MOCK_MISSION_CONTROL: 'false' };
+        const scriptPath = path.join(__dirname, 'mission-control-check.js');
+        try {
+          execSync(`node "${scriptPath}"`, { env, stdio: 'pipe' });
+          reject(new Error('mission-control-check.js should have failed on invalid readiness schema!'));
+        } catch (err) {
+          const artDir = path.join(tempDir, 'artifacts');
+          let foundResults = false;
+          if (fs.existsSync(artDir)) {
+            const runs = fs.readdirSync(artDir);
+            for (const run of runs) {
+              const resFile = path.join(artDir, run, 'mission-control-results.json');
+              if (fs.existsSync(resFile)) {
+                foundResults = true;
+                const res = JSON.parse(fs.readFileSync(resFile, 'utf8'));
+                if (res.status === 'PASS') {
+                  return reject(new Error('mission-control-check.js recorded status PASS for invalid schema response!'));
+                }
+              }
+            }
+          }
+          if (!foundResults) {
+            return reject(new Error('mission-control-results.json was not created during schema failure'));
+          }
+          resolve(true);
+        } finally {
+          if (mockPortServer) mockPortServer.close();
+        }
+      });
+    });
+  } finally {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+  }
+});
+
 // Defect 10: Workflow file does not allow mock fallback in live mode
 runTest('Workflow Disables Mock Fallback in Live Acceptance Mode', () => {
   const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'capability-check.yml');

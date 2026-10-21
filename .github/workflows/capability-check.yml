@@ -137,7 +137,7 @@ jobs:
           node scripts/browser-check.js
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
-      - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+      - name: Provision & Supervised Mission Control Application Verification
         run: |
           $ErrorActionPreference = 'Stop'
           # Ensure git is available on PATH if installed in standard Windows locations
@@ -209,12 +209,17 @@ jobs:
             });
           "
 
-          # Probe readiness
+          # Probe readiness within same step before executing Node verification
           $url = "http://127.0.0.1:7331/api/readiness"
           Write-Host "Waiting for backend readiness at $url..."
           $ready = $false
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline) {
+            if ($proc.HasExited) {
+              $stdoutText = if (Test-Path $stdoutPath) { Get-Content $stdoutPath -Raw } else { "" }
+              $stderrText = if (Test-Path $stderrPath) { Get-Content $stderrPath -Raw } else { "" }
+              throw "Backend process exited prematurely with exit code $($proc.ExitCode) during startup.`nSTDOUT: $stdoutText`nSTDERR: $stderrText"
+            }
             try {
               $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
               if ($resp.StatusCode -eq 200) {
@@ -230,17 +235,26 @@ jobs:
             throw "Backend failed to become ready at $url within 30 seconds."
           }
 
-          # Export env vars for Mission Control check step
-          echo "MISSION_CONTROL_URL=http://127.0.0.1:7331" >> $env:GITHUB_ENV
-          echo "RDP_TARGET=127.0.0.1" >> $env:GITHUB_ENV
-          echo "SUPREME_LAMP_SHA=$appSha" >> $env:GITHUB_ENV
-
-      - name: Run Mission Control Verification Profile
-        run: |
-          $ErrorActionPreference = 'Stop'
+          # Execute Mission Control Verification within the same workflow step while backend remains alive
+          $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
+          $env:RDP_TARGET = "127.0.0.1"
+          $env:SUPREME_LAMP_SHA = $appSha
           $env:ALLOW_MOCK_MISSION_CONTROL = "false"
+
+          Write-Host "Executing Mission Control Verification profile under backend process PID $($proc.Id)..."
           node scripts/mission-control-check.js
-          if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
+          $mcCheckCode = $LASTEXITCODE
+
+          # Stop supervised backend process cleanly after verification
+          try {
+            if (-not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+          } catch { }
+
+          if ($mcCheckCode -ne 0) {
+            throw "Mission Control verification check failed with code $mcCheckCode"
+          }
 
       - name: Postflight Lab Process Cleanup
         if: always()
