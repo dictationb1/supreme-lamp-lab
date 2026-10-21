@@ -111,6 +111,19 @@ both `scripts/f60-stage-and-start.ps1` and `scripts/f60-bootstrap.ps1`.
   `#uiV2MissingBanner` is a FAIL (`DASHBOARD_V2_NOT_STAGED`); 4 new browser e2e cases
   (v2 ok / never mounted / stale bundle SHA / not-staged banner).
 
+## Evidence: run 39545919638 attempt 1 (head 33a3456, pull_request)
+
+- static 119043941573: success, including the 4 new v2 dashboard browser e2e cases (real Chromium).
+- server 119044505504: supervisor phases `okfile,listener,readiness,server-local-checks` all OK (pid 7984);
+  **`backend_readiness_server_local` PASS** (`port=7331 phase=ready; sha=978a8375…`);
+  **`dashboard_server_local` PASS** (`v2: title ok, build 978a8375ee77 (meta[name=ghrdp-build] +
+  #ghrdpBuild[data-build]), app-topbar visible, screenshot 1366x820`). Job fails only at the explicit tailnet gate.
+- client 119044505539: `The self-hosted runner lost communication with the server` before step 1
+  (machine/network side; zero steps ran). Report: client capabilities `NOT_RUN` (`NO_RESULT`), verdict NOT_VERIFIED.
+- Re-run (`/rerun`, `/rerun-failed-jobs`) and `workflow_dispatch` return HTTP 403 for this integration, so
+  fresh evidence comes from new pushes; the post-merge `workflow_dispatch` must be started by a maintainer
+  (`node scripts/dispatch-verification.js --ref main`), while the `push: main` trigger runs automatically.
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.
