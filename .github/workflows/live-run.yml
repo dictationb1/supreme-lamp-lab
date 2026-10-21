@@ -33,10 +33,10 @@ name: Live-Run Integration (Mission Control -> client VM)
 # ---------------------------------------------------------------------------
 
 run-name: >-
-  live-run ${{ github.event_name }}
-  ${{ github.event.client_payload.correlation_id && format('[{0}]', github.event.client_payload.correlation_id) || '' }}
-  ${{ github.event.client_payload.origin_run && format('origin:{0}', github.event.client_payload.origin_run) || '' }}
-
+  ${{ format('live-run {0} {1}', github.event_name,
+  github.event.client_payload.correlation_id != '' && github.event.client_payload.correlation_id
+  || github.event.inputs.correlation_id != '' && github.event.inputs.correlation_id
+  || (github.event.inputs.origin_run != '' && format('origin:{0}', github.event.inputs.origin_run) || 'sweep')) }}
 on:
   repository_dispatch:
     types: [mission-control.live-run]
@@ -87,12 +87,20 @@ on:
 #     because the record key names the exact run id + attempt it belongs to;
 #   - cancel-in-progress is false: killing a live verification mid-flight would
 #     destroy the evidence the operator is waiting for.
+# Queue policy (enforced in scripts/lib/record-store.js; the group here is only a
+# cheap dedupe of deliveries for the SAME originating run):
+#   - one desktop at a time: the `run-records` claim file is the real lock, and a
+#     waiting lab run never steals it (`QUEUED_BEHIND_LIVE_CLAIMANT`, exit 9);
+#   - dedupe by (origin run, attempt): a duplicate repository_dispatch resolves to
+#     the same record, sees the live claim, and stands down;
+#   - a queued request is NEVER re-attached to a different server, because the
+#     record key names the exact run id + attempt it belongs to;
+#   - no cancel-in-progress: killing a live verification mid-flight would destroy
+#     the evidence the operator is waiting for.
 concurrency:
-  group: >-
-    live-run-${{ github.event.client_payload.origin_repo || github.event.inputs.origin_repo || 'dispatch' }}-${{ github.event.client_payload.origin_run || github.event.inputs.origin_run || github.run_id }}-${{ github.event.inputs.origin_attempt || '1' }}
+  group: live-run-queue
   parallel: false
   cancel-in-progress: false
-
 permissions:
   contents: read
   actions: read
@@ -162,7 +170,28 @@ jobs:
             echo "endpoint=$(echo "$PICK" | jq -r '.descriptor.authorizedEndpoint // ""')"
             echo "expires_at=$(echo "$PICK" | jq -r '.descriptor.expiresAt // ""')"
             echo "mode=$(echo "$PICK" | jq -r '.descriptor.mode // "live-origin"')"
+            # `poll-records` reports the queue depth; carry it as a number only, so
+            # a malformed value can never be interpolated into the next step.
+            pending=$(jq -r '.pending // 0' records.txt 2>/dev/null || echo 0)
+            case "$pending" in (*[!0-9]*|'') pending=0;; esac
+            echo "pending=$pending"
           } >> "$GITHUB_OUTPUT"
+      - name: Wake the next sweep if the queue still has work
+        if: steps.pick.outputs.proceed != 'yes' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.pick.outputs.pending }}
+        run: |
+          # Only the last sweep of a burst needs to hand the baton: a 10-minute
+          # cron is the guarantee, this step just shortens the tail. It dispatches
+          # THIS repository, carries no secret, and is skipped for an empty queue.
+          if [ "${PENDING:-0}" -gt 0 ] 2>/dev/null; then
+            node scripts/dispatch-verification.js --workflow live-run.yml --ref "${{ github.ref_name }}" --no-follow \
+              || echo "::warning title=next-sweep::the wake-up dispatch failed; the scheduled sweep still covers it"
+          else
+            echo "queue empty (pending=${PENDING:-0}) - no wake-up dispatched"
+          fi
+
       - name: Operator status
         if: always()
         run: |
@@ -243,12 +272,14 @@ jobs:
           exit 1
 
       - name: Keep the authorized viewer open (bounded, opt-in)
-        if: always() && env.KEEP_VIEWER_MIN != '' && env.KEEP_VIEWER_MIN != '0'
+        if: always() && github.event.inputs.keep_viewer_open_minutes != '' && github.event.inputs.keep_viewer_open_minutes != '0'
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
           # stopped by the postflight step. It is never an orphan left behind to
           # outlive the runner, and never a detached "keep it alive forever".
-          $m = [int]$env:KEEP_VIEWER_MIN
+          # A non-numeric value closes immediately rather than guessing.
+          $m = 0
+          if ($env:KEEP_VIEWER_MIN -match '^\d{1,3}$') { $m = [int]$env:KEEP_VIEWER_MIN }
           if ($m -gt 60) { $m = 60 }
           Write-Host "::notice title=viewer open::the authenticated dashboard stays visible for $m more minute(s); the run's report is already persisted"
           Start-Sleep -Seconds ($m * 60)

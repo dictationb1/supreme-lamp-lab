@@ -3,6 +3,11 @@
 // Dispatch the capability workflow and follow THAT run to completion.
 //
 //   GH_TOKEN=... node scripts/dispatch-verification.js --ref main [--source-sha <40hex>] [--mode full|auth-diagnostic] [--timeout-min 60]
+//   GH_TOKEN=... node scripts/dispatch-verification.js --workflow live-run.yml --ref main --no-follow
+//
+// `--workflow` selects the entry point. `live-run.yml` takes no source_sha/mode:
+// it claims whatever originating run is in its queue, so a wake-up here is only a
+// nudge (its scheduled sweep remains the guaranteed path).
 //
 // The run is identified by a fresh correlation id that the workflow puts in
 // its run-name (display_title), so concurrent runs can never be confused.
@@ -12,16 +17,21 @@
 const crypto = require('crypto');
 const { request } = require('./lib/http');
 
-const WORKFLOW = 'capability-check.yml';
+const DEFAULT_WORKFLOW = 'capability-check.yml';
 
 function parseArgs(argv) {
-  const a = { ref: 'main', sourceSha: '', mode: 'full', timeoutMin: 60, repo: process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab' };
+  const a = { ref: 'main', sourceSha: '', mode: 'full', timeoutMin: 60, follow: true, workflow: DEFAULT_WORKFLOW, correlationId: '', event: 'workflow_dispatch',
+    repo: process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab' };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--ref') a.ref = argv[++i];
     else if (argv[i] === '--source-sha') a.sourceSha = argv[++i];
     else if (argv[i] === '--mode') a.mode = argv[++i];
     else if (argv[i] === '--timeout-min') a.timeoutMin = Number(argv[++i]);
     else if (argv[i] === '--repo') a.repo = argv[++i];
+    else if (argv[i] === '--workflow') a.workflow = argv[++i];
+    else if (argv[i] === '--correlation-id') a.correlationId = argv[++i];
+    else if (argv[i] === '--event') a.event = argv[++i];
+    else if (argv[i] === '--no-follow') a.follow = false;
   }
   return a;
 }
@@ -41,12 +51,19 @@ const sleep = ms => new Promise(res => setTimeout(res, ms));
 
 async function main() {
   const a = parseArgs(process.argv);
-  const correlationId = `cv-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${crypto.randomBytes(3).toString('hex')}`;
-  const inputs = { correlation_id: correlationId, mode: a.mode };
-  if (a.sourceSha) inputs.source_sha = a.sourceSha;
+  const correlationId = a.correlationId || `cv-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}-${crypto.randomBytes(3).toString('hex')}`;
+  const WORKFLOW = a.workflow;
+  // A live-run wake-up must NOT send capability-check inputs: live-run.yml has a
+  // different input set, and an unknown key would be silently ignored rather than
+  // rejected — which is exactly how a wrong-target dispatch looks like a success.
+  const inputs = WORKFLOW === 'live-run.yml'
+    ? { correlation_id: correlationId }
+    : { correlation_id: correlationId, mode: a.mode };
+  if (a.sourceSha && WORKFLOW !== 'live-run.yml') inputs.source_sha = a.sourceSha;
   const d = await api('POST', `/repos/${a.repo}/actions/workflows/${WORKFLOW}/dispatches`, { ref: a.ref, inputs });
   if (d.status !== 204) { console.error(`dispatch failed: HTTP ${d.status} ${d.text}`); process.exit(2); }
   console.log(`dispatched ${WORKFLOW}@${a.ref} correlation_id=${correlationId}`);
+  if (!a.follow) { console.log(JSON.stringify({ dispatched: true, workflow: WORKFLOW, correlationId, followed: false })); process.exit(0); }
 
   let run = null;
   const findDeadline = Date.now() + 5 * 60000;
