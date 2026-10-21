@@ -1,0 +1,6 @@
+{
+  "version": "v22.23.3",
+  "reason": "Node 22 LTS (Node 20 reached end-of-life 2026-04-30). The win-x64.zip SHA-256 is verified in CI against the release's GPG-signed SHASUMS256.txt using nodejs/release-keys at releaseKeysCommit.",
+  "releaseKeysCommit": "481637f813e912c4aa3622d7964ab426c97b8e8d",
+  "winX64ZipSha256": ""
+}

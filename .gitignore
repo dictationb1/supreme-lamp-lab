@@ -2,3 +2,8 @@ node_modules/
 artifacts/
 lab-process-registry.json
 lab-lock.lock
+
+# lab runtime state / evidence
+supreme-lamp-lab-state/
+*.lock.d/
+verification-report.json

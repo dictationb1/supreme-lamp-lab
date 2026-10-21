@@ -1,374 +1,460 @@
 name: Capability Check Workflow
 
+# Topology (see RUNBOOK.md):
+#   static  (ubuntu)   lint/parse/regressions, resolves the app SHA, verifies the Node pin
+#   server  (windows-latest, EPHEMERAL) stages the real supreme-lamp backend at the exact
+#                      app SHA, supervises it, prepares the RDP target, joins the tailnet
+#   client  (self-hosted interactive Windows) synthetic browser + native screenshot, then
+#                      remote readiness / dashboard / RDP auto-login / Web Desktop over the tailnet
+#   report  (ubuntu)   merges capability outputs; VERIFIED only if all 9 required PASS
+# The self-hosted client never starts a backend and never changes machine-wide settings.
+
+run-name: >-
+  capability ${{ github.event_name }}
+  ${{ github.event.pull_request.number && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}
+  ${{ inputs.correlation_id && format('[{0}]', inputs.correlation_id) || '' }}
+
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - 'jules-**'
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'supreme-lamp commit (40-hex) or ref to verify; empty = config/app-source.json pin'
+        required: false
+        default: ''
+        type: string
+      correlation_id:
+        description: 'Opaque id echoed in the run name (used by scripts/dispatch-verification.js)'
+        required: false
+        default: ''
+        type: string
+      mode:
+        description: 'full = all capabilities; auth-diagnostic = OIDC/Tailscale join diagnosis only'
+        required: false
+        default: full
+        type: choice
+        options: [full, auth-diagnostic]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  group: capability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
-  id-token: write
+  actions: read
 
 jobs:
-  client-capability-check:
-    name: Local Windows Client Capability Check
-    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
-    timeout-minutes: 10
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+  static:
+    name: static
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      app_sha: ${{ steps.app.outputs.app_sha }}
+      node_version: ${{ steps.nodepin.outputs.node_version }}
+      node_win_sha256: ${{ steps.nodepin.outputs.node_win_sha256 }}
     steps:
-      - name: Initial Diagnostic Check
-        shell: cmd
-        run: |
-          echo === PowerShell Execution Policy ^& Environment Diagnostics ===
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
-          powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Git:' (Get-Command git -ErrorAction SilentlyContinue).Path; Write-Host 'Node:' (Get-Command node -ErrorAction SilentlyContinue).Path"
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Initialize Per-Run Diagnostic Directory
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
-          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
-          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
-          New-Item -ItemType Directory -Force -Path $artDir | Out-Null
-
-          $meta = @{
-            runId = $runId
-            runAttempt = $runAttempt
-            event = $env:GITHUB_EVENT_NAME
-            branch = $env:GITHUB_REF_NAME
-            sha = $env:GITHUB_SHA
-            runnerOS = $env:RUNNER_OS
-            computerName = $env:COMPUTERNAME
-            userName = $env:USERNAME
-            sessionId = (Get-Process -Id $PID).SessionId
-            startTime = (Get-Date).ToString('o')
-          }
-          $meta | ConvertTo-Json | Out-File -FilePath "$artDir/diagnostics.json" -Encoding UTF8
-          Write-Host "Diagnostic directory initialized at $artDir"
-
-      - name: Preflight Lab Process Cleanup
-        run: |
-          $ErrorActionPreference = 'Stop'
-          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
-
-      - name: Verify Windows OS, User and Interactive Session
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "=== Windows Client Environment Verification ==="
-          Write-Host "Machine Name : $env:COMPUTERNAME"
-          Write-Host "User Account : $env:USERNAME"
-          Write-Host "OS Detail    : $((Get-CimInstance Win32_OperatingSystem).Caption)"
-          $sessionId = (Get-Process -Id $PID).SessionId
-          Write-Host "Session ID   : $sessionId"
-          if ($sessionId -eq 0) {
-            throw 'Desktop capability check requires an interactive Windows user session (Session ID > 0).'
-          }
-          Write-Host "OS, User, and Interactive Session check passed successfully."
-
-      - name: Setup Node.js (ZIP Installer)
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $nodeVersion = "20.18.1"
-          $expectedSha256 = "56e5aacdeee7168871721b75819ccacf2367de8761b78eaceacdecd41e04ca03"
-          $nodeZipName = "node-v$nodeVersion-win-x64.zip"
-          $url = "https://nodejs.org/dist/v$nodeVersion/$nodeZipName"
-
-          $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
-          $zipPath = Join-Path $tempDir $nodeZipName
-          $extractDir = Join-Path $tempDir "node-v$nodeVersion-win-x64"
-
-          if (-not (Test-Path "$extractDir/node.exe")) {
-            Write-Host "Downloading Node.js v$nodeVersion from $url..."
-            Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
-
-            Write-Host "Verifying SHA-256 checksum..."
-            $actualHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
-            if ($actualHash -ne $expectedSha256.ToLower()) {
-              throw "Node.js ZIP SHA-256 mismatch! Expected: $expectedSha256, Got: $actualHash"
-            }
-            Write-Host "Checksum verified successfully."
-
-            Write-Host "Extracting Node.js archive..."
-            Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
-            Remove-Item -Path $zipPath -Force
-          } else {
-            Write-Host "Node.js v$nodeVersion already cached at $extractDir"
-          }
-
-          Write-Host "Adding Node.js to PATH..."
-          Add-Content -Path $env:GITHUB_PATH -Value $extractDir
-          $env:PATH = "$extractDir;$env:PATH"
-
-          & "$extractDir/node.exe" -v
-          & "$extractDir/npm.cmd" -v
-
-      - name: Install Dependencies & Playwright
-        run: |
-          $ErrorActionPreference = 'Stop'
-          npm.cmd ci
-          if ($LASTEXITCODE -ne 0) { throw "npm ci failed with code $LASTEXITCODE" }
-          npx.cmd playwright install chromium
-          if ($LASTEXITCODE -ne 0) { throw "playwright install failed with code $LASTEXITCODE" }
-
-      - name: Run PowerShell & Regression Checks
-        run: |
-          $ErrorActionPreference = 'Stop'
-          node scripts/run-regressions.js
-          if ($LASTEXITCODE -ne 0) { throw "Regression tests failed with code $LASTEXITCODE" }
-
-      - name: Launch Browser and Capture Screenshot & Video
-        run: |
-          $ErrorActionPreference = 'Stop'
-          node scripts/browser-check.js
-          if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
-
-      - name: Checkout, Provision & Verify Mission Control Application (supreme-lamp)
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # Ensure git is available on PATH if installed in standard Windows locations
-          if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-            $gitCandidatePaths = @("C:\Program Files\Git\cmd", "C:\Program Files\Git\bin", "C:\Program Files (x86)\Git\cmd")
-            foreach ($p in $gitCandidatePaths) {
-              if (Test-Path "$p\git.exe") {
-                Write-Host "Adding Git path to environment: $p"
-                Add-Content -Path $env:GITHUB_PATH -Value $p
-                $env:PATH = "$p;$env:PATH"
-                break
-              }
-            }
-          }
-
-          $appDir = Join-Path $env:RUNNER_TEMP "supreme-lamp"
-          if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
-
-          $appSha = "unknown"
-          if (Get-Command git -ErrorAction SilentlyContinue) {
-            Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir via git..."
-            & git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
-            if ($LASTEXITCODE -eq 0) {
-              $appSha = (& git -C $appDir rev-parse HEAD).Trim()
-            }
-          }
-
-          if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
-            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback..."
-            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/refs/heads/main.zip"
-            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-main.zip"
-            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
-            Expand-Archive -Path $zipPath -DestinationPath $env:RUNNER_TEMP -Force
-            Remove-Item -Path $zipPath -Force
-            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-main"
-            if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
-            Rename-Item -Path $extractedDir -NewName "supreme-lamp"
-            $appSha = "main-zip"
-          }
-
-          Write-Host "Provisioned supreme-lamp revision: $appSha"
-
-          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
-          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
-          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
-
-          $serverScript = Join-Path $appDir "payloads\ghrdp-server.ps1"
-          $stdoutPath = Join-Path $artDir "backend-stdout.log"
-          $stderrPath = Join-Path $artDir "backend-stderr.log"
-
-          Write-Host "Starting real backend service ($serverScript)..."
-          $proc = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$serverScript`"", "-Port", "7331" `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath `
-            -PassThru -WindowStyle Hidden
-
-          Write-Host "Started backend process PID: $($proc.Id)"
-
-          # Register backend process in lab registry
-          node -e "
-            const registryUtils = require('./scripts/registry-utils');
-            registryUtils.registerProcess({
-              pid: $($proc.Id),
-              processName: 'powershell-ghrdp-server',
-              runId: '$runId',
-              runAttempt: '$runAttempt'
-            });
-          "
-
-          try {
-            # Probe readiness
-            $url = "http://127.0.0.1:7331/api/readiness"
-            Write-Host "Waiting for backend readiness at $url..."
-            $ready = $false
-            $deadline = (Get-Date).AddSeconds(30)
-            while ((Get-Date) -lt $deadline) {
-              if ($proc.HasExited) {
-                Write-Host "Backend process exited prematurely with code $($proc.ExitCode)!"
-                if (Test-Path $stderrPath) { Get-Content $stderrPath | Write-Host }
-                throw "Backend process PID $($proc.Id) exited prematurely with exit code $($proc.ExitCode) during startup."
-              }
-              try {
-                $resp = Invoke-WebRequest -Uri $url -TimeoutSec 3 -UseBasicParsing
-                if ($resp.StatusCode -eq 200) {
-                  $ready = $true
-                  Write-Host "Backend reported READY (HTTP 200)."
-                  break
-                }
-              } catch { }
-              Start-Sleep -Seconds 1
-            }
-
-            if (-not $ready) {
-              throw "Backend failed to become ready at $url within 30 seconds."
-            }
-
-            # Set environment variables for Mission Control check within this session
-            $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
-            $env:RDP_TARGET = "127.0.0.1"
-            $env:SUPREME_LAMP_SHA = $appSha
-            $env:ALLOW_MOCK_MISSION_CONTROL = "false"
-
-            Write-Host "Executing Mission Control verification profile while backend process PID $($proc.Id) is active..."
-            node scripts/mission-control-check.js
-            if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
-          } finally {
-            Write-Host "Stopping supervised backend process PID $($proc.Id)..."
-            if ($proc -and -not $proc.HasExited) {
-              try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
-            }
-          }
-
-      - name: Postflight Lab Process Cleanup
-        if: always()
-        run: |
-          powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
-
-      - name: Validate Expected Artifacts
-        if: always()
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
-          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
-          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
-
-          if (-not (Test-Path "$artDir/results.json")) {
-            throw "Missing results.json in $artDir"
-          }
-          if (-not (Test-Path "$artDir/screenshot.png")) {
-            throw "Missing screenshot.png in $artDir"
-          }
-          Write-Host "All required artifacts verified in $artDir"
-
-      - name: Upload Private Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: windows-client-browser-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/artifacts/
-          retention-days: 7
+          persist-credentials: false
 
-      - name: Record Artifact Evidence and Run URL
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+
+      - name: Resolve app commit under test
+        id: app
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/resolve-app-source.js
+
+      - name: Verify Node pin against the GPG-signed SHASUMS256.txt
+        id: nodepin
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version config/node-pin.json)
+          keys=$(jq -r .releaseKeysCommit config/node-pin.json)
+          pin=$(jq -r .winX64ZipSha256 config/node-pin.json)
+          work=$(mktemp -d)
+          curl -fsSL --retry 3 -o "$work/keys.tgz" "https://codeload.github.com/nodejs/release-keys/tar.gz/$keys"
+          tar -xzf "$work/keys.tgz" -C "$work"
+          keyring="$work/release-keys-$keys/gpg-only-active-keys/pubring.kbx"
+          curl -fsSL --retry 3 -o "$work/SHASUMS256.txt" "https://nodejs.org/dist/$version/SHASUMS256.txt"
+          curl -fsSL --retry 3 -o "$work/SHASUMS256.txt.sig" "https://nodejs.org/dist/$version/SHASUMS256.txt.sig"
+          gpgv --keyring "$keyring" "$work/SHASUMS256.txt.sig" "$work/SHASUMS256.txt"
+          hash=$(awk -v f="node-$version-win-x64.zip" '$2 == f { print $1 }' "$work/SHASUMS256.txt")
+          if ! [[ "$hash" =~ ^[0-9a-f]{64}$ ]]; then echo "::error::node-$version-win-x64.zip not in signed SHASUMS"; exit 1; fi
+          if [ -n "$pin" ] && [ "$pin" != "$hash" ]; then
+            echo "::error title=Node pin mismatch::config/node-pin.json winX64ZipSha256=$pin but signed SHASUMS says $hash"; exit 1
+          fi
+          if [ -z "$pin" ]; then
+            echo "::warning title=Node pin not yet recorded::signature-verified sha256 of node-$version-win-x64.zip is $hash - record it in config/node-pin.json"
+          fi
+          echo "::notice title=Node pin verified::node-$version-win-x64.zip sha256=$hash (gpgv OK, release-keys@$keys)"
+          {
+            echo "node_version=$version"
+            echo "node_win_sha256=$hash"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check (node --check)
+        run: |
+          set -euo pipefail
+          find scripts -name '*.js' -print0 | xargs -0 -n1 node --check
+          echo "node --check OK"
+
+      - name: Install Chromium for browser regressions
+        run: npx playwright install --with-deps chromium
+
+      - name: Regression suite (Linux, browser e2e required)
+        env:
+          REQUIRE_BROWSER_TESTS: '1'
+          ARTIFACT_DIR: ${{ runner.temp }}/artifacts
+        run: node scripts/run-regressions.js
+
+      - name: PowerShell parse (scripts + workflow run blocks)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tmp = Join-Path $env:RUNNER_TEMP 'wf-ps'
+          python3 -c "import yaml" 2>$null
+          if ($LASTEXITCODE -ne 0) { python3 -m pip install --quiet pyyaml }
+          python3 scripts/test/extract-workflow-powershell.py $tmp
+          if ($LASTEXITCODE -ne 0) { throw 'extraction failed' }
+          ./scripts/test/Test-PowerShellSyntax.ps1 -Paths @('scripts', $tmp)
+
+      - name: actionlint (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          v=1.7.12
+          work=$(mktemp -d)
+          base="https://github.com/rhysd/actionlint/releases/download/v$v"
+          curl -fsSL --retry 3 -o "$work/al.tgz" "$base/actionlint_${v}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$work/sums.txt" "$base/actionlint_${v}_checksums.txt"
+          want=$(awk -v f="actionlint_${v}_linux_amd64.tar.gz" '$2 == f { print $1 }' "$work/sums.txt")
+          echo "$want  $work/al.tgz" | sha256sum -c -
+          tar -xzf "$work/al.tgz" -C "$work" actionlint
+          "$work/actionlint" -color
+
+      - name: Upload static evidence
         if: always()
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
-          $runAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
-          $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
-          $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: static-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: warn
 
-          $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
-          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture incomplete." }
-
-          $summary = @"
-          ## Capability Check Evidence
-          - **Run URL**: $runUrl
-          - **Artifact Name**: `windows-client-browser-artifacts-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT}`
-          - **Status**: $statusMsg
-          "@
-          Write-Host $summary
-          if ($env:GITHUB_STEP_SUMMARY) {
-            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $summary
-          }
-
-  server-tailnet-check:
-    name: Temporary Windows Server Tailnet Job
-    runs-on: windows-latest
-    needs: client-capability-check
-    if: always()
+  auth-diagnostic:
+    name: auth-diagnostic
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'auth-diagnostic'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      id-token: write
       contents: read
-    defaults:
-      run:
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+      id-token: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: OIDC Federated Token Claims Diagnostic (Non-Secret)
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "=== OIDC Token Diagnostic Information ==="
-          Write-Host "Issuer              : https://token.actions.githubusercontent.com"
-          Write-Host "Repository          : $env:GITHUB_REPOSITORY"
-          Write-Host "Ref                 : $env:GITHUB_REF"
-          Write-Host "Event Name          : $env:GITHUB_EVENT_NAME"
-          Write-Host "Workflow            : $env:GITHUB_WORKFLOW"
-          Write-Host "SHA                 : $env:GITHUB_SHA"
-          Write-Host "Actor               : $env:GITHUB_ACTOR"
-          Write-Host "TS_OAUTH_CLIENT_ID  : $(if ($env:OAUTH_CLIENT_ID) { 'Present' } else { 'Missing/Empty' })"
-          Write-Host "TS_AUDIENCE         : $(if ($env:AUDIENCE) { 'Present' } else { 'Missing/Empty' })"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: OIDC claims (decoded, token never printed)
         env:
-          OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          AUDIENCE: ${{ secrets.TS_AUDIENCE }}
-
-      - name: Check Auth Info Empty
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not $env:OAUTH_CLIENT_ID) { throw "Missing TS_OAUTH_CLIENT_ID secret" }
-          if (-not $env:AUDIENCE) { throw "Missing TS_AUDIENCE secret" }
-        env:
-          OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          AUDIENCE: ${{ secrets.TS_AUDIENCE }}
-
-      - name: Connect Temporary Windows Server to Tailnet via OIDC
-        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+          OIDC_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+        run: node scripts/oidc-claims-diagnostic.js
+      - name: Tailscale join attempt (diagnostic)
+        id: tailscale
+        continue-on-error: true
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
-          version: 1.90.1
-
-      - name: Verify Client & Tailnet Connectivity
+          hostname: slab-diag-${{ github.run_id }}-${{ github.run_attempt }}
+          retry: 1
+      - name: Diagnostic verdict
+        env:
+          OUTCOME: ${{ steps.tailscale.outcome }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          Write-Host "Testing connectivity across Tailnet from temporary Windows server..."
-          & "C:\Program Files\Tailscale\tailscale.exe" status
-          if ($LASTEXITCODE -ne 0) { throw "Tailscale status failed with code $LASTEXITCODE" }
+          if [ "$OUTCOME" = "success" ]; then echo "::notice title=Tailscale join::OK"; else echo "::error title=Tailscale join::outcome=$OUTCOME (see OIDC subject annotation)"; exit 1; fi
 
-          $peerHost = $env:TAILSCALE_PEER_HOST
-          if (-not $peerHost) {
-            throw "TAILSCALE_PEER_HOST environment variable not configured."
-          } else {
-            Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
-            $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue
-            if ($res.StatusCode -ne 200) {
-              throw "Peer HTTP check failed with status code $($res.StatusCode)"
-            }
-            Write-Host "Peer connectivity check passed."
+  server:
+    name: server
+    needs: static
+    if: >-
+      !(github.event_name == 'workflow_dispatch' && inputs.mode == 'auth-diagnostic') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      APP_SHA: ${{ needs.static.outputs.app_sha }}
+    outputs:
+      caps_server_local: ${{ steps.supervise.outputs.caps_server_local }}
+      backend_pid: ${{ steps.supervise.outputs.backend_pid }}
+      supervisor_first_failure: ${{ steps.supervise.outputs.supervisor_first_failure }}
+      tailscale_outcome: ${{ steps.tailscale.outcome }}
+      ts_configured: ${{ steps.tscfg.outputs.configured }}
+      oidc_sub: ${{ steps.oidc.outputs.oidc_sub }}
+      recommended_subject: ${{ steps.oidc.outputs.recommended_subject }}
+      rdp_configured: ${{ steps.rdp.outputs.rdp_configured }}
+      rdp_reason: ${{ steps.rdp.outputs.rdp_reason }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Node (sha256 verified)
+        run: ./scripts/ps/Install-PinnedNode.ps1 -Version '${{ needs.static.outputs.node_version }}' -ExpectedSha256 '${{ needs.static.outputs.node_win_sha256 }}'
+
+      - name: Preflight owned-process cleanup
+        run: node scripts/cleanup-lab.js --mode preflight
+
+      - name: Checkout supreme-lamp at the exact app SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dictationb1/supreme-lamp
+          ref: ${{ needs.static.outputs.app_sha }}
+          path: app
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install lab dependencies + Chromium
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+
+      - name: Stage backend + commit-matched UI bundle (app's own staging functions)
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/server/Stage-App.ps1 -LabAppDir app -LabSha $env:APP_SHA -LabOut (Join-Path $env:RUNNER_TEMP 'stage-result.json')
+
+      - name: Prepare ephemeral RDP target (tailnet-only firewall)
+        id: rdp
+        env:
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'rdp-target.json'
+          ./scripts/server/Prepare-RdpTarget.ps1 -Out $out
+          $code = $LASTEXITCODE
+          $st = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          "rdp_configured=$(([string]$st.rdpConfigured).ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "rdp_reason=$($st.reason)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          exit $code
+
+      - name: OIDC claims diagnostic (decoded subject, token never printed)
+        id: oidc
+        if: always()
+        env:
+          OIDC_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
+        run: node scripts/oidc-claims-diagnostic.js
+
+      - name: Tailscale configuration present?
+        id: tscfg
+        if: always()
+        env:
+          HAS_CLIENT: ${{ secrets.TS_OAUTH_CLIENT_ID != '' }}
+          HAS_AUD: ${{ secrets.TS_AUDIENCE != '' }}
+        run: |
+          if ($env:HAS_CLIENT -eq 'true' -and $env:HAS_AUD -eq 'true') { 'configured=true' | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8 }
+          else { 'configured=false' | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8; Write-Host '::error title=Tailscale BLOCKED::MISSING_CONFIG: TS_OAUTH_CLIENT_ID and/or TS_AUDIENCE secret not set' }
+
+      - name: Join tailnet (workload identity)
+        id: tailscale
+        if: always() && steps.tscfg.outputs.configured == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+          hostname: slab-srv-${{ github.run_id }}-${{ github.run_attempt }}
+          retry: 1
+
+      - name: Tailnet address
+        if: always() && steps.tailscale.outcome == 'success'
+        run: |
+          $ip = (& tailscale ip -4 | Select-Object -First 1)
+          Write-Host "::notice title=Server tailnet address::slab-srv-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT} = $ip"
+
+      - name: Supervise backend (start, server-local checks, hold for client, stop)
+        id: supervise
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGE_OUTCOME: ${{ steps.stage.outcome }}
+        run: |
+          if ($env:STAGE_OUTCOME -ne 'success') {
+            node scripts/mission-control-check.js --scope server-local --fail-reason "STAGING_FAILED: app staging step outcome=$env:STAGE_OUTCOME (see 'Stage backend' annotations)"
+            exit 1
           }
+          node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
+          exit $LASTEXITCODE
+
+      - name: Postflight owned-process cleanup
+        if: always()
+        run: node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP 'artifacts\cleanup-postflight.json')
+
+      - name: Upload server evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/artifacts/
+            ${{ runner.temp }}/stage-result.json
+            ${{ runner.temp }}/rdp-target.json
+          if-no-files-found: warn
+
+      - name: Tailnet gate (explicit failure when the server could not join)
+        if: always() && steps.tailscale.outcome != 'success'
+        env:
+          OUTCOME: ${{ steps.tailscale.outcome }}
+          SUB: ${{ steps.oidc.outputs.oidc_sub }}
+          RECOMMENDED: ${{ steps.oidc.outputs.recommended_subject }}
+        run: |
+          Write-Host "::error title=tailnet_connectivity BLOCKED::tailscale step outcome=$env:OUTCOME; OIDC sub=$env:SUB; Tailscale trust credential subject must match, e.g. $env:RECOMMENDED"
+          exit 1
+
+  client:
+    name: client
+    needs: static
+    if: >-
+      !(github.event_name == 'workflow_dispatch' && inputs.mode == 'auth-diagnostic') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 25
+    env:
+      APP_SHA: ${{ needs.static.outputs.app_sha }}
+    outputs:
+      caps_client_local: ${{ steps.browser.outputs.caps_client_local }}
+      caps_tailnet: ${{ steps.peer.outputs.caps_tailnet }}
+      caps_remote: ${{ steps.remote.outputs.caps_remote }}
+      backend_pid_remote: ${{ steps.remote.outputs.backend_pid_remote }}
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Runner identity
+        run: |
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=Client runner::$env:RUNNER_NAME $env:COMPUTERNAME\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Node (sha256 verified)
+        run: ./scripts/ps/Install-PinnedNode.ps1 -Version '${{ needs.static.outputs.node_version }}' -ExpectedSha256 '${{ needs.static.outputs.node_win_sha256 }}'
+
+      - name: Preflight owned-process cleanup (abandoned records only)
+        run: |
+          node scripts/cleanup-lab.js --mode preflight
+          exit $LASTEXITCODE
+
+      - name: Install lab dependencies + Chromium
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+
+      - name: Regression suite (Windows, real processes)
+        env:
+          REQUIRE_BROWSER_TESTS: '1'
+        run: |
+          node scripts/run-regressions.js
+          exit $LASTEXITCODE
+
+      - name: Client-local capabilities (synthetic browser, native screenshot)
+        id: browser
+        if: always()
+        run: |
+          node scripts/browser-check.js
+          exit $LASTEXITCODE
+
+      - name: Wait for this attempt's server on the tailnet
+        id: peer
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/wait-for-peer.js --hostname "slab-srv-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" --port 7331 --timeout-ms 900000 --server-job server
+          exit $LASTEXITCODE
+
+      - name: Remote capabilities (readiness, dashboard, RDP auto-login, Web Desktop)
+        id: remote
+        if: always()
+        env:
+          PEER_IP: ${{ steps.peer.outputs.peer_ip }}
+          RDP_HOST: ${{ steps.peer.outputs.peer_ip }}
+          CLIENT_TAILNET_IP: ${{ steps.peer.outputs.client_ip }}
+          RDP_USER: slabrdp
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+        run: |
+          if (-not $env:PEER_IP) {
+            node scripts/mission-control-check.js --scope remote --blocked-reason 'DEPENDS_ON_TAILNET: server peer not reachable (see tailnet_connectivity)'
+          } else {
+            node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-port 7331 --ready-timeout-ms 180000
+          }
+          exit $LASTEXITCODE
+
+      - name: Postflight owned-process cleanup (this run attempt only)
+        if: always()
+        run: |
+          node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\run-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
+          exit $LASTEXITCODE
+
+      - name: Upload client evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: client-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: warn
+
+  report:
+    name: report
+    needs: [static, server, client]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Build verification report (VERIFIED only if all required capabilities PASS)
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          APP_SHA: ${{ needs.static.outputs.app_sha }}
+          LAB_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CORRELATION_ID: ${{ inputs.correlation_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPORT_PATH: ${{ runner.temp }}/verification-report.json
+        run: node scripts/verification-report.js
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/verification-report.json
+          if-no-files-found: error
