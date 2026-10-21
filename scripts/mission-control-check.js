@@ -64,23 +64,33 @@ function startMockMissionControlServer(port = 8080, commitSha = 'local-sha') {
 }
 
 function captureDesktopScreenshot(outputPath) {
+  const tempDir = process.env.TEMP || process.env.RUNNER_TEMP || '/tmp';
+  const scriptPath = path.join(tempDir, `cap-desktop-${Date.now()}-${Math.random().toString(36).substring(2, 6)}.ps1`);
   const psScript = `
+$ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
 $graphics = [System.Drawing.Graphics]::FromImage($bmp)
 $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-$bmp.Save('${outputPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Save($args[0], [System.Drawing.Imaging.ImageFormat]::Png)
 $graphics.Dispose()
 $bmp.Dispose()
 `;
   try {
-    execSync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${psScript.replace(/\n/g, ' ')}"`, { stdio: 'pipe' });
-    return true;
+    fs.writeFileSync(scriptPath, psScript, 'utf8');
+    execSync(`powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptPath}" "${outputPath}"`, { stdio: 'pipe', timeout: 10000 });
+    if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) {
+      return true;
+    }
+    console.error('Desktop screenshot output file does not exist or is empty');
+    return false;
   } catch (err) {
     console.error('Failed to capture native desktop screenshot via PowerShell:', err.message);
     return false;
+  } finally {
+    try { if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath); } catch (e) {}
   }
 }
 
@@ -113,7 +123,9 @@ async function runMissionControlCheck() {
   try {
     registryUtils.acquireLock({ runId, runAttempt, timeoutMs: 5000 });
     lockAcquired = true;
-  } catch (e) {}
+  } catch (lockErr) {
+    console.warn(`[LOCK_WARN] ${lockErr.message}`);
+  }
 
   const startTime = Date.now();
   let serverInstance = null;
@@ -160,7 +172,8 @@ async function runMissionControlCheck() {
         }
       } else {
         capabilities.backendCheck = 'FAIL';
-        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable: ${fetchErr.message}. Mocks are disabled.`);
+        const causeMsg = fetchErr.cause ? ` (${fetchErr.cause.code || fetchErr.cause.message || fetchErr.cause})` : '';
+        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable: ${fetchErr.message}${causeMsg}. Mocks are disabled.`);
       }
     }
 
@@ -171,9 +184,10 @@ async function runMissionControlCheck() {
 
     const readinessData = await readinessRes.json();
 
-    backendIdentity = readinessData.backendIdentity || readinessData.identity || (readinessData.ok ? 'ghrdp-server-backend' : null);
-    backendCommit = readinessData.sourceCommit || readinessData.commit || process.env.SUPREME_LAMP_SHA || commitSha;
-    readinessServices = readinessData.services || readinessData.dependencyHealth || { ok: readinessData.ok, phase: readinessData.phase };
+    backendIdentity = readinessData.backendIdentity || readinessData.identity || (readinessData.pid ? `ghrdp-server-pid-${readinessData.pid}` : (readinessData.status ? 'ghrdp-server-backend' : null));
+    const validEnvSha = process.env.SUPREME_LAMP_SHA && process.env.SUPREME_LAMP_SHA !== 'unknown' && process.env.SUPREME_LAMP_SHA !== 'main-zip' ? process.env.SUPREME_LAMP_SHA : null;
+    backendCommit = readinessData.sourceCommit || readinessData.commit || validEnvSha;
+    readinessServices = readinessData.services || readinessData.dependencyHealth;
     isMockBackend = Boolean(readinessData.isMock);
 
     if (!backendIdentity) {
@@ -182,11 +196,16 @@ async function runMissionControlCheck() {
     }
     if (!backendCommit) {
       capabilities.backendCheck = 'FAIL';
-      throw new Error("READINESS_SCHEMA_INVALID: Missing source commit in readiness JSON");
+      throw new Error("READINESS_SCHEMA_INVALID: Missing verifiable source commit in readiness JSON or environment");
     }
     if (!readinessServices) {
       capabilities.backendCheck = 'FAIL';
       throw new Error("READINESS_SCHEMA_INVALID: Missing services or dependencyHealth in readiness JSON");
+    }
+
+    if (readinessData.ok === false || (readinessData.status && readinessData.status !== 'ok' && readinessData.status !== 'ready')) {
+      capabilities.backendCheck = 'FAIL';
+      throw new Error(`READINESS_NOT_READY: Backend reported NOT READY (status: ${readinessData.status}, phase: ${readinessData.phase})`);
     }
 
     capabilities.backendCheck = isMockBackend ? 'SIMULATED' : 'PASS';
@@ -215,21 +234,23 @@ async function runMissionControlCheck() {
     await page.goto(serverUrl, { waitUntil: 'networkidle', timeout: 10000 });
 
     const bodyContent = await page.textContent('body');
-    if (!bodyContent) {
+    if (!bodyContent || bodyContent.trim().length === 0) {
       capabilities.dashboardCheck = 'FAIL';
       throw new Error('EMPTY_PAGE: Mission Control page body content empty');
     }
 
     capabilities.dashboardCheck = isMockBackend ? 'SIMULATED' : 'PASS';
 
-    // Verify Web Desktop element or dashboard content
+    // Verify explicit Web Desktop element or frame (must NOT pass on generic body or app without web desktop frame/canvas/component)
     const webDesktopFrame = await page.$('#web-desktop-frame');
-    const mainContent = (await page.$('#app')) || (await page.$('body'));
-    if (webDesktopFrame || mainContent) {
+    const canvas = await page.$('canvas');
+    const desktopElem = await page.$('[data-testid="web-desktop"]') || await page.$('#web-desktop') || await page.$('.web-desktop');
+
+    if (webDesktopFrame || canvas || desktopElem) {
       capabilities.webDesktopCheck = isMockBackend ? 'SIMULATED' : 'PASS';
     } else {
       capabilities.webDesktopCheck = 'FAIL';
-      throw new Error('WEB_DESKTOP_MISSING: Neither #web-desktop-frame nor active UI root found in Mission Control dashboard');
+      throw new Error('WEB_DESKTOP_MISSING: No active remote desktop frame (#web-desktop-frame), canvas, or Web Desktop element found in Mission Control dashboard');
     }
 
     await page.screenshot({ path: screenshotPath });
@@ -264,6 +285,11 @@ async function runMissionControlCheck() {
           if (mstscProc.pid) process.kill(mstscProc.pid);
         } catch (e) {}
 
+        if (!desktopCaptured) {
+          capabilities.rdpAutoLoginCheck = 'FAIL';
+          throw new Error('DESKTOP_SCREENSHOT_FAILED: Failed to capture native desktop screenshot after launching mstsc.');
+        }
+
         capabilities.rdpAutoLoginCheck = 'PASS';
       }
     } else {
@@ -276,10 +302,16 @@ async function runMissionControlCheck() {
       overallStatus = 'FAIL';
     } else if (values.includes('BLOCKED')) {
       overallStatus = 'BLOCKED';
+    } else if (values.includes('NOT_RUN')) {
+      overallStatus = 'FAIL';
+      if (!failureReason) failureReason = 'INCOMPLETE_VERIFICATION: One or more required capability checks were not run.';
     } else if (isMockBackend || values.includes('SIMULATED')) {
-      overallStatus = 'SIMULATED';
-      if (!failureReason) {
-        failureReason = 'SIMULATION_ONLY: Backend or dashboard was mock/simulated.';
+      if (allowMock) {
+        overallStatus = 'SIMULATED';
+        if (!failureReason) failureReason = 'SIMULATION_ONLY: Backend or dashboard was mock/simulated.';
+      } else {
+        overallStatus = 'FAIL';
+        failureReason = 'MOCK_DISALLOWED: Simulation mode is not allowed for live acceptance.';
       }
     } else {
       overallStatus = 'PASS';

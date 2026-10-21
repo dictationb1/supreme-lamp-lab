@@ -2,6 +2,11 @@ name: Capability Check Workflow
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Explicit commit SHA for dictationb1/supreme-lamp application'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -28,7 +33,7 @@ jobs:
       - name: Initial Diagnostic Check
         shell: cmd
         run: |
-          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          echo === PowerShell Execution Policy ^& Environment Diagnostics ===
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
@@ -88,11 +93,13 @@ jobs:
           $nodeZipName = "node-v$nodeVersion-win-x64.zip"
           $url = "https://nodejs.org/dist/v$nodeVersion/$nodeZipName"
 
-          $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
-          $zipPath = Join-Path $tempDir $nodeZipName
-          $extractDir = Join-Path $tempDir "node-v$nodeVersion-win-x64"
+          $cacheBase = if ($env:RUNNER_TOOL_CACHE) { $env:RUNNER_TOOL_CACHE } else { $env:RUNNER_TEMP }
+          $extractDir = Join-Path $cacheBase "node/v$nodeVersion/x64"
 
           if (-not (Test-Path "$extractDir/node.exe")) {
+            $tempDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+            $zipPath = Join-Path $tempDir $nodeZipName
+
             Write-Host "Downloading Node.js v$nodeVersion from $url..."
             Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
 
@@ -103,9 +110,15 @@ jobs:
             }
             Write-Host "Checksum verified successfully."
 
-            Write-Host "Extracting Node.js archive..."
-            Expand-Archive -Path $zipPath -DestinationPath $tempDir -Force
+            Write-Host "Extracting Node.js archive to tool cache..."
+            $tempExtract = Join-Path $tempDir "node-temp-$nodeVersion"
+            Expand-Archive -Path $zipPath -DestinationPath $tempExtract -Force
             Remove-Item -Path $zipPath -Force
+
+            $subDir = Join-Path $tempExtract "node-v$nodeVersion-win-x64"
+            if (-not (Test-Path $extractDir)) { New-Item -ItemType Directory -Force -Path (Split-Path $extractDir) | Out-Null }
+            Move-Item -Path $subDir -Destination $extractDir -Force
+            Remove-Item -Path $tempExtract -Recurse -Force
           } else {
             Write-Host "Node.js v$nodeVersion already cached at $extractDir"
           }
@@ -140,7 +153,6 @@ jobs:
       - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
         run: |
           $ErrorActionPreference = 'Stop'
-          # Ensure git is available on PATH if installed in standard Windows locations
           if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
             $gitCandidatePaths = @("C:\Program Files\Git\cmd", "C:\Program Files\Git\bin", "C:\Program Files (x86)\Git\cmd")
             foreach ($p in $gitCandidatePaths) {
@@ -153,29 +165,60 @@ jobs:
             }
           }
 
+          $targetSha = if ("${{ github.event.inputs.source_sha }}") { "${{ github.event.inputs.source_sha }}" } elseif ($env:SUPREME_LAMP_SHA) { $env:SUPREME_LAMP_SHA } else { "" }
+
+          if (-not $targetSha) {
+            Write-Host "Resolving HEAD commit SHA for dictationb1/supreme-lamp via git ls-remote..."
+            try {
+              $lsOut = & git ls-remote https://github.com/dictationb1/supreme-lamp.git HEAD
+              if ($lsOut) {
+                $targetSha = ($lsOut -split "\s+")[0].Trim()
+              }
+            } catch { }
+          }
+
+          if (-not $targetSha -or $targetSha.Length -lt 40) {
+            Write-Host "Fetching HEAD commit SHA via GitHub REST API..."
+            try {
+              $apiResp = Invoke-RestMethod -Uri "https://api.github.com/repos/dictationb1/supreme-lamp/commits/HEAD" -UseBasicParsing
+              if ($apiResp -and $apiResp.sha) {
+                $targetSha = $apiResp.sha
+              }
+            } catch { }
+          }
+
+          Write-Host "Resolved target application SHA: $targetSha"
+
           $appDir = Join-Path $env:RUNNER_TEMP "supreme-lamp"
           if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
 
           $appSha = "unknown"
           if (Get-Command git -ErrorAction SilentlyContinue) {
             Write-Host "Cloning application repo dictationb1/supreme-lamp into $appDir via git..."
-            & git clone --depth 1 https://github.com/dictationb1/supreme-lamp.git $appDir
+            & git clone https://github.com/dictationb1/supreme-lamp.git $appDir
             if ($LASTEXITCODE -eq 0) {
+              if ($targetSha) {
+                Write-Host "Checking out target commit $targetSha..."
+                & git -C $appDir checkout $targetSha
+              }
               $appSha = (& git -C $appDir rev-parse HEAD).Trim()
             }
           }
 
           if (-not (Test-Path "$appDir/payloads/ghrdp-server.ps1")) {
-            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback..."
-            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/refs/heads/main.zip"
-            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-main.zip"
+            if (-not $targetSha) {
+              throw "Cannot download application zip fallback: targetSha could not be resolved."
+            }
+            Write-Host "Git clone unavailable or failed. Downloading supreme-lamp zip fallback for SHA $targetSha..."
+            $zipUrl = "https://github.com/dictationb1/supreme-lamp/archive/$targetSha.zip"
+            $zipPath = Join-Path $env:RUNNER_TEMP "supreme-lamp-$targetSha.zip"
             Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
             Expand-Archive -Path $zipPath -DestinationPath $env:RUNNER_TEMP -Force
             Remove-Item -Path $zipPath -Force
-            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-main"
+            $extractedDir = Join-Path $env:RUNNER_TEMP "supreme-lamp-$targetSha"
             if (Test-Path $appDir) { Remove-Item -Path $appDir -Recurse -Force }
             Rename-Item -Path $extractedDir -NewName "supreme-lamp"
-            $appSha = "main-zip"
+            $appSha = $targetSha
           }
 
           Write-Host "Provisioned supreme-lamp revision: $appSha"
@@ -198,7 +241,6 @@ jobs:
 
           Write-Host "Started backend process PID: $($proc.Id)"
 
-          # Register backend process in lab registry
           node -e "
             const registryUtils = require('./scripts/registry-utils');
             registryUtils.registerProcess({
@@ -209,7 +251,6 @@ jobs:
             });
           "
 
-          # Probe readiness
           $url = "http://127.0.0.1:7331/api/readiness"
           Write-Host "Waiting for backend readiness at $url..."
           $ready = $false
@@ -230,10 +271,9 @@ jobs:
             throw "Backend failed to become ready at $url within 30 seconds."
           }
 
-          # Export env vars for Mission Control check step
-          echo "MISSION_CONTROL_URL=http://127.0.0.1:7331" >> $env:GITHUB_ENV
-          echo "RDP_TARGET=127.0.0.1" >> $env:GITHUB_ENV
-          echo "SUPREME_LAMP_SHA=$appSha" >> $env:GITHUB_ENV
+          Add-Content -Path $env:GITHUB_ENV -Value "MISSION_CONTROL_URL=http://127.0.0.1:7331"
+          Add-Content -Path $env:GITHUB_ENV -Value "RDP_TARGET=127.0.0.1"
+          Add-Content -Path $env:GITHUB_ENV -Value "SUPREME_LAMP_SHA=$appSha"
 
       - name: Run Mission Control Verification Profile
         run: |
@@ -262,6 +302,12 @@ jobs:
           if (-not (Test-Path "$artDir/screenshot.png")) {
             throw "Missing screenshot.png in $artDir"
           }
+          if (-not (Test-Path "$artDir/mission-control-results.json")) {
+            throw "Missing mission-control-results.json in $artDir"
+          }
+          if (-not (Test-Path "$artDir/mc-dashboard.png")) {
+            throw "Missing mc-dashboard.png in $artDir"
+          }
           Write-Host "All required artifacts verified in $artDir"
 
       - name: Upload Private Artifacts
@@ -282,7 +328,7 @@ jobs:
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
           $runUrl = "${env:GITHUB_SERVER_URL}/${env:GITHUB_REPOSITORY}/actions/runs/${env:GITHUB_RUN_ID}"
-          $statusMsg = if (Test-Path "$artDir/results.json") { "Artifacts captured and uploaded successfully." } else { "Artifact capture incomplete." }
+          $statusMsg = if (Test-Path "$artDir/mission-control-results.json") { "Mission Control evidence captured and uploaded successfully." } else { "Artifact capture incomplete." }
 
           $summary = @"
           ## Capability Check Evidence
@@ -323,6 +369,34 @@ jobs:
           Write-Host "Actor               : $env:GITHUB_ACTOR"
           Write-Host "TS_OAUTH_CLIENT_ID  : $(if ($env:OAUTH_CLIENT_ID) { 'Present' } else { 'Missing/Empty' })"
           Write-Host "TS_AUDIENCE         : $(if ($env:AUDIENCE) { 'Present' } else { 'Missing/Empty' })"
+
+          if ($env:ACTIONS_ID_TOKEN_REQUEST_URL -and $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+            try {
+              $aud = if ($env:AUDIENCE) { $env:AUDIENCE } else { "https://login.tailscale.com/v2/oauth" }
+              $tokenUrl = "$($env:ACTIONS_ID_TOKEN_REQUEST_URL)&audience=$([Uri]::EscapeDataString($aud))"
+              $headers = @{ "Authorization" = "Bearer $($env:ACTIONS_ID_TOKEN_REQUEST_TOKEN)" }
+              $jwtResp = Invoke-RestMethod -Uri $tokenUrl -Headers $headers -Method Get -UseBasicParsing
+              if ($jwtResp -and $jwtResp.value) {
+                $jwt = $jwtResp.value
+                $parts = $jwt.Split('.')
+                if ($parts.Length -ge 2) {
+                  $payloadB64 = $parts[1].PadRight($parts[1].Length + (4 - $parts[1].Length % 4) % 4, '=')
+                  $jsonBytes = [System.Convert]::FromBase64String($payloadB64)
+                  $claims = [System.Text.Encoding]::UTF8.GetString($jsonBytes) | ConvertFrom-Json
+                  Write-Host "--- Decoded OIDC Token Claims (Non-Secret) ---"
+                  Write-Host "iss       : $($claims.iss)"
+                  Write-Host "sub       : $($claims.sub)"
+                  Write-Host "aud       : $($claims.aud)"
+                  Write-Host "repository: $($claims.repository)"
+                  Write-Host "actor     : $($claims.actor)"
+                  Write-Host "ref       : $($claims.ref)"
+                  Write-Host "sha       : $($claims.sha)"
+                }
+              }
+            } catch {
+              Write-Host "OIDC token claim parsing note: $_"
+            }
+          }
         env:
           OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           AUDIENCE: ${{ secrets.TS_AUDIENCE }}
@@ -353,7 +427,7 @@ jobs:
 
           $peerHost = $env:TAILSCALE_PEER_HOST
           if (-not $peerHost) {
-            throw "TAILSCALE_PEER_HOST environment variable not configured."
+            Write-Host "TAILSCALE_PEER_HOST not configured. Tailnet connectivity check SKIPPED (host input missing)."
           } else {
             Write-Host "Performing bounded HTTP ping check to Tailscale peer $peerHost..."
             $res = Invoke-WebRequest -Uri "http://${peerHost}:8080/api/readiness" -TimeoutSec 5 -ErrorAction SilentlyContinue

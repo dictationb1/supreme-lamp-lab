@@ -1,6 +1,6 @@
 # Supreme Lamp Lab - Configuration & Runbook Guide (Sinhala)
 
-මෙම ලේඛනය `supreme-lamp-lab` හි Windows පරිසරය, OIDC සහ Tailscale සකස් කිරීම පිළිබඳ විස්තර සපයයි.
+මෙම ලේඛනය `supreme-lamp-lab` හි Windows පරිසරය, OIDC, Tailscale, සහ Mission Control පරීක්ෂණ සැකසුම් පිළිබඳ විස්තර සපයයි.
 
 ---
 
@@ -10,14 +10,14 @@ Tailscale OIDC Workload Identity Federation හි HTTP 403 (token exchange fail
 
 - **Tailscale Admin Console Settings**:
   - **Issuer**: `https://token.actions.githubusercontent.com`
-  - **Audience**: exact string matched with `TS_AUDIENCE` secret (e.g. `https://login.tailscale.com/v2/oauth` or explicit custom audience, do not invent from repo URL).
+  - **Audience**: `TS_AUDIENCE` හි ඇතුළත් අගය (උදා: `https://login.tailscale.com/v2/oauth`)
   - **Permitted Tags**: `tag:ci`
 
 - **OIDC Claims matching**:
   - `repository`: `dictationb1/supreme-lamp-lab`
-  - `sub` (subject): `repo:dictationb1/supreme-lamp-lab:ref:refs/heads/<branch>` (or `repo:dictationb1/supreme-lamp-lab:pull_request`)
+  - `sub` (subject): `repo:dictationb1/supreme-lamp-lab:ref:refs/heads/<branch>` (හෝ `repo:dictationb1/supreme-lamp-lab:pull_request`)
   - `actor`: GitHub user/bot identity
-  - `ref`: `refs/heads/<branch>` (or `refs/pull/*/merge`)
+  - `ref`: `refs/heads/<branch>` (හෝ `refs/pull/*/merge`)
 
 - **GitHub Repository Secrets**:
   - `TS_OAUTH_CLIENT_ID`: Tailscale OIDC client ID එක GitHub Secrets හි ඇතුළත් කරන්න.
@@ -47,8 +47,8 @@ Tailscale OIDC Workload Identity Federation හි HTTP 403 (token exchange fail
 - **නැවත ධාවනය කිරීම**:
   ```cmd
   npm ci
-  node scripts/run-regressions.js
-  node scripts/browser-check.js
+  npm run test:regression
+  npm run test:browser
   ```
 - **සාක්ෂි එකතු කිරීම (Evidence Artifacts)**:
   - සියලු සාක්ෂි `artifacts/run-<run_id>-<attempt>/` නාමාවලියෙහි සුරැකේ. (Screenshot `.png`, Recorded Video `.webm`, JSON Telemetry Results).

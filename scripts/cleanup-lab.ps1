@@ -10,6 +10,7 @@ Protects the runner listener, worker, ancestor processes, active runs, and syste
 param (
     [string]$RegistryPath = $env:REGISTRY_PATH,
     [string]$TargetRunId = $env:GITHUB_RUN_ID,
+    [string]$TargetRunAttempt = $env:GITHUB_RUN_ATTEMPT,
     [switch]$Force
 )
 
@@ -80,6 +81,7 @@ $terminatedCount = 0
 foreach ($rec in $records) {
     $recPid = [int]$rec.pid
     $recRunId = [string]$rec.runId
+    $recRunAttempt = [string]$rec.runAttempt
     $recCreateTime = [string]$rec.createTime
     $recName = [string]$rec.processName
 
@@ -87,11 +89,18 @@ foreach ($rec in $records) {
     $shouldClean = $false
     if ($TargetRunId) {
         if ($recRunId -eq $TargetRunId) {
-            $shouldClean = $true
+            if ($TargetRunAttempt) {
+                if ($recRunAttempt -eq $TargetRunAttempt) {
+                    $shouldClean = $true
+                }
+            } else {
+                $shouldClean = $true
+            }
         }
     } else {
         $currentRunId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
-        if ($recRunId -ne $currentRunId) {
+        $currentAttempt = if ($env:GITHUB_RUN_ATTEMPT) { $env:GITHUB_RUN_ATTEMPT } else { "1" }
+        if ($recRunId -ne $currentRunId -or ($recRunAttempt -and $recRunAttempt -ne $currentAttempt)) {
             $shouldClean = $true
         }
     }
@@ -155,6 +164,10 @@ foreach ($rec in $records) {
             Write-Host "Process PID $recPid recycled by OS (Creation time mismatch: registered $recCreateTime vs actual $actualCreateTime). Removing stale record without killing."
             continue
         }
+    } else {
+        Write-Host "Process PID $recPid entry missing creation time metadata. Skipping termination to protect system safety."
+        $remainingRecords.Add($rec)
+        continue
     }
 
     Write-Host "Terminating verified stale lab process PID $recPid ($recName, Run $recRunId)..."

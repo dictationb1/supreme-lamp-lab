@@ -1,6 +1,7 @@
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 const registryUtils = require('./registry-utils');
 
 let totalTests = 0;
@@ -116,7 +117,7 @@ runTest('Process Registry UTF-8 Array Schema & Atomic Writes', () => {
   }
 });
 
-// Defect 10: Workflow file does not allow mock fallback in live mode
+// Defect 6: Workflow file does not allow mock fallback in live mode
 runTest('Workflow Disables Mock Fallback in Live Acceptance Mode', () => {
   const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'capability-check.yml');
   const content = fs.readFileSync(wfPath, 'utf8');
@@ -128,7 +129,7 @@ runTest('Workflow Disables Mock Fallback in Live Acceptance Mode', () => {
   }
 });
 
-// Defect 6: Bounded Lock Acquisition and Safe Recovery
+// Defect 7: Bounded Lock Acquisition and Safe Recovery
 runTest('Safe Lock Acquisition & Recovery Under Isolated Harness', () => {
   const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'lock-test-'));
   const testLockDir = path.join(tempDir, 'test-lock.lock');
@@ -169,7 +170,7 @@ runTest('Safe Lock Acquisition & Recovery Under Isolated Harness', () => {
   }
 });
 
-// Defect 7: Process Cleanup Protection and Verification
+// Defect 8: Process Cleanup Protection and Verification
 runTest('Targeted Lab Cleanup Terminates Verified Process Without Affecting System', () => {
   if (process.platform !== 'win32') {
     return { status: 'SKIP', reason: 'Windows process cleanup verification requires win32 host' };
@@ -216,7 +217,7 @@ runTest('Targeted Lab Cleanup Terminates Verified Process Without Affecting Syst
   }
 });
 
-// Defect 8: Missing Mission Control backend fails live acceptance without mock fallback
+// Defect 9: Missing Mission Control backend fails live acceptance without mock
 runTest('Missing Mission Control Backend Fails Live Acceptance Without Mock', () => {
   const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'mc-test-'));
   try {
@@ -253,7 +254,7 @@ runTest('Missing Mission Control Backend Fails Live Acceptance Without Mock', ()
   }
 });
 
-// Defect 9: Registry Corruption Recovery and Atomic Writes
+// Defect 10: Registry Corruption Recovery and Atomic Writes
 runTest('Registry Handles Corrupt File and Recovers via Atomic Writes', () => {
   const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'corrupt-test-'));
   const testRegPath = path.join(tempDir, 'corrupt-registry.json');
@@ -275,6 +276,25 @@ runTest('Registry Handles Corrupt File and Recovers via Atomic Writes', () => {
     }
   } finally {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+  }
+});
+
+// Defect 11: Web Desktop Verification Rejects Generic Body-Only HTML Page
+runTest('Web Desktop Verification Rejects Generic Body-Only HTML Page', () => {
+  const scriptContent = fs.readFileSync(path.join(__dirname, 'mission-control-check.js'), 'utf8');
+  if (scriptContent.includes('mainContent = (await page.$(\'#app\')) || (await page.$(\'body\'))')) {
+    throw new Error('mission-control-check.js still allows generic body/app element for Web Desktop check!');
+  }
+  if (!scriptContent.includes('WEB_DESKTOP_MISSING')) {
+    throw new Error('mission-control-check.js does not throw WEB_DESKTOP_MISSING error!');
+  }
+});
+
+// Defect 12: Invalid Readiness Schema Rejection
+runTest('Mission Control Rejects Invalid Readiness Schema Without Identity or Commit', () => {
+  const scriptContent = fs.readFileSync(path.join(__dirname, 'mission-control-check.js'), 'utf8');
+  if (!scriptContent.includes('READINESS_SCHEMA_INVALID')) {
+    throw new Error('mission-control-check.js does not enforce READINESS_SCHEMA_INVALID checks!');
   }
 });
 
