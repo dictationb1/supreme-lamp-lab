@@ -126,6 +126,12 @@ GitHub → Actions → "Capability Check Workflow" → Run workflow
   setup_timeout_ms: 600000        # 10 min; hard maximum 900000 (15 min)
 ```
 
+**When to watch.** The desktop window opens late in the run, not at the start:
+`static` (~2 min) → `server` staging + tailnet join (~5 min) → `client`
+checkout/Node/Chromium/regressions (~2 min) → the SETUP step. Expect the dialog
+roughly **7-10 minutes after dispatch**, and the window stays open for
+`setup_timeout_ms`. Watch the `client` job log for the `account` / `target` lines.
+
 What that run does, in order:
 
 1. `static` job: the usual regressions + the app-source pin + the Node pin check.
