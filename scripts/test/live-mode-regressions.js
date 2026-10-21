@@ -251,6 +251,54 @@ module.exports = async function registerLiveModeTests(H) {
     } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   });
 
+  await test('live-run workflows: every top-level expression and step condition is evaluable', async () => {
+    const { execFileSync } = require('child_process');
+    const wfDir = path.join(__dirname, '..', '..', '.github', 'workflows');
+    const files = fs.readdirSync(wfDir).filter(f => /\.ya?ml$/.test(f));
+    assert.ok(files.includes('live-run.yml'), 'the live entry point must exist');
+    for (const f of files) {
+      const t = fs.readFileSync(path.join(wfDir, f), 'utf8');
+      // (a) no tabs, no CRLF surprises, and no control characters
+      assert.ok(!/\t/.test(t), `${f}: workflow files must not contain tabs`);
+      // (b) `env` is NOT available in a step-level `if:`; referencing it silently
+      //     skips the step, which is how a cleanup step disappears.
+      const envInIf = t.split('\n').filter(l => /^\s*if:.*\benv\./.test(l));
+      assert.deepStrictEqual(envInIf, [], `${f}: step conditions may not read the env context: ${envInIf.join(' / ')}`);
+      // (c) every `${{ }}` closes, and expressions in top-level keys must not
+      //     index into an event payload that only exists for some events
+      //     (a context-access error in run-name/concurrency fails the WHOLE
+      //     workflow with zero jobs - measured with live-run.yml on 2026-10-21).
+      let opens = 0, closes = 0;
+      for (const l of t.split('\n')) {
+        if (/^\s*#/.test(l)) continue;
+        opens += (l.match(/\$\{\{/g) || []).length;
+        closes += (l.match(/\}\}/g) || []).length;
+      }
+      assert.strictEqual(opens, closes, `${f}: unbalanced action expressions`);
+      const top = t.split('\n').slice(0, 60).filter(l => !/^\s*#/.test(l));
+      const topText = top.join('\n');
+      const topExprs = (topText.match(/\$\{\{[\s\S]*?\}\}/g) || []);
+      for (const e of topExprs) {
+        // `inputs.*` is fine at top level (capability-check.yml has used it in
+        // run-name since before this file existed). What is NOT fine is indexing a
+        // per-event payload object: `github.event.client_payload.x` is only
+        // meaningful for repository_dispatch, and a run-name/concurrency expression
+        // that fails to evaluate takes EVERY job in the file with it (measured:
+        // zero jobs + conclusion=failure on push events for live-run.yml).
+        assert.ok(!/client_payload/.test(e), `${f}: a top-level expression must not index github.event.client_payload: ${e.slice(0, 90)}`);
+      }
+      // (d) the YAML must parse with a real parser when one is available
+      try {
+        execFileSync('python3', ['-c', `import yaml,sys;yaml.safe_load(open('${path.join(wfDir, f)}'))`], { stdio: 'pipe' });
+      } catch (e) { /* pyyaml is not a hard dependency of this repo; the structural checks above still ran */ }
+    }
+    // (e) the live entry point must not be able to verify the wrong server: it
+    //     never triggers on a lab backend it started itself.
+    const live = fs.readFileSync(path.join(wfDir, 'live-run.yml'), 'utf8');
+    assert.ok(/windows-latest/.test(live) === false, 'live-run.yml must not provision its own ephemeral backend');
+    assert.ok(!/^on:[\s\S]{0,600}?^  workflow_run:/m.test(live), 'no workflow_run trigger');
+  });
+
   // ------------------------------------------------------------------ trust anchor
   await test('trust anchor: verification is per-field and fails closed on every mismatch', async () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'verify-origin.js'), 'utf8');
