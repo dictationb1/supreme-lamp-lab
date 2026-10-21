@@ -11,6 +11,26 @@ try {
   // Playwright optional for early failure checks prior to browser launch
 }
 
+function formatFetchError(err) {
+  if (!err) return 'Unknown error';
+  let details = `[${err.name || 'Error'}] ${err.message || err}`;
+  if (err.cause) {
+    const c = err.cause;
+    details += ` | Cause: [${c.name || 'Error'}] ${c.message || c}`;
+    if (c.code) details += ` (code: ${c.code})`;
+    if (c.address) details += ` (address: ${c.address})`;
+    if (c.port) details += ` (port: ${c.port})`;
+    if (c.syscall) details += ` (syscall: ${c.syscall})`;
+    if (c.cause) {
+      const c2 = c.cause;
+      details += ` | NestedCause: [${c2.name || 'Error'}] ${c2.message || c2}`;
+      if (c2.code) details += ` (code: ${c2.code})`;
+    }
+  }
+  if (err.stack) details += `\nStack trace: ${err.stack}`;
+  return details;
+}
+
 function startMockMissionControlServer(port = 8080, commitSha = 'local-sha') {
   const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -147,6 +167,7 @@ async function runMissionControlCheck() {
     try {
       readinessRes = await fetch(`${serverUrl}/api/readiness`, { signal: AbortSignal.timeout(3000) });
     } catch (fetchErr) {
+      const detailedErr = formatFetchError(fetchErr);
       if (allowMock) {
         console.log(`Mission Control server at ${serverUrl} not responding. Starting mock Mission Control server (ALLOW_MOCK_MISSION_CONTROL=true)...`);
         try {
@@ -160,7 +181,7 @@ async function runMissionControlCheck() {
         }
       } else {
         capabilities.backendCheck = 'FAIL';
-        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable: ${fetchErr.message}. Mocks are disabled.`);
+        throw new Error(`MISSION_CONTROL_UNREACHABLE: Live Mission Control server at ${serverUrl} is unreachable:\n${detailedErr}\nMocks are disabled.`);
       }
     }
 
@@ -175,6 +196,11 @@ async function runMissionControlCheck() {
     backendCommit = readinessData.sourceCommit || readinessData.commit || process.env.SUPREME_LAMP_SHA || commitSha;
     readinessServices = readinessData.services || readinessData.dependencyHealth || { ok: readinessData.ok, phase: readinessData.phase };
     isMockBackend = Boolean(readinessData.isMock);
+
+    if (readinessData.ok === false || readinessData.status === 'error' || readinessData.status === 'not_ready') {
+      capabilities.backendCheck = 'FAIL';
+      throw new Error(`READINESS_NOT_READY: Readiness endpoint returned HTTP 200 but payload status indicates not ready: ${JSON.stringify(readinessData)}`);
+    }
 
     if (!backendIdentity) {
       capabilities.backendCheck = 'FAIL';
