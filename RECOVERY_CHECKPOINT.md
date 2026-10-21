@@ -61,6 +61,26 @@ Follow-up fixes in the next commit:
 - `config/node-pin.json` records the signature-verified win-x64 hash above; the static job now
   fails if the signed SHASUMS ever disagrees with it.
 
+## Evidence: run 39544022089 attempt 1 (head 641990d, pull_request)
+
+- static: success (Node pin in config matched the gpgv-verified SHASUMS).
+- client 119038454271: **Windows regression suite passed** on `rdp-lab-client` (timing fix confirmed);
+  `browser_synthetic` PASS, `native_screenshot` PASS; remote capabilities BLOCKED `DEPENDS_ON_TAILNET`.
+- server 119038454275: the new trap surfaced the staging failure:
+  `[F60 stage] release ui-dist not readable @ app\scripts\f60-bootstrap.ps1:248`.
+  Root cause: `Stage-F60UiBundle` is defined in BOTH app scripts with different signatures; Stage-App
+  dot-sourced the transport last, so the bootstrap variant `(…, Owner, Repo, …)` was bound, `-Workspace`
+  fell into `$args` (simple function), Owner was empty and the URL became `/repos//dictationb1/supreme-lamp/…`.
+  Fix: transport first, stage script second, plus a `STAGE_FUNCTION_SHADOWED` signature assertion.
+
+### App-repo finding (not fixed here - lab-only authorization)
+
+`dictationb1/supreme-lamp` `scripts/f60-stage-and-start.ps1:435` (`Invoke-F60StageAndStart`) dot-sources
+`f60-bootstrap.ps1` inside the function and then calls `Stage-F60UiBundle -Workspace … -Repo owner/name`;
+inside that scope the bootstrap's same-named function shadows the intended one, so the cold lane hits the
+same empty-owner URL. Suggested app fix: rename one of the two functions (e.g. `Stage-F60UiBundleFromRelease`)
+or make both `[CmdletBinding()]` so a mismatched parameter throws.
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.

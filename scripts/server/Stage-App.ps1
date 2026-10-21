@@ -45,12 +45,24 @@ $keep.Transport = Join-Path $keep.AppDir 'scripts\f60-bootstrap.ps1'
 foreach ($f in @($keep.StageScript, $keep.Transport)) { if (-not (Test-Path -LiteralPath $f)) { throw "STAGE_SCRIPT_MISSING: $f" } }
 
 # $keep is the only state read after these dot-sources (they rebind their own params here)
+# ORDER MATTERS: both app scripts define Stage-F60UiBundle with DIFFERENT signatures
+#   f60-bootstrap.ps1       (Root, Tag, BundleSha, Owner, Repo, Token, NodeExe)
+#   f60-stage-and-start.ps1 (Root, Workspace, Tag, BundleSha, Repo='owner/name', Token)
+# and they are simple functions, so a mismatched -Workspace is silently swallowed into
+# $args. Loading the transport last (run 39544022089) bound the bootstrap variant:
+# Owner was empty, the URL became /repos//owner/name/... and curl -f reported
+# "release ui-dist not readable". Transport first, cold-lane stage script second,
+# then assert the bound signature so a shadowed definition fails loudly.
 $labKeep = $keep
-. $labKeep.StageScript -DefineOnly
 . $labKeep.Transport -DefineOnly
+. $labKeep.StageScript -DefineOnly
 $keep = $labKeep
 foreach ($fn in @('Stage-F60FromCheckout', 'Stage-F60UiBundle', 'Get-F60ReleaseAssetInfo', 'Get-F60File')) {
     if (-not (Get-Command -Name $fn -ErrorAction SilentlyContinue)) { throw "STAGE_FUNCTION_MISSING: $fn not defined after dot-sourcing the app scripts" }
+}
+$uiParams = (Get-Command -Name 'Stage-F60UiBundle').Parameters
+if (-not $uiParams.ContainsKey('Workspace') -or $uiParams.ContainsKey('Owner')) {
+    throw ('STAGE_FUNCTION_SHADOWED: Stage-F60UiBundle is bound to the wrong definition (params: ' + (($uiParams.Keys | Sort-Object) -join ',') + ')')
 }
 
 if (Test-Path -LiteralPath $keep.StageRoot) {
