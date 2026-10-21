@@ -106,8 +106,15 @@ public static class SlabDialogEnum {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr64(IntPtr h, int idx);
+  [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] static extern int GetWindowLong32(IntPtr h, int idx);
   const uint GW_OWNER = 4;
+  const int GWL_STYLE = -16;
   const uint BM_GETCHECK = 0x00F0;
+
+  static long GetStyle(IntPtr h) {
+    return IntPtr.Size == 8 ? GetWindowLongPtr64(h, GWL_STYLE).ToInt64() : GetWindowLong32(h, GWL_STYLE);
+  }
 
   static string Cap(string s, int n) {
     if (s == null) return "";
@@ -147,9 +154,15 @@ public static class SlabDialogEnum {
           ctext = probe.Length > 0 ? "[has-text]" : "[empty]";
         } else {
           ctext = Cap(Title(c), 160);
-          if (ccls == "Button") {
-            IntPtr st = SendMessage(c, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
-            checkedState = st.ToInt32() == 1 ? "checked" : (st.ToInt32() == 2 ? "indeterminate" : "unchecked");
+          // checked state only for REAL check-box/radio styles (BS 2..7);
+          // BM_GETCHECK on a plain push button returns 0 and must not be
+          // reported as "unchecked" (it is not a check box at all)
+          if (ccls == "Button" || ccls == "CheckBox") {
+            long bs = GetStyle(c) & 0xF;
+            if (bs >= 2 && bs <= 7) {
+              IntPtr st = SendMessage(c, BM_GETCHECK, IntPtr.Zero, IntPtr.Zero);
+              checkedState = st.ToInt32() == 1 ? "checked" : (st.ToInt32() == 2 ? "indeterminate" : "unchecked");
+            }
           }
         }
         if (ctext.Length > 0 || checkedState.Length > 0) {

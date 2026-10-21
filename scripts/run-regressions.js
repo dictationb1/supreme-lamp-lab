@@ -1423,6 +1423,25 @@ async function main() {
     assert.match(cls.manualAction, /Do not automate/);
     // the checkbox is unchecked in the captured evidence
     assert.match(cls.evidenceDigest, /unchecked/);
+    // Live shape from run 39594245349: the modern dialog's check-box label is
+    // a XAML element WM_GETTEXT cannot read, so the captured controls carry
+    // only the body static + OK/Cancel. The body sentence is unique to the
+    // consent dialog and must classify it without the checkbox label.
+    const liveShape = classifyRdpAttempt({
+      windows: [{
+        hwnd: '0x20B44', pid: 5128, process: 'mstsc', sessionId: 1,
+        ownerPid: 5128, ownerHwnd: '0x20C22', visible: true,
+        className: '#32770', title: 'Remote Desktop Connection',
+        controls: [
+          { class: 'Static', text: 'You are opening an RDP file which will establish a connection to another computer. Connecting to any remote system can expose your PC and data to security risks. Learn mo', state: '' },
+          { class: 'Button', text: 'OK', state: '' },
+          { class: 'Button', text: 'Cancel', state: '' }
+        ]
+      }]
+    });
+    assert.strictEqual(liveShape.kind, 'rdp_file_consent');
+    assert.strictEqual(liveShape.status, 'BLOCKED');
+    assert.strictEqual(liveShape.code, 'RDP_FILE_CONSENT_REQUIRED');
   });
 
   await test('dialogs: publisher review / certificate warning / credentials prompt / connection error are distinguished', async () => {

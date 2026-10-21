@@ -52,7 +52,8 @@ const TEXT_RULES = [
   {
     kind: 'rdp_file_consent',
     test: t => /allow\s+RDP\s+files\s+to\s+open/i.test(t) ||
-      (/opening\s+(an\s+)?RDP\s+file/i.test(t) && /opening\s+Remote\s+Desktop\s+Connection/i.test(t)) ||
+      /You are opening an RDP file which will establish a connection/i.test(t) ||
+      (/opening\s+Remote\s+Desktop\s+Connection/i.test(t) && /RDP file/i.test(t)) ||
       (/Opening Remote Desktop Connection/i.test(t) && /RDP file/i.test(t))
   },
   {
