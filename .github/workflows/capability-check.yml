@@ -337,6 +337,10 @@ jobs:
           node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
           exit $LASTEXITCODE
 
+      - name: Collect bounded RDP evidence (server-side ground truth, read-only)
+        if: always()
+        run: ./scripts/server/Collect-RdpDiagnostics.ps1 -User slabrdp -SinceMinutes 30 -Out (Join-Path $env:RUNNER_TEMP 'rdp-diagnostics.json')
+
       - name: Postflight owned-process cleanup
         if: always()
         run: node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP 'artifacts\cleanup-postflight.json')
@@ -350,6 +354,7 @@ jobs:
             ${{ runner.temp }}/artifacts/
             ${{ runner.temp }}/stage-result.json
             ${{ runner.temp }}/rdp-target.json
+            ${{ runner.temp }}/rdp-diagnostics.json
           if-no-files-found: warn
 
       - name: Tailnet gate (explicit failure when the server could not join)

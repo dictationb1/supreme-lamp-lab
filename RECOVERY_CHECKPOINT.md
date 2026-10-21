@@ -15,6 +15,9 @@
 | 39557365420 | `1beca6f` | lock test pass; tailnet 404 captured | `NOT_VERIFIED` |
 | 39558818002 | `3f27c8e` | **80 tests: 80 passed, 0 failed, 0 skipped** | `NOT_VERIFIED` (external only) |
 | 39559894221 | `f1437f8` | **80 tests: 80 passed, 0 failed, 0 skipped** | `NOT_VERIFIED` (external only) |
+| 39560693766 attempt 2 (PR #16) | `f45c789` (comment lab `f82b595`) | **80/80 both gates**; 7/9 capabilities PASS | `NOT_VERIFIED` — `rdp_auto_login` FAIL `RDP_LOGON_NOT_OBSERVED`, `web_desktop` BLOCKED behind it |
+| 39569844830 (PR #17, `89c702a`) | `89c702a` | **86/86 both gates**; 7/9 PASS | `NOT_VERIFIED` — same RDP failure, now proven client-local/pre-dial (see findings 5-7) |
+| 39572563363 (PR #17, `963e584`) | `963e584` | static 86/86; **client runner lost communication before any step reported** (`steps: []`, exactly 600 s) | `NOT_VERIFIED` — no client evidence at all; treat as runner/infrastructure loss, re-run required |
 
 Every push triggers a full run, including documentation-only commits; the report job fails whenever the verdict is not `VERIFIED`, so a red `report` check alone is not a regression. Always read the annotations of the **newest** run for the current head SHA rather than a cached earlier run.
 
@@ -34,10 +37,10 @@ Every push triggers a full run, including documentation-only commits; the report
 - `.github/workflows/capability-check.yml`: `caps_regressions` outputs for static/client, `ARTIFACT_DIR` for client evidence, `tailnet_first_error`/`tailnet_cli_version`/`tailnet_service_state`/`tailnet_failed_operation` outputs, `pull-requests: write` for the report comment.
 
 ## Next concrete action
-1. **Re-establish the evidence at the current head.** Run 39558818002 validated `3f27c8e` (win32 80/80, verdict `NOT_VERIFIED` for the external Tailscale cause only). After any further commit, wait for the new `capability-check.yml` run and re-read `GET /repos/{repo}/check-runs/{job}/annotations` for **that** head: client `regression summary: 80 tests: 80 passed, 0 failed, 0 skipped (win32, browser e2e required)`, static green, `tailnet_connectivity=BLOCKED :: ... category=CREDENTIAL_CANNOT_CREATE_AUTH_KEYS`.
-2. **Do not re-run unchanged code against the confirmed external blocker** — the only thing to add for another pass is the trust-credential fix below.
-3. Merge is **not** permitted while the required checks are red; no check may be bypassed. Merge `--merge` only after a run returns `VERIFIED`.
-4. Remaining administrative action is on the Tailscale trust credential (writable `auth_keys` scope + `tag:ci` in its tags), not on the OIDC subject/audience.
+1. **Re-establish the evidence at the current head.** After any commit, wait for the new `capability-check.yml` run and re-read `GET /repos/{repo}/check-runs/{job}/annotations` for **that** head: both regression summaries 86/86, client `rdp transport` / `rdp attempt setup` / `rdp observer (pre)` / `rdp mstsc window` lines, and on failure `rdp client events` + `rdp client windows/policy` + `rdp observer (post)`, plus the server's `RDP server *` diagnostics. Run 39572563363 produced **no** client evidence (runner lost before step 1 reported) — this checkpoint commit re-triggers the full run; if the client job again shows `steps: []`, the self-hosted runner itself needs the operator (machine awake/online, runner service running) before any code conclusion can be drawn.
+2. **Name the exact client-side blocker from that evidence** (RDPClient event ids / visible dialog / policy facts), then fix the supported lab configuration only. Preserve NLA/TLS; no blanket certificate acceptance or broad policy exceptions.
+3. Merge is **not** permitted while the required checks are red; no check may be bypassed. Merge `--merge` only after a run returns `VERIFIED` (all nine capabilities PASS in one attempt).
+4. (Historical, resolved earlier in this stack) the Tailscale trust-credential action below was completed by the operator — tailnet join has been `JOIN_OK` since run 39560693766.
 
 ## Administrative action required (Sinhala, unchanged in substance)
 Tailscale Admin Console → **Trust credentials** → මෙම federated identity (Client ID) සඳහා:

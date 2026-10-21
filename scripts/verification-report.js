@@ -53,6 +53,26 @@ function isDownstreamDependency(reason) {
   return /^(DEPENDS_ON_[A-Z0-9_]+|SERVER_RDP_NOT_CONFIGURED)\b/.test(String(reason || ''));
 }
 
+/**
+ * The named upstream a downstream BLOCKED depends on, or null for a root
+ * cause. This is what keeps rdp_auto_login FAIL -> web_desktop BLOCKED a
+ * single causal chain in the report instead of two "independent" causes
+ * (run 39560693766 attempt 2 named the downstream web_desktop the *first*
+ * cause merely because it is declared before rdp_auto_login above).
+ */
+function dependencyOf(capability, reason) {
+  const r = String(reason || '');
+  if (/^DEPENDS_ON_RDP_SESSION\b/.test(r)) return 'rdp_auto_login';
+  if (/^DEPENDS_ON_TAILNET\b/.test(r)) return 'tailnet_connectivity';
+  if (/^DEPENDS_ON_BACKEND\b/.test(r)) {
+    return REQUIRED[capability] && REQUIRED[capability].scope === 'server_local'
+      ? 'backend_readiness_server_local'
+      : 'backend_readiness_remote';
+  }
+  if (/^SERVER_RDP_NOT_CONFIGURED\b/.test(r)) return 'server rdp preparation';
+  return null;
+}
+
 function subsystemOf(capability) {
   if (capability === 'tailnet_connectivity' || capability === 'backend_readiness_remote' || capability === 'dashboard_client' ||
       capability === 'web_desktop' || capability === 'rdp_auto_login') return 'tailnet_or_remote';
@@ -149,14 +169,11 @@ function build(needs) {
     .map(([job, r]) => ({ job, status: r.status, reason: r.reason, failures: r.failures, failed: r.failed, skipped: r.skipped }));
   const regressionsOk = regressionFailures.length === 0;
   const verdict = agg.accepted && staticOk && regressionsOk ? 'VERIFIED' : 'NOT_VERIFIED';
-  let firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : agg.firstCause;
-  if (!firstCause && !regressionsOk) {
-    firstCause = { capability: 'regressions', status: STATUS.FAIL, reason: regressionFailures.map(r => `${r.job}: ${r.reason}`).join('; ') };
-  }
 
   // EVERY independently observed failure, so a single "first cause" field can
   // never hide a second one (e.g. a supervisor guard timeout AND a tailnet join
-  // failure in the same attempt).
+  // failure in the same attempt). Downstream entries carry dependsOn; they are
+  // consequences of their named upstream, never additional root causes.
   const independentCauses = Object.entries(caps)
     .filter(([, c]) => c.required && c.status !== STATUS.PASS)
     .map(([name, c]) => ({
@@ -164,14 +181,35 @@ function build(needs) {
       subsystem: subsystemOf(name),
       status: c.status,
       category: causeCategory(c.reason),
+      dependsOn: dependencyOf(name, c.reason),
       reason: c.reason
     }));
   for (const r of regressionFailures) {
     independentCauses.push({
       capability: `regressions_${r.job}`, subsystem: 'regression', status: STATUS.FAIL,
       category: r.status === 'MISSING' ? 'REGRESSION_GATE_MISSING' : 'REGRESSION_GATE_FAILED',
+      dependsOn: null,
       reason: `${r.reason}${r.failures && r.failures.length ? ` :: ${r.failures.map(f => f.name).join(' | ')}` : ''}`
     });
+  }
+  // First cause = first ROOT capability cause (in declared order). The bare
+  // aggregate picks by insertion order, which named the downstream
+  // web_desktop BLOCKED ahead of the rdp_auto_login FAIL it depends on.
+  const rootCapabilityCauses = independentCauses.filter(c => !c.dependsOn && REQUIRED[c.capability]);
+  const aggFirstCause = rootCapabilityCauses.length
+    ? { capability: rootCapabilityCauses[0].capability, status: rootCapabilityCauses[0].status, reason: rootCapabilityCauses[0].reason }
+    : agg.firstCause;
+  let firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : aggFirstCause;
+  if (!firstCause && !regressionsOk) {
+    firstCause = { capability: 'regressions', status: STATUS.FAIL, reason: regressionFailures.map(r => `${r.job}: ${r.reason}`).join('; ') };
+  }
+  const counts = { pass: 0, fail: 0, blocked: 0, blockedDownstream: 0, notRun: 0, other: 0 };
+  for (const c of Object.values(caps)) {
+    if (c.status === STATUS.PASS) counts.pass++;
+    else if (c.status === STATUS.FAIL) counts.fail++;
+    else if (c.status === STATUS.BLOCKED) { counts.blocked++; if (isDownstreamDependency(c.reason)) counts.blockedDownstream++; }
+    else if (c.status === STATUS.NOT_RUN) counts.notRun++;
+    else counts.other++;
   }
   const bySubsystem = {};
   for (const c of independentCauses) {
@@ -203,11 +241,12 @@ function build(needs) {
     downstreamBlocked: independentCauses.filter(c => isDownstreamDependency(c.reason)).map(c => ({
       capability: c.capability,
       subsystem: c.subsystem,
-      category: c.category
+      category: c.category,
+      dependsOn: c.dependsOn
     }))
   };
   return {
-    verdict, aggregate: agg.status, firstCause, independentCauses, bySubsystem, diagnostics, regressions,
+    verdict, aggregate: agg.status, counts, firstCause, independentCauses, bySubsystem, diagnostics, regressions,
     capabilities: caps, jobs: Object.fromEntries(Object.entries(jobs).map(([k, v]) => [k, v.result]))
   };
 }
@@ -275,10 +314,15 @@ async function main() {
   });
   const out = process.env.REPORT_PATH || path.join(process.cwd(), 'verification-report.json');
   const rows = Object.entries(report.capabilities).map(([k, c]) => `| ${k} | ${c.status} | ${String(c.reason || '').replace(/\|/g, '\\|').slice(0, 220)} |`);
+  const rootCapsMd = ((report.diagnostics && report.diagnostics.rootCauses) || []).filter(c => report.capabilities[c.capability]);
+  const downstreamMd = (report.diagnostics && report.diagnostics.downstreamBlocked) || [];
   const md = [`## Verification verdict: **${report.verdict}**`, '', `run ${report.runId} attempt ${report.runAttempt} · lab ${report.labCommit} · app ${report.appCommit}`, '',
     report.firstCause ? `First cause: \`${report.firstCause.capability}\` = ${report.firstCause.status} — ${report.firstCause.reason}` : '', '',
-    report.independentCauses && report.independentCauses.length > 1
-      ? `Independent causes (${report.independentCauses.length}): ${report.independentCauses.map(c => `\`${c.capability}\` ${c.status}${c.category ? ` [${c.category}]` : ''}`).join('; ')}`
+    rootCapsMd.length > 1
+      ? `Independent causes (${rootCapsMd.length}): ${rootCapsMd.map(c => `\`${c.capability}\` ${c.status}${c.category ? ` [${c.category}]` : ''}`).join('; ')}`
+      : '', '',
+    downstreamMd.length
+      ? `Downstream blocked (${downstreamMd.length}, consequences - not independent causes): ${downstreamMd.map(d => `\`${d.capability}\` ← ${d.dependsOn || d.category}`).join('; ')}`
       : '', '',
     '| capability | status | reason |', '|---|---|---|', ...rows, '',
     '### Regression gates', '',
@@ -323,4 +367,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { build, REQUIRED, classifyBackendFailure, causeCategory, subsystemOf, regressionGate };
+module.exports = { build, REQUIRED, classifyBackendFailure, causeCategory, subsystemOf, regressionGate, dependencyOf };
