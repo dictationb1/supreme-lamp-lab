@@ -228,13 +228,14 @@ jobs:
           $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
-          $serverScript = Join-Path $appDir "payloads\ghrdp-server.ps1"
+          $payloadsDir = Join-Path $appDir "payloads"
+          $serverScript = Join-Path $payloadsDir "ghrdp-server.ps1"
           $stdoutPath = Join-Path $artDir "backend-stdout.log"
           $stderrPath = Join-Path $artDir "backend-stderr.log"
 
           Write-Host "Starting real backend service ($serverScript)..."
           $proc = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$serverScript`"", "-Port", "7331" `
+            -ArgumentList "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", "`"$serverScript`"", "-Port", "7331", "-Root", "`"$payloadsDir`"" `
             -RedirectStandardOutput $stdoutPath `
             -RedirectStandardError $stderrPath `
             -PassThru -WindowStyle Hidden

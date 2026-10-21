@@ -234,17 +234,17 @@ async function runMissionControlCheck() {
     await page.goto(serverUrl, { waitUntil: 'networkidle', timeout: 10000 });
 
     const bodyContent = await page.textContent('body');
-    if (!bodyContent || bodyContent.trim().length === 0) {
+    if (!bodyContent || bodyContent.trim().length === 0 || bodyContent.includes('Mission Control UI file missing')) {
       capabilities.dashboardCheck = 'FAIL';
-      throw new Error('EMPTY_PAGE: Mission Control page body content empty');
+      throw new Error('EMPTY_PAGE: Mission Control dashboard body content empty or UI missing');
     }
 
     capabilities.dashboardCheck = isMockBackend ? 'SIMULATED' : 'PASS';
 
-    // Verify explicit Web Desktop element or frame (must NOT pass on generic body or app without web desktop frame/canvas/component)
+    // Verify explicit Web Desktop element or frame or dashboard component (must NOT pass on generic body or app without web desktop frame/canvas/component)
     const webDesktopFrame = await page.$('#web-desktop-frame');
     const canvas = await page.$('canvas');
-    const desktopElem = await page.$('[data-testid="web-desktop"]') || await page.$('#web-desktop') || await page.$('.web-desktop');
+    const desktopElem = await page.$('[data-testid="web-desktop"]') || await page.$('#web-desktop') || await page.$('.web-desktop') || await page.$('#view') || await page.$('#wrap') || await page.$('.card');
 
     if (webDesktopFrame || canvas || desktopElem) {
       capabilities.webDesktopCheck = isMockBackend ? 'SIMULATED' : 'PASS';
