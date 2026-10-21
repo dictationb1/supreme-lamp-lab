@@ -230,6 +230,60 @@ async function crossCheckLogon(target, candidateTsIso, timeoutMs = 45000) {
   }
 }
 
+/**
+ * One bounded read of the app's observer/collector state. Used before the
+ * attempt (is the Security-log observer even able to read, i.e. probeError?)
+ * and after a failure (connLog names pre-LSA drops - TLS/cert - that never
+ * produce a 4624/4625). Never throws; shape is extracted defensively.
+ */
+async function nativeStatusSnapshot(target) {
+  const r = await request(`${target}/api/native-status`, { timeoutMs: 10000 });
+  if (r.transport !== 'ok' || !r.json) return { error: summarize(r) };
+  const rl = r.json.rdpListener || {};
+  const a = rl.authLast || r.json.authLast || null;
+  const coll = r.json.logonCollector || rl.logonCollector || null;
+  const conn = Array.isArray(rl.connLog) ? rl.connLog.slice(0, 3).map(e => ({
+    ts: (e && (e.ts || e.timeUtc || e.when)) || '',
+    log: (e && (e.log || e.src)) || '',
+    id: (e && e.id) || '',
+    reason: (e && (e.reason || e.code || e.why)) || ''
+  })) : [];
+  return {
+    authLast: a ? {
+      result: a.result, logonType: a.logonType == null ? '' : String(a.logonType), eventTs: a.eventTs || '',
+      scanTs: a.scanTs || '', count4624: a.count4624, count4625: a.count4625,
+      probeError: a.probeError || '', sub: a.sub || '', subMeaning: a.subMeaning || ''
+    } : null,
+    collector: coll ? { alive: coll.alive, scans: coll.scans, probeError: coll.probeError || '', lastScanAgeSec: coll.lastScanAgeSec } : null,
+    connLog: conn
+  };
+}
+
+function digestNative(snap) {
+  if (!snap) return 'native-status: not fetched';
+  if (snap.error) return `native-status: ${String(snap.error).slice(0, 120)}`;
+  const a = snap.authLast || {};
+  const c = snap.collector || {};
+  const cl = (snap.connLog || []).map(e => `${e.ts || '?'} ${e.log}/${e.id} ${e.reason}`).join(' | ') || 'none';
+  return `authLast result=${a.result} type=${JSON.stringify(a.logonType)} eventTs=${a.eventTs} scanTs=${a.scanTs} ` +
+    `4624=${a.count4624} 4625=${a.count4625} probeError=${JSON.stringify(a.probeError || '')} sub=${a.sub} ${a.subMeaning}; ` +
+    `collector alive=${c.alive} scans=${c.scans}; connLog: ${cl}`.slice(0, 600);
+}
+
+function digestClientDiagnostics(d) {
+  if (!d) return 'client diagnostics: not collected';
+  const ev = (d.rdpClientEvents || []).map(e => `${e.id}@${e.timeUtc} ${String(e.message || '').slice(0, 110)}`).join(' | ') || 'none';
+  const win = (d.windows || []).map(w => `${w.process}(${w.pid}):${JSON.stringify(w.title)}`).join(' | ') || 'none';
+  const tcp = (d.tcpConnections || []).map(t => `${t.remote}=${t.state}`).join(' | ') || 'none';
+  const p = d.policy || {};
+  const pol = `disablePwSave(M=${p.disablePasswordSavingMachine} U=${p.disablePasswordSavingUser}) promptPw=${p.promptForPasswordMachine} ` +
+    `allowSaved=${JSON.stringify(p.allowSavedCredentials || {})} allowSavedNtlm=${JSON.stringify(p.allowSavedCredentialsNtlm || {})}`;
+  return {
+    events: `rdpClient readable=${d.rdpClientLogReadable} count=${d.rdpClientCount} err=${d.rdpClientError || ''}: ${ev}`.slice(0, 1300),
+    windows: `windows: ${win}; mstsc tcp: ${tcp}; policy: ${pol}`.slice(0, 1300)
+  };
+}
+
 async function pollLogon(target, baselineIso, user, clientIp, timeoutMs, onTick = null) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
@@ -305,7 +359,16 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   }
   log('whoami/session for credential identity: see Set-RdpCredential output; ' +
     `credential=${cred.out} rdpFile=${rdpFileInfo.bytes}B/${rdpFileInfo.directives} directives (utf8, read-back ok)`);
+  annotate.notice('rdp attempt setup', `${cred.out}; rdpFile ${rdpFileInfo.bytes}B/${rdpFileInfo.directives} directives utf8 read-back-ok; baseline ${baselineIso}`);
 
+  // Observer health BEFORE the attempt: if the backend process cannot read
+  // the Security log, checked stays 0 and no logon can ever be observed -
+  // better to learn that here than to infer it from a timeout afterwards.
+  const nativePre = await nativeStatusSnapshot(args.target);
+  log(`native-status (pre): ${digestNative(nativePre)}`);
+  annotate.notice('rdp observer (pre)', digestNative(nativePre));
+
+  const mstscStartedIso = new Date(Date.now() - 5000).toISOString();
   const child = spawn(mstscExe, [handle.rdpFile], { detached: false, stdio: 'ignore', windowsHide: false });
   await new Promise(res => setTimeout(res, 1500));
   const live = await proc.getProcessAsync(child.pid, { timeoutMs: 20000, operation: 'mstsc-identity' });
@@ -321,12 +384,13 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   const windowSamples = [];
   const observe = async poll => {
     if (!handle.mstsc) return;
-    if (poll === 2 || poll === 6 || poll === 14) {
+    if (poll === 1 || poll === 2 || poll === 6 || poll === 14) {
       const ws = await runPs('Get-WindowState.ps1', ['-ProcessId', String(handle.mstsc.pid)], { operation: 'mstsc-window-state', timeoutMs: 30000 });
       let parsed = null;
       try { parsed = JSON.parse(ws.out); } catch (e) { parsed = { raw: ws.out.slice(0, 200) }; }
       windowSamples.push({ poll, ...parsed });
       log(`mstsc window sample poll=${poll}: ${JSON.stringify(parsed).slice(0, 220)}`);
+      annotate.notice('rdp mstsc window', `poll=${poll} ${JSON.stringify(parsed).slice(0, 220)}`);
     }
     if (poll === 4) {
       const during = path.join(outDir, 'native-rdp-during.png');
@@ -342,15 +406,33 @@ async function checkRdp(caps, args, outDir, readinessBody) {
   const cap = await runPs('Capture-Desktop.ps1', ['-Path', shot], { operation: 'rdp-native-capture' });
   const img = validateImageFile(shot, { minWidth: 640, minHeight: 400 });
   const stillAlive = await (async () => { const p = await proc.getProcessAsync(handle.mstsc.pid, { timeoutMs: 20000, operation: 'mstsc-liveness' }); return Boolean(p && p.createTime === handle.mstsc.createTime); })();
+
+  // What did THIS client actually do? (Run 39569844830: server logs proved
+  // no RDP connection request ever arrived while mstsc idled - the answer
+  // is only in the client's RDPClient log / windows / sockets.)
+  let clientDiag = null;
+  try {
+    const cd = await runPs('Get-RdpClientDiagnostics.ps1', ['-ProcessId', String(handle.mstsc.pid), '-SinceUtc', mstscStartedIso], { operation: 'rdp-client-diagnostics', timeoutMs: 60000 });
+    try { clientDiag = JSON.parse(cd.out); } catch (e) { clientDiag = { parseError: cd.out.slice(0, 300) }; }
+  } catch (e) { clientDiag = { error: e.message }; }
+  const nativePost = logon.ok ? null : await nativeStatusSnapshot(args.target);
+
   const lastTitle = [...windowSamples].reverse().find(s => s.title !== undefined);
   const evidence = {
     logon: logon.body, logonPolls: logon.polls || null, proof: logon.proof || null, proofDetail: logon.proofDetail || null,
     crossCheck: logon.crossCheck ? { state: logon.crossCheck.state, detail: logon.crossCheck.detail } : null,
     baselineIso, tcp3389: tcp, credential: cred.out, rdpFile: rdpFileInfo, windowSamples,
+    nativePre, nativePost, clientDiagnostics: clientDiag,
     mstscPid: handle.mstsc.pid, mstscAlive: stillAlive, screenshot: img.valid ? shot : null, capture: cap.out
   };
   if (!logon.ok) {
-    const tail = `mstscAlive=${stillAlive} title=${JSON.stringify(lastTitle ? lastTitle.title : null)}`;
+    const cdg = digestClientDiagnostics(clientDiag);
+    annotate.error('rdp client events', typeof cdg === 'string' ? cdg : cdg.events);
+    if (typeof cdg !== 'string') annotate.error('rdp client windows/policy', cdg.windows);
+    annotate.error('rdp observer (post)', digestNative(nativePost));
+    const firstEv = clientDiag && Array.isArray(clientDiag.rdpClientEvents) ? clientDiag.rdpClientEvents[0] : null;
+    const evHint = firstEv ? ` rdpClient ${firstEv.id}: ${String(firstEv.message || '').slice(0, 90)}` : '';
+    const tail = `mstscAlive=${stillAlive} title=${JSON.stringify(lastTitle ? lastTitle.title : null)} hasWindow=${lastTitle ? lastTitle.hasWindow : null};${evHint}`;
     caps.set(name, STATUS.FAIL, `${logon.code}: ${logon.detail}; ${tail}`, evidence);
   } else if (!stillAlive) caps.set(name, STATUS.FAIL, 'MSTSC_NOT_ALIVE_AFTER_LOGON', evidence);
   else if (!img.valid) caps.set(name, STATUS.FAIL, `NATIVE_SCREENSHOT_INVALID: ${img.reason} (${cap.out})`, evidence);
