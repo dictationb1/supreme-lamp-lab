@@ -1,246 +1,120 @@
+#!/usr/bin/env node
+'use strict';
+// Client-local capabilities (self-hosted interactive Windows runner):
+//   browser_synthetic  - headed Chromium drives a local page (DOM assertion +
+//                        validated screenshot + video). Synthetic: it proves the
+//                        browser/desktop works, NOT Mission Control.
+//   native_screenshot  - a real capture of the interactive desktop (Windows),
+//                        validated as a non-uniform PNG.
+// The desktop session lock is mandatory: if it cannot be acquired both
+// capabilities FAIL (no "warn and continue").
+
 const http = require('http');
-const path = require('path');
 const fs = require('fs');
-const { chromium } = require('playwright');
-const registryUtils = require('./registry-utils');
+const path = require('path');
+const ps = require('./lib/ps');
+const { STATUS, CapabilitySet } = require('./lib/status');
+const { validatePngBuffer, validateImageFile } = require('./lib/image');
+const { acquireLock, releaseLock } = require('./lib/lock');
+const registry = require('./lib/registry');
+const { writeCapabilities, artifactDir } = require('./lib/results');
 
-function startLocalServer(port = 0) {
-  const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Supreme Lamp Lab Test Page</title>
-    <style>
-        body { font-family: sans-serif; margin: 40px; background: #f0f4f8; color: #102a43; }
-        #status { font-weight: bold; font-size: 1.2em; color: #243b53; }
-        #output { padding: 10px; background: #d9e2ec; border-radius: 4px; margin-top: 10px; }
-        button { padding: 8px 16px; font-size: 1em; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <h1>Supreme Lamp Lab - Capability Verification</h1>
-    <p id="status">Status: Ready</p>
-    <button id="action-btn">Run Interaction Test</button>
-    <div id="output">Initial</div>
+const DEFS = {
+  browser_synthetic: { required: true, contract: 'headed chromium: local page DOM interaction asserted, valid PNG screenshot, video recorded' },
+  native_screenshot: { required: true, contract: 'Windows interactive desktop captured to a valid, non-uniform PNG' }
+};
 
-    <script>
-        document.getElementById('action-btn').addEventListener('click', () => {
-            document.getElementById('output').innerText = 'Interaction Successful - Lab Verified';
-            document.getElementById('status').innerText = 'Status: Verified';
-        });
-    </script>
-</body>
-</html>`;
+const PAGE = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Supreme Lamp Lab Synthetic Check</title>
+<style>body{font-family:sans-serif;margin:40px;background:#f0f4f8;color:#102a43}#output{padding:10px;background:#d9e2ec;margin-top:10px}</style></head>
+<body><h1>Supreme Lamp Lab - synthetic browser check</h1><p id="status">Status: Ready</p>
+<button id="action-btn">Run Interaction Test</button><div id="output">Initial</div>
+<script>document.getElementById('action-btn').addEventListener('click',()=>{document.getElementById('output').innerText='Interaction Successful';document.getElementById('status').innerText='Status: Clicked';});</script>
+</body></html>`;
 
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(htmlContent);
-  });
-
+function startServer() {
+  const server = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(PAGE); });
   return new Promise((resolve, reject) => {
-    server.listen(port, '127.0.0.1', () => {
-      const actualPort = server.address().port;
-      console.log(`Local test server listening at http://127.0.0.1:${actualPort}`);
-      resolve({ server, url: `http://127.0.0.1:${actualPort}` });
-    });
-    server.on('error', reject);
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}` }));
   });
 }
 
-async function runBrowserCheck() {
-  const runId = process.env.GITHUB_RUN_ID || 'local-run';
-  const runAttempt = process.env.GITHUB_RUN_ATTEMPT || '1';
-  const commitSha = process.env.GITHUB_SHA || 'local-sha';
-  const runnerName = process.env.RUNNER_NAME || process.env.COMPUTERNAME || 'local-runner';
-
-  const baseDir = process.env.RUNNER_TEMP || path.resolve(__dirname, '..');
-  const outputDir = path.join(baseDir, `artifacts`, `run-${runId}-${runAttempt}`);
-  const videoDir = path.join(outputDir, 'videos');
-  const screenshotPath = path.join(outputDir, 'screenshot.png');
-  const resultsPath = path.join(outputDir, 'results.json');
-
-  if (!fs.existsSync(videoDir)) {
-    fs.mkdirSync(videoDir, { recursive: true });
-  }
-
-  // Register current process in lab registry
-  let registered = false;
-  try {
-    registryUtils.registerProcess({
-      pid: process.pid,
-      processName: 'node-browser-check',
-      exePath: process.execPath,
-      runId,
-      runAttempt
-    });
-    registered = true;
-  } catch (regErr) {
-    console.warn(`[REGISTRY_WARN] Could not register process: ${regErr.message}`);
-  }
-
-  // Acquire execution lock
-  let lockAcquired = false;
-  try {
-    registryUtils.acquireLock({ runId, runAttempt, timeoutMs: 5000 });
-    lockAcquired = true;
-  } catch (lockErr) {
-    console.warn(`[LOCK_WARN] ${lockErr.message}`);
-  }
-
-  const startTime = Date.now();
-  const consoleErrors = [];
+async function browserSynthetic(caps, outDir) {
+  const name = 'browser_synthetic';
+  let chromium;
+  try { ({ chromium } = require('playwright')); } catch (e) { caps.set(name, STATUS.FAIL, `PLAYWRIGHT_MISSING: ${e.message}`); return; }
+  const { server, url } = await startServer();
+  let browser = null; let context = null;
+  const shot = path.join(outDir, 'browser-synthetic.png');
+  const videoDir = path.join(outDir, 'video-browser-synthetic');
   const pageErrors = [];
-
-  let serverInstance = null;
-  let browser = null;
-  let context = null;
-  let page = null;
-  let testStatus = 'FAIL';
-  let failureReason = null;
-
   try {
-    const { server, url } = await startLocalServer(0);
-    serverInstance = server;
-
-    console.log('Launching browser in HEADED mode for interactive capability check...');
-    // Interactive profile strictly requires headed mode. Do not fall back to headless.
-    try {
-      browser = await chromium.launch({ headless: false });
-    } catch (launchErr) {
-      console.error('Headed browser launch failed! Interactive profile requires headed browser desktop session.', launchErr);
-      failureReason = `HEADED_LAUNCH_FAILED: ${launchErr.message}`;
-      throw new Error(failureReason);
-    }
-
-    context = await browser.newContext({
-      viewport: { width: 1280, height: 720 },
-      recordVideo: {
-        dir: videoDir,
-        size: { width: 1280, height: 720 }
-      }
-    });
-
-    page = await context.newPage();
-
-    page.on('console', msg => {
-      if (msg.type() === 'error') {
-        consoleErrors.push(msg.text());
-      }
-    });
-
-    page.on('pageerror', err => {
-      pageErrors.push(err.message);
-    });
-
-    console.log(`Navigating to local test page: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
-
-    // Assert initial state
-    const initialText = await page.textContent('#output');
-    if (initialText.trim() !== 'Initial') {
-      throw new Error(`Unexpected initial state: "${initialText}"`);
-    }
-
-    // Perform interaction
-    console.log('Clicking action button...');
+    try { browser = await chromium.launch({ headless: false }); } catch (e) { throw new Error(`HEADED_LAUNCH_FAILED: ${e.message.split('\n')[0]}`); }
+    context = await browser.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } });
+    const page = await context.newPage();
+    page.on('pageerror', e => pageErrors.push(e.message));
+    await page.goto(url, { waitUntil: 'load', timeout: 15000 });
+    const initial = (await page.textContent('#output')).trim();
+    if (initial !== 'Initial') throw new Error(`UNEXPECTED_INITIAL_STATE: ${initial}`);
     await page.click('#action-btn');
-
-    // Assert updated state
-    await page.waitForFunction(() => {
-      return document.getElementById('output').innerText === 'Interaction Successful - Lab Verified';
-    }, { timeout: 5000 });
-
-    const updatedText = await page.textContent('#output');
-    console.log(`DOM assertion passed: "${updatedText}"`);
-
-    // Capture screenshot
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    console.log(`Screenshot saved to: ${screenshotPath}`);
-
-    // Wait 1 second so video records final state
-    await page.waitForTimeout(1000);
-
-    testStatus = 'PASS';
-  } catch (err) {
-    if (!failureReason) {
-      failureReason = err.message;
-    }
-    console.error(`Browser capability check failed: ${failureReason}`);
+    await page.waitForFunction(() => document.getElementById('output').innerText === 'Interaction Successful', null, { timeout: 5000 });
+    await page.screenshot({ path: shot });
+    await page.waitForTimeout(800);
+    const img = validatePngBuffer(fs.readFileSync(shot), { minWidth: 640, minHeight: 360 });
+    if (!img.valid) throw new Error(`SCREENSHOT_INVALID: ${img.reason}`);
+    if (pageErrors.length) throw new Error(`PAGE_ERRORS: ${pageErrors.join(' | ')}`);
+    await context.close(); context = null; // flush video
+    const video = fs.existsSync(videoDir) ? fs.readdirSync(videoDir).find(f => f.endsWith('.webm')) : null;
+    const videoBytes = video ? fs.statSync(path.join(videoDir, video)).size : 0;
+    if (!video || videoBytes < 1000) throw new Error(`VIDEO_MISSING_OR_EMPTY: ${video || 'none'} (${videoBytes} bytes)`);
+    caps.set(name, STATUS.PASS, `DOM interaction asserted; screenshot ${img.width}x${img.height}; video ${videoBytes} bytes`, { screenshot: shot, video: path.join(videoDir, video) });
+  } catch (e) {
+    caps.set(name, STATUS.FAIL, e.message, { pageErrors });
   } finally {
-    const endTime = Date.now();
-    const durationMs = endTime - startTime;
-
-    // Gracefully close Playwright objects to flush video file
-    if (page) {
-      try { await page.close(); } catch (e) {}
-    }
-    if (context) {
-      try { await context.close(); } catch (e) {}
-    }
-    if (browser) {
-      try { await browser.close(); } catch (e) {}
-    }
-    if (serverInstance) {
-      try { serverInstance.close(); } catch (e) {}
-    }
-
-    // Release lock and unregister process
-    if (lockAcquired) {
-      registryUtils.releaseLock();
-    }
-    if (registered) {
-      try { registryUtils.unregisterProcess(process.pid); } catch (e) {}
-    }
-
-    // Find recorded video file
-    let videoFile = null;
-    if (fs.existsSync(videoDir)) {
-      const files = fs.readdirSync(videoDir);
-      const webmFile = files.find(f => f.endsWith('.webm'));
-      if (webmFile) {
-        videoFile = path.join(videoDir, webmFile);
-      }
-    }
-
-    const resultsData = {
-      status: testStatus,
-      runId,
-      runAttempt,
-      commitSha,
-      runnerName,
-      browserMode: 'headed',
-      toolVersions: {
-        node: process.version,
-        playwright: require('playwright/package.json').version
-      },
-      timestamps: {
-        startTime: new Date(startTime).toISOString(),
-        endTime: new Date(endTime).toISOString(),
-        durationMs
-      },
-      evidence: {
-        screenshotExists: fs.existsSync(screenshotPath),
-        screenshotPath: fs.existsSync(screenshotPath) ? screenshotPath : null,
-        videoExists: Boolean(videoFile && fs.existsSync(videoFile)),
-        videoPath: videoFile
-      },
-      errors: {
-        failureReason,
-        consoleErrors,
-        pageErrors
-      }
-    };
-
-    fs.writeFileSync(resultsPath, JSON.stringify(resultsData, null, 2));
-    console.log(`Structured results saved to: ${resultsPath}`);
-
-    if (testStatus !== 'PASS') {
-      process.exit(1);
-    }
+    if (context) await context.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+    server.close();
   }
 }
 
-runBrowserCheck().catch(err => {
-  console.error('Fatal error in browser check:', err);
-  process.exit(1);
-});
+async function nativeScreenshot(caps, outDir) {
+  const name = 'native_screenshot';
+  if (process.platform !== 'win32') { caps.set(name, STATUS.BLOCKED, 'PLATFORM: native desktop capture is implemented for Windows interactive runners only'); return; }
+  const shot = path.join(outDir, 'native-desktop.png');
+  // bounded + async: a wedged capture helper reports its own diagnostic instead
+  // of blocking the capability run until the job timeout
+  const r = await ps.runPowerShell({ script: path.join(__dirname, 'ps', 'Capture-Desktop.ps1'), args: ['-Path', shot], timeoutMs: 60000, operation: 'native-capture', site: 'browser-check.js:nativeScreenshot' });
+  const out = `${r.stdout || ''}${r.stderr || ''}`.trim();
+  const img = validateImageFile(shot, { minWidth: 640, minHeight: 400 });
+  if (!r.ok || !img.valid) caps.set(name, STATUS.FAIL, `NATIVE_CAPTURE_FAILED: ${r.ok ? 'exit=0' : ps.describe(r)} ${out} ${img.reason || ''}`.trim(), { diagnostic: r.ok ? null : r.errorCode });
+  else if (img.nearUniform) caps.set(name, STATUS.FAIL, `NATIVE_SCREENSHOT_UNIFORM: ${out} (locked or blank desktop?)`, { screenshot: shot });
+  else caps.set(name, STATUS.PASS, `${out}; ${img.width}x${img.height}`, { screenshot: shot });
+}
+
+async function main() {
+  const caps = new CapabilitySet(DEFS);
+  const outDir = artifactDir();
+  let lock = null;
+  try {
+    try {
+      lock = acquireLock({ lockDir: registry.sessionLockDir(), role: 'browser-check', timeoutMs: Number(process.env.SESSION_LOCK_TIMEOUT_MS || 120000) });
+    } catch (e) {
+      throw new Error(`LOCK_ACQUISITION_FAILED: ${e.message}`);
+    }
+    try { registry.registerProcess({ pid: process.pid, role: 'browser-check' }); } catch (e) { console.warn(`[registry] ${e.message}`); }
+    await browserSynthetic(caps, outDir);
+    await nativeScreenshot(caps, outDir);
+  } catch (e) {
+    for (const n of Object.keys(DEFS)) if (caps.get(n).status === STATUS.NOT_RUN) caps.set(n, STATUS.FAIL, e.message);
+  } finally {
+    try { registry.unregisterProcess({ pid: process.pid }); } catch (e) { /* postflight */ }
+    if (lock) releaseLock(lock);
+  }
+  const agg = caps.aggregate();
+  const file = writeCapabilities('client-local', caps, { aggregate: agg });
+  console.log(`client-local aggregate=${agg.status} -> ${file}`);
+  process.exit(agg.accepted ? 0 : 1);
+}
+
+if (require.main === module) main();
+module.exports = { DEFS };

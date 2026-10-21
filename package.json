@@ -4,11 +4,18 @@
   "private": true,
   "description": "Lab for supreme-lamp interactive testing and capability verification",
   "scripts": {
+    "test": "node scripts/run-regressions.js",
+    "test:regression": "node scripts/run-regressions.js",
     "test:browser": "node scripts/browser-check.js",
     "test:mission-control": "node scripts/mission-control-check.js",
-    "test:regression": "node scripts/run-regressions.js"
+    "cleanup:postflight": "node scripts/cleanup-lab.js --mode postflight",
+    "cleanup:preflight": "node scripts/cleanup-lab.js --mode preflight",
+    "verify:dispatch": "node scripts/dispatch-verification.js"
   },
   "dependencies": {
     "playwright": "1.49.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

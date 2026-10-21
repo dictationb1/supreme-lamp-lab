@@ -1,0 +1,14 @@
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -8463,9 +8463,10 @@
+                     # 2/10/11 set as the F28 collector. \b stops '10' from
+                     # matching inside a longer number.
+                     if ($msg -notmatch 'Logon Type:\s+(2|10|11)\b') { continue }
++                    $ltThis = [string]$Matches[1]
+                     if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { continue }
+                     $connected = $true
+-                    $ltSeen = [string]$Matches[1]
++                    $ltSeen = $ltThis
+                     $ts = $ev.TimeCreated.ToUniversalTime().ToString('o')
+                     $ageSec = [int]((Get-Date) - $ev.TimeCreated).TotalSeconds
+                     if ($msg -match 'Source Network Address:\s+(\S+)') { $ip = $Matches[1] }

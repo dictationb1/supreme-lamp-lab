@@ -1,54 +1,492 @@
-# Supreme Lamp Lab - Configuration & Runbook Guide (Sinhala)
+# Supreme Lamp Lab — Runbook
 
-මෙම ලේඛනය `supreme-lamp-lab` හි Windows පරිසරය, OIDC සහ Tailscale සකස් කිරීම පිළිබඳ විස්තර සපයයි.
+Verification lab for the **RDP Mission Control** integration of
+[`dictationb1/supreme-lamp`](https://github.com/dictationb1/supreme-lamp).
+Workflow: `.github/workflows/capability-check.yml`.
 
----
-
-## 1. Tailscale OIDC Federation සැකසුම (Setup Instructions & Trust Configuration)
-
-Tailscale OIDC Workload Identity Federation හි HTTP 403 (token exchange failed) දෝෂය විසඳීමට පහත පරිදි Tailscale Admin Console හි Custom OIDC Provider එක සකස් කළ යුතුය:
-
-- **Tailscale Admin Console Settings**:
-  - **Issuer**: `https://token.actions.githubusercontent.com`
-  - **Audience**: exact string matched with `TS_AUDIENCE` secret (e.g. `https://login.tailscale.com/v2/oauth` or explicit custom audience, do not invent from repo URL).
-  - **Permitted Tags**: `tag:ci`
-
-- **OIDC Claims matching**:
-  - `repository`: `dictationb1/supreme-lamp-lab`
-  - `sub` (subject): `repo:dictationb1/supreme-lamp-lab:ref:refs/heads/<branch>` (or `repo:dictationb1/supreme-lamp-lab:pull_request`)
-  - `actor`: GitHub user/bot identity
-  - `ref`: `refs/heads/<branch>` (or `refs/pull/*/merge`)
-
-- **GitHub Repository Secrets**:
-  - `TS_OAUTH_CLIENT_ID`: Tailscale OIDC client ID එක GitHub Secrets හි ඇතුළත් කරන්න.
-  - `TS_AUDIENCE`: Target OIDC audience string එක.
+> **සිංහල සාරාංශය:** පහත §2 හි ඇති admin ක්‍රියා තුන (Tailscale subject,
+> secrets, client tailnet) සම්පූර්ණ වන තුරු remote capabilities `BLOCKED`
+> ලෙස පෙන්වයි. එය නිවැරදි හැසිරීමයි — workflow එක කිසි විටෙකත් `BLOCKED`
+> හෝ `NOT_RUN` හෝ `SIMULATED` එකක් `PASS` ලෙස වාර්තා නොකරයි.
 
 ---
 
-## 2. Windows Runner සූදානම් කිරීම (Windows Self-Hosted Runner)
+## 1. Topology
 
-- **Execution Policy**:
-  - Persistent LocalMachine execution policy වෙනස් කිරීමට අවශ්‍ය නැත. Workflow එක process-scoped Bypass shell භාවිත කරයි (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"`).
+| job | runner | what it does |
+|---|---|---|
+| `static` | ubuntu-latest | resolves the app SHA **once** (`scripts/resolve-app-source.js`), verifies the Node pin against the GPG-signed `SHASUMS256.txt`, `node --check`, regression suite (browser e2e required), PowerShell parse of every `.ps1` **and** every PowerShell `run:` block, pinned checksum-verified actionlint |
+| `server` | **windows-latest (ephemeral)** | checks out the app at the exact SHA, stages it with the app's own `Stage-F60FromCheckout` + `Stage-F60UiBundle` (commit-matched, checksum-verified UI bundle), prepares an RDP target (user `slabrdp`, NLA, firewall limited to `100.64.0.0/10`, Web Desktop capture task at that user's logon), decodes the OIDC claims, joins the tailnet, then **one supervised step** starts the backend, runs the server-local checks, keeps it alive until the `client` job completes, and stops it |
+| `client` | self-hosted `[Windows, X64, rdp-lab-client]` interactive desktop | Windows regression suite, synthetic headed browser, native desktop screenshot, waits for `slab-srv-<run_id>-<attempt>` on its existing tailnet, then remote readiness, headed dashboard, mstsc RDP auto-login and Web Desktop against the server |
+| `report` | ubuntu-latest | merges every job's capability outputs into `verification-report.json`; exits 0 **only** for `VERIFIED` |
 
-- **Interactive Desktop Session**:
-  - Headed browser පරීක්ෂණ සහ native `mstsc.exe` RDP පරීක්ෂණ සඳහා Session ID > 0 සහිත සක්‍රීය Windows User Desktop Session එකක් අවශ්‍ය වේ.
+The self-hosted client **never starts a backend** and makes no machine-wide
+changes. Everything that needs elevation or system configuration (local user,
+RDP, firewall, scheduled task) happens on the throw-away hosted VM.
 
-- **Migration to Interactive Scheduled Task (VM එක මත ක්‍රියාත්මක කළ යුතු පියවර)**:
-  - CI ක්‍රියාවලියක ඇතුළත සිට මෙය ස්වයංක්‍රීයව සිදු කළ නොහැක. VM එකට login වී Administrator PowerShell එකක් විවෘත කර පහත විධානය ක්‍රියාත්මක කරන්න:
+### App commit under test
+
+`config/app-source.json` pins `978a8375ee77b392ce11694ccee7722fd6ca4f71` — the
+newest app commit with a published `ui-dist-<sha>.zip` + `.sha256`. App main
+`daf1368` differs only in `docs/status.json` and has no UI bundle (staging it
+would be refused). Override per run with the `source_sha` dispatch input; the
+resolver fails fast if the commit or its bundle does not exist (no `main.zip`
+or `unknown` fallback).
+
+## 2. Required one-time admin configuration
+
+These cannot be done from CI (the workflow token has no admin scope). Until
+they are done the corresponding capabilities report `BLOCKED` with the exact
+cause.
+
+### 2.1 Tailscale workload-identity trust credential (fixes the HTTP 403)
+
+This repository uses GitHub's **immutable OIDC subject** format
+(`use_immutable_subject: true`), so every token's `sub` looks like
+
+```
+repo:dictationb1@342137832/supreme-lamp-lab@1425092794:<context>
+```
+
+The previously documented pattern `repo:dictationb1/supreme-lamp-lab:*` **can
+never match** — that is the root cause of
+`token exchange failed with status 403` in run 39526409955. In the Tailscale
+admin console → *Settings → Trust credentials* (the credential whose client ID
+is in `TS_OAUTH_CLIENT_ID`):
+
+| field | value |
+|---|---|
+| Issuer | `https://token.actions.githubusercontent.com` (GitHub) |
+| Subject | `repo:dictationb1@342137832/supreme-lamp-lab@1425092794:*` (or narrower, e.g. `...:ref:refs/heads/main` + `...:pull_request`) |
+| Tags | `tag:ci` (must equal the workflow's `tags:`) |
+| Scopes | `auth_keys` (write) |
+
+The audience is generated by Tailscale for the credential — copy it verbatim
+into the `TS_AUDIENCE` secret. Every server job prints the decoded `sub`
+(annotation *OIDC subject*) so the match can be checked without guessing; the
+token itself is never printed. A quick standalone check:
+`workflow_dispatch` with `mode=auth-diagnostic`.
+
+### 2.2 Repository secrets
+
+| secret | used by | purpose |
+|---|---|---|
+| `TS_OAUTH_CLIENT_ID` | server | Tailscale trust-credential client ID |
+| `TS_AUDIENCE` | server | audience of that credential |
+| `RDP_LAB_PASSWORD` | server + client | password of the ephemeral `slabrdp` account (Windows complexity rules). Missing ⇒ `rdp_auto_login` / `web_desktop` `BLOCKED (MISSING_CONFIG)`. **Standalone mode only** — it must never be applied to an application main run, which generates its own account and password per run |
+| `LIVE_RUN_DISPATCH_PAT` | live-run.yml (optional) | a fine-grained PAT with **only** `supreme-lamp-lab : Actions: write`, used by `scripts/dispatch-verification.js` to wake the live-run workflow. Optional: the scheduled sweep is the guaranteed path |
+
+> The application repository needs its own one-time secret for the handoff:
+> `LAB_RUN_RECORDS_TOKEN` (contents: write on this repository's `run-records`
+> branch) so the origin can publish its queue record. Without it the descriptor
+> still travels by artifact + best-effort dispatch, and the lab reports exactly
+> which half it could not use. **No secret value is ever pasted into a chat, an
+> issue, a dispatch input or a log** — only the secret *name* appears in docs.
+
+### 2.3 Client machine
+
+* Tailscale installed, logged in and **running** on the same tailnet
+  (`tailscale status --json` → `BackendState: Running`). The workflow only
+  reads status; it never logs in, out or changes preferences.
+* Tailnet policy must allow the client to reach `tag:ci` on TCP **7331**
+  (Mission Control), **7332** (Web Desktop websocket) and **3389** (RDP).
+* The runner must run in an **interactive, unlocked desktop session**
+  (session > 0) — see `scripts/migrate-runner.ps1` (run once, as admin, on
+  the client):
   ```powershell
-  .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "ඔබේ_භාවිතා_කරන්නාගේ_නම"
+  .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "<user>"
   ```
-  - ඉන්පසු Windows එකෙන් ලොග් අවුට් වී (Log out) නැවත ලොග් ඉන් (Log in) වන්න. එවිට At Logon trigger එක මගින් interactive runner එක ආරම්භ වේ.
 
----
+### 2.3a One-time setup for the automatic integration (live-run), then nothing
 
-## 3. Local Verification Run (දේශීයව පරීක්ෂා කිරීම)
+Everything in this subsection is a **prerequisite that is done once**. It is
+deliberately separated from the recurring runtime requirements below, and it is
+separate from the verification itself: no part of it produces a verdict.
 
-- **නැවත ධාවනය කිරීම**:
-  ```cmd
-  npm ci
-  node scripts/run-regressions.js
-  node scripts/browser-check.js
-  ```
-- **සාක්ෂි එකතු කිරීම (Evidence Artifacts)**:
-  - සියලු සාක්ෂි `artifacts/run-<run_id>-<attempt>/` නාමාවලියෙහි සුරැකේ. (Screenshot `.png`, Recorded Video `.webm`, JSON Telemetry Results).
+| # | one-time action | who | why |
+|---|---|---|---|
+| 1 | Merge (or otherwise land) `.github/workflows/live-run.yml` on this repository's **default branch** | repo admin | a `repository_dispatch` / `schedule` handler only runs from the default branch; while it lives on a PR branch, real origin events cannot be served at all — this is reported as `LIVE_HANDLER_NOT_ON_DEFAULT_BRANCH`, never as a pass |
+| 2 | Enable **Actions** for this private repository and confirm the schedule can run (Settings → Actions, and the `run-records` branch exists after the first publish) | repo admin | the scheduled sweep is the guaranteed path when the origin has no dispatch permission |
+| 3 | Add `LIVE_RUN_DISPATCH_PAT` here (optional) and `LAB_RUN_RECORDS_TOKEN` in the application repository | repo admin | wake-up + origin-published queue record; both are best-effort by design |
+| 4 | Land `patches/supreme-lamp-APP-MAIN-logon-status-matches-clobber.patch` and `patches/apply-live-run-signal.js --write` in the **application** repository | someone with write access there | this session's credential is denied on that repository (verified 403 twice); until then the `/api/logon-status` defect stays open and the app does not self-advertise |
+| 5 | Keep the client runner registered in an **interactive** session (§2.3) with the `ghrdp://` handler enrolled for the account the runner uses | client admin | without the handler the live path is `RDP_HANDLER_NOT_ENROLLED`, which names the app's own installer as the one-time step |
+
+**Recurring runtime requirements** (nothing else is needed per run): the
+application run must be in mode `rdp` and still inside its keep-alive window,
+and the client runner must be online. No key pasting, no password entry, no
+consent clicking, no URL opening.
+
+### 2.4 One-time RDP-file consent bootstrap (client-runner Windows account) — a SETUP step, not a verification
+
+**Verified attribution.** The April 14 2026 Windows security updates changed how
+`.rdp` files are opened: a one-time educational consent, then a per-connection
+review. Microsoft tracks this under **CVE-2026-26151** ("Insufficient UI warning
+of dangerous operations in Windows Remote Desktop allows ... spoofing",
+CVSS 7.1, CWE-357) — vendor advisory
+<https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-26151>, NVD
+<https://nvd.nist.gov/vuln/detail/CVE-2026-26151>. Updates: KB5083769 (Win11
+24H2/25H2), KB5083768 (26H1), KB5082052 (23H2), KB5082200 (Win10), KB5082063
+(Windows Server).
+
+Two **separate** dialogs exist on the client. They are never treated alike:
+
+| # | dialog | when | what it means here |
+|---|---|---|---|
+| A | **Opening Remote Desktop Connection** — ☐ *I understand and allow RDP files to open on this device for my account* — `OK` greyed out until checked | once per **account per device** | the prerequisite this section bootstraps. Reported as `rdp_auto_login=BLOCKED` / `RDP_FILE_CONSENT_REQUIRED` |
+| B | **Remote Desktop Connection Security warning** — *Caution: Unknown remote connection* / publisher + redirection checkboxes, all off by default | **every** `.rdp` launch while the file is unsigned | a per-connection review. Reported by its own code `RDP_FILE_SECURITY_REVIEW_BLOCKING`; **not** the account consent, and **not** fixed by step A |
+
+The lab never clicks either dialog, never writes `RdpLaunchConsentAccepted`,
+never sets `RedirectionWarningDialogVersion` (the documented "turn the
+protection off" policy — Microsoft advises against it), and never weakens
+NLA/TLS/CredSSP.
+
+#### 2.4.1 SETUP procedure (recommended) — bounded, and explicitly not a verification run
+
+Normal CI now detects dialog A on its **first** poll and cleans up immediately.
+That is correct for an unattended run, but it gives a human no time to act — so
+the bootstrap has its own bounded mode:
+
+```text
+GitHub → Actions → "Capability Check Workflow" → Run workflow
+  Branch: the current lab candidate (see the PR)
+  mode:   consent-setup
+  setup_timeout_ms: 600000        # 10 min; hard maximum 900000 (15 min)
+```
+
+**When to watch.** The desktop window opens late in the run, not at the start:
+`static` (~2 min) → `server` staging + tailnet join (~5 min) → `client`
+checkout/Node/Chromium/regressions (~2 min) → the SETUP step. Expect the dialog
+roughly **7-10 minutes after dispatch**, and the window stays open for
+`setup_timeout_ms`. Watch the `client` job log for the `account` / `target` lines.
+
+What that run does, in order:
+
+1. `static` job: the usual regressions + the app-source pin + the Node pin check.
+2. `server` job: stages the real backend at the pinned app SHA, joins the
+   tailnet and **prints the live target** for this attempt
+   (`slab-srv-<run_id>-<attempt>` + its `100.x` address). It holds the backend
+   for the client job.
+3. `client` job (interactive session on the client-runner VM): runs the full
+   Windows regression suite, then `scripts/rdp-consent-setup.js`, which
+   * prints the real account, session, checkout directory and target;
+   * writes the **same production-shaped `.rdp`** the verified path uses
+     (UTF-8/no-BOM, CRLF, 17 directives, read-back validated) and hands it to
+     `mstsc.exe` — the production launch path is preserved, not replaced;
+   * only **reads** window state (`Get-RdpDialogState.ps1` → `lib/dialogs.js`),
+     records one screenshot of the dialog and reports what it sees;
+   * exits at its deadline with one state from `lib/consent-state.js`.
+4. `report` job: writes a **SETUP summary with no verdict**
+   (`verdict: NO_VERDICT_SETUP_MODE`). A SETUP run can never be `VERIFIED`.
+
+Operator steps during the SETUP window:
+
+1. Be signed in on the **client-runner VM** as the account that runs the
+   runner — confirmed from the live run evidence as
+   **`WIN-NFU1JG4VESE\User`, interactive session 1**. Confirm it yourself on
+   the VM: `whoami` → `win-nfu1jg4vese\user`, and `$PID`'s session via
+   `(Get-Process -Id $PID).SessionId` → `1`. The SETUP run prints the same pair
+   (`account` / `session:` lines) — trust that printout over this document.
+2. Watch the desktop for **"Opening Remote Desktop Connection"**.
+3. **Check** *"I understand and allow RDP files to open on this device for my
+   account"*, then press **OK** (disabled until checked).
+4. Leave the window alone until the SETUP job reports its state.
+
+How to know the setup action finished (the honest signals):
+
+| SETUP state | meaning | what to do |
+|---|---|---|
+| `PENDING_CONSENT` | dialog A still on screen, ungranted | check the box, press OK |
+| `CONSENT_DIALOG_CLEARED` | A was seen and is gone, `mstsc` still running | the operator answered *something*; only the next full run proves it |
+| `SESSION_CONNECTED` | A gone **and** a session window is up | the file got past the gate; continue to the full run |
+| `CONSENT_DIALOG_CLOSED_UNCONFIRMED` | A gone **and** `mstsc` exited, no session | **Cancel looks identical to OK.** Repeat the SETUP procedure and press OK |
+| `BLOCKED_SECURITY_REVIEW` | dialog **B** is on screen | a different problem — see 2.4.3 |
+| `BLOCKED_CERTIFICATE_WARNING`, `BLOCKED_CREDENTIALS_PROMPT`, `BLOCKED_CONNECTION_ERROR` | other, separately-named blockers | read the state; each is its own finding |
+| `NO_DIALOG_SEEN` | no dialog at all in the window | ambiguous: either already granted, or `mstsc` never reached the gate. **Not** proof of consent |
+
+#### 2.4.2 Manual fallback (only if the SETUP run cannot be used)
+
+Run this **on the client-runner VM, in the checkout directory**, as the same
+account. The helper refuses placeholders, loopback and malformed targets, and it
+refuses unknown flags, so a typo cannot silently produce an `.rdp` aimed at
+nothing.
+
+```powershell
+# 1. Confirm the account and the checkout you are in
+whoami
+Get-Location
+
+# 2. Only from a run that is live RIGHT NOW, copy the target it printed:
+#    server job notice "Server tailnet address" -> slab-srv-<run>-<attempt> = 100.x.y.z
+node scripts\rdp-consent-bootstrap.js --host 100.x.y.z --user slabrdp --open
+
+# 3. Check the box in the dialog, press OK
+```
+
+* **Target:** an address printed by the **current** run only. The lab server is
+  ephemeral (`slab-srv-<run_id>-<attempt>`); an address copied from an older
+  run's logs is expired and is not an authorized target.
+* **Checkout directory:** the directory the SETUP run prints as `checkout:`.
+  The self-hosted client runner's checkout is
+  `C:\Windows\System32\actions-runner\_work\supreme-lamp-lab\supreme-lamp-lab`
+  (the runner root is the `...\actions-runner` that appears in the artifacts
+  path `...\actions-runner\_work\_temp\artifacts\run-...`). Confirm with
+  `Test-Path .\scripts\rdp-consent-bootstrap.js` before running anything.
+* The helper writes the `.rdp` under `%TEMP%\slab-rdp-consent\` unless
+  `--out` is given, prints the account, session, checkout and target, and never
+  answers the dialog.
+
+#### 2.4.3 After the consent: what may still block (not the same thing)
+
+* **Unsigned `.rdp` → the per-connection review (dialog B) on every launch.**
+  This is a *different* protection and step A does not remove it. If it blocks
+  an unattended run, the capability FAILs with
+  `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays `NOT_VERIFIED`; the
+  honest next step is an **organization-trusted `.rdp` publisher path** (a
+  signed `.rdp` + a trusted-publisher policy). That is a machine-wide trust
+  change: **scope** = the client-runner VM's certificate/publisher trust store
+  and the lab's `.rdp` signing identity; **bootstrap** = an operator decision to
+  create/install that identity and re-sign the launcher's `.rdp`. The lab does
+  not do this silently, does not trust every publisher, and does not suppress
+  certificate validation. A manually clicked dialog never proves auto-login.
+* **Persistence.** Windows shows the one-time consent **once per account per
+  device**. This lab has *not* verified that it survives a re-image, a profile
+  reset or a runner re-provision on this VM, and it has *not* verified it for any
+  other account. Treat it as "one-time per account, per device, until the device
+  or profile changes" and re-run the SETUP procedure if dialog A reappears.
+
+#### 2.4.4 The only proof
+
+After the SETUP step, trigger a **full** `workflow_dispatch` run (or let the PR
+run). It must complete with **no manual clicks and no credential entry**, with
+all nine capabilities PASS, before any of it is called `VERIFIED`. Record any
+intervention and exclude that run from unattended proof.
+
+## 3. Capability contracts (all nine are required for `VERIFIED`)
+
+| capability | where | PASS only if |
+|---|---|---|
+| `browser_synthetic` | client | headed Chromium asserts a DOM interaction, valid PNG screenshot, non-empty video |
+| `native_screenshot` | client | interactive desktop captured to a valid, non-uniform PNG |
+| `backend_readiness_server_local` | server | `/api/readiness`: `ok===true && status==='ok' && phase==='ready' && apiReadiness===true`, `pid` == supervised pid, `port` == 7331; `/api/version`: `server==='ghrdp'`, `sha` == app SHA (40-hex), `sha7` consistent; OkFile `LISTENING pid=<supervised>`; port listener owned by the supervised tree |
+| `dashboard_server_local` | server | `GET /` 200 HTML, title `RDP Mission Control`, `meta#ghrdpBuild` == app SHA, `#topbar` visible, valid screenshot, not the "UI file missing" placeholder |
+| `tailnet_connectivity` | client | peer `slab-srv-<run>-<attempt>` online in the client's tailnet **and** TCP 7331 reachable |
+| `backend_readiness_remote` | client | same readiness/version contract over the tailnet, and the reported pid equals the server's supervised pid (cross-checked by `report`) |
+| `dashboard_client` | client | same dashboard contract, **headed**, on the client desktop |
+| `rdp_auto_login` | client | `mstsc` with a stored `TERMSRV/<ip>` credential (no prompt); a fresh server 4624 for the intended user with `sourceIp` == client tailnet IP **and LogonType 10 proven directly or by same-instant correlation with the XML-parsing collector — never inferred from a remote IP, never from a stale type-2 / unrelated record**; no blocking dialog on screen (missing account consent ⇒ `BLOCKED RDP_FILE_CONSENT_REQUIRED`); mstsc alive; valid native screenshot |
+| `web_desktop` | client | `/webdesk-status` `ok===true && 0<=frameAgeMs<15000`; `/webdesk-frame` valid JPEG; `/webdesk` renders `img#view` with `naturalWidth>0` |
+
+Statuses: `PASS`, `FAIL`, `BLOCKED` (prerequisite missing: config, external
+auth, peer), `NOT_RUN`, `SKIPPED`, `SIMULATED`. Only `PASS` counts; a `FAIL`
+is never overwritten by a later `PASS`; the first causal error is reported.
+There is **no mock mode** in the live workflow.
+
+## 4. Running a verification
+
+```bash
+# dispatch + follow the exact run (correlation id in the run name); exit 0 only if VERIFIED
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main            # pinned app SHA
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main --source-sha <40-hex>
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main --mode auth-diagnostic
+```
+
+Locally (any OS, Node ≥ 22):
+
+```bash
+npm ci
+node scripts/run-regressions.js          # REQUIRE_BROWSER_TESTS=1 to make browser e2e mandatory
+```
+
+### Reading results without the log blob store
+
+Job logs/artifacts are served from a blob host that some tooling cannot
+reach. Every verdict-relevant line is therefore also an **annotation**,
+readable through `api.github.com`:
+
+```bash
+gh api repos/dictationb1/supreme-lamp-lab/actions/runs/<run>/jobs --jq '.jobs[] | [.name,.conclusion,.id] | @tsv'
+gh api repos/dictationb1/supreme-lamp-lab/check-runs/<job_id>/annotations --jq '.[] | [.title,.message] | @tsv'
+```
+
+## 5. Process safety (self-hosted client)
+
+* **Registry** (`<RUNNER_TOOL_CACHE>/supreme-lamp-lab-state/process-registry.json`):
+  every lab-started process is recorded with `(pid, createTime)` from a single
+  source (`Win32_Process.CreationDate` via `scripts/ps/Get-ProcessSnapshot.ps1`;
+  `/proc/<pid>/stat` on Linux), run id, **run attempt**, and the owning job's
+  `Runner.Worker` identity. Read-modify-write happens under a lock and commits
+  with an atomic rename (retries on transient Windows `EPERM/EBUSY`; never a
+  non-atomic copy). A corrupt registry is preserved and refused, never
+  overwritten.
+* **Locks**: atomic non-recursive `mkdir`; a lock is reclaimed only when its
+  owner's `(pid, createTime)` is gone, serialised by a per-owner claim marker
+  with re-verification. The desktop session lock is mandatory for browser /
+  Mission Control checks — failing to get it is a `FAIL`.
+* **Cleanup** (`scripts/cleanup-lab.js`; `cleanup-lab.ps1` is a thin wrapper):
+  terminates a process only if its live identity equals the record exactly.
+  *Postflight* touches only the current run **and** attempt (descendants
+  child-first, created-after-parent only). *Preflight* touches other
+  runs/attempts only when their `Runner.Worker` anchor is gone (job finished
+  ⇒ process abandoned). Never: ancestors of the cleanup process, runner or
+  system processes, processes in another Windows session, records without a
+  creation time (PID reuse ⇒ record dropped, nothing killed).
+* GitHub's own orphan-process cleanup happens once, at **job finalization**
+  ("Complete job"), for processes carrying the job's `RUNNER_TRACKING_ID` — not
+  after every step. The lab's postflight is the step-level safety net.
+
+## 6. Known gaps / honest limits
+
+* `rdp_auto_login` and `web_desktop` are only provable once §2 **and §2.4**
+  are configured; until then they are `BLOCKED` / `FAIL`, not `PASS`, and the
+  verdict stays `NOT_VERIFIED`.
+* **Pending application defect** (patch, never silently applied):
+  `/api/logon-status` at the pinned app SHA always answers `logonType:''`
+  with a user filter (the `$Matches` clobber — see `patches/` and REGRESSION.md
+  defect 10). The lab proves the type via the app's independent XML-parsing
+  collector **correlated at the same event instant**; it never derives a type
+  from a remote IP. If the type cannot be proven at that instant the honest
+  code is `RDP_LOGON_TYPE_UNKNOWN` (or `RDP_LOGON_NOT_OBSERVED` when nothing
+  matched) — a missing event is never proof that no connection was attempted,
+  and "zero matching events" in the RDPClient log is never reported as an
+  unreadable channel (`scripts/lib/eventlog.js` keeps zero-matches /
+  channel-missing / access-denied / query-error apart).
+* The one-time RDP-file consent (§2.4) and the per-connection `.rdp`
+  publisher/redirection review are Windows security features (CVE-2026-26151).
+  The lab detects and names both (`scripts/lib/dialogs.js`), captures
+  sanitized evidence during the attempt, and never clicks, suppresses or
+  auto-accepts them. `mstsc` process liveness (`alive`, `responding`) and the
+  `MainWindowHandle` `hasWindow`/`title` heuristic are **process facts only**;
+  an owned/modal dialog is invisible to that heuristic (run 39575343527:
+  `hasWindow=false` while the consent dialog was on screen). Dialog state
+  comes from window enumeration of the launched process tree in the right
+  session (`Get-RdpDialogState.ps1`).
+* The Web Desktop capture engine (`payloads/ghrdp-pub2.ps1`) has no maintained
+  standalone entry point in the app; the lab starts it with the same
+  `GhrdpWebDesk` at-logon Interactive task the app's `main.yml` uses, for the
+  `slabrdp` session created by the client's mstsc login. If the engine does
+  not produce frames, `web_desktop` FAILs with `/webdesk-probe` diagnostics.
+* UI bundle staging follows the app's production rule (`main.yml` ui-prebuilt:
+  exact `ui-dist-<sha>.zip`, sidecar, `f59-verify-sha256.mjs`, `index.html`
+  > 51200 bytes) instead of the app's F60 helper `Stage-F60UiBundle`, which
+  cannot run on current PowerShell (it passes an `object[]` to
+  `ExtractToFile`; see RECOVERY_CHECKPOINT "App-repo finding 2"). Once the app
+  fixes the helper, Stage-App can call it again.
+
+## 7. Live-run mode — verifying the ORIGINATING run while its server is alive
+
+### 7.1 What makes it a different thing from §1–6
+Everything before this section verifies a **lab-provisioned** backend
+(`slab-srv-<run>-<attempt>`, account `slabrdp`, secret `RDP_LAB_PASSWORD`).
+That is useful and it is *not* proof about an application run: a separate
+throwaway server at the same commit proves the same things about a different
+machine. Live-run mode attaches to the run that started it — same run id, same
+attempt, same host, same PID, same app commit, same UI bundle, same
+authorization — and reports every identity it could not confirm.
+
+### 7.2 The handshake (bounded, one direction, no mutual wait)
+```
+application run (main.yml, mode=rdp)
+  ├─ Service Readiness Check …                        (dashboard answering)
+  ├─ Prepare the live-run handoff                     stages lab scripts at the pinned revision
+  ├─ Signal the verification lab                      scripts/live-run.js origin-signal
+  │     · verifies ITS OWN readiness first            (descriptor = a promise the server answers)
+  │     · publishes the NON-SECRET descriptor record  to run-records (needs LAB_RUN_RECORDS_TOKEN)
+  │     · writes descriptor.json + envelope.json      → artifact, retention 1 day
+  ├─ Wake the lab workflow                            repository_dispatch (best effort)
+  ├─ Keep-alive 5h30 …                                the server stays up while the lab works
+  └─ Await the lab verdict (25 min)                   reads its own artifact store, prints a link
+
+lab .github/workflows/live-run.yml
+  ├─ claim      poll-records → scripts/pick-record.js (FIFO, never "the newest")
+  ├─ verify     lib/verify-origin.js: GitHub's own run metadata (repo/workflow/head sha/
+  │             attempt/status=in_progress) + artifact provenance, then the LIVE backend
+  │             must self-report the same app sha (/api/version, /api/readiness)
+  │             → claim the run-records lock → lib/live-auth.js proves authorization
+  │             → headed browser in the interactive session + native mstsc via the
+  │               registered ghrdp:// handler → feature inventory → report + ack
+  └─ report     summary + artifact + job-level state write-back
+```
+Deadlock-freedom: the origin never waits for the lab to *start* (it waits, bounded,
+for a verdict), and the lab never waits for the origin's workflow to *finish* — the
+whole point is that by then the host is gone. Every wait has a deadline and a name:
+`NO_RECORD`, `QUEUED_BEHIND_LIVE_CLAIMANT`, `RUNNER_OFFLINE`, `NO_INTERACTIVE_SESSION`,
+`DESCRIPTOR_EXPIRED`, `RUN_ATTEMPT_SUPERSEDED`, `RUN_DEADLINE_REACHED`.
+
+### 7.3 Authorization is proven, not assumed
+`Test-ClientAllowed` returns true for **any** CGNAT source and whenever the token is
+empty, so "the tailnet GET worked" is not proof of authorization, and neither is a
+hidden overlay or a rendered dashboard. `lib/live-auth.js` therefore proves it with
+real protected operations on the run's own server:
+
+1. `POST /api/rdp-token` with no bearer → must be `401`; with a forged bearer → must
+   be `401`; with this run's token → `200` + a single-use `rid`. All three are
+   required for `AUTHORIZATION_PROVEN`; a ticket that anyone can mint is
+   `AUTHORIZATION_GATE_UNENFORCED`.
+2. the `/api/config` credential gate is A/B-tested (ours / anonymous / forged). Three
+   outcomes, deliberately distinct: `enforced`, `unsupported` (this build exposes no
+   gated block) and `leaked` — and **`leaked` is a hard stop** (`CREDENTIAL_GATE_LEAKED`),
+   because a "proof" of authorization on a server that hands out credentials
+   anonymously would be a lie about the security of the run.
+3. the token reaches the browser only through the supported handoff
+   (`localStorage['ghrdp.dashToken']`), never via the address bar, and stale
+   per-run auth is cleared before and after the run.
+
+The four identities stay separate: dashboard token ≠ Windows RDP account/password ≠
+Tailscale ≠ GitHub. The standalone lab's `slabrdp` + `RDP_LAB_PASSWORD` are never
+applied to a main run, and the user's browser profile, cookies and credential store
+are never read or copied.
+
+### 7.4 Feature inventory (auditable, not a checklist of clicks)
+`scripts/lib/live-inventory.js` publishes 20 rows over 14 areas derived from the
+actual current UI (`src/components/domain/*`, `src/api/*`, `payloads/ghrdp-server.ps1`
+routes). Each row carries: requirement + mandatory-for-mode, preconditions, the
+visible UI action, the expected UI result, the expected **server-side** effect, the
+observed result, sanitized evidence, and a status of `PASS` / `FAIL` / `BLOCKED` /
+`NOT_RUN` / justified `N/A`. A 200 or a screenshot never satisfies a row whose
+requirement is a downstream effect. `summarizeInventory()` then refuses
+`VERIFIED` while any mandatory row is not `PASS`; optional skips cannot veto, and
+features that were never reached stay `BLOCKED`/`NOT_RUN` with their dependency code
+(`DEPENDS_ON_BACKEND`, `DEPENDS_ON_RDP_SESSION`, `DEPENDS_ON_BROWSER`) so a root
+cause stays visible separately from its downstream consequences.
+
+### 7.5 Exit codes (also the operator's status)
+| exit | meaning | operator-facing stage |
+|---|---|---|
+| 0 | verified: every mandatory inventory row passed on the live run | `COMPLETED` |
+| 4 | blocked by an external prerequisite (consent, handler enrollment, runner offline, missing token) | `BLOCKED` |
+| 5 | a genuine verification failure (a mandatory check did not hold) | `FAILED` |
+| 7 | the report exists but something required could not be inspected | `PARTIAL` |
+| 8 | the advertised endpoint passed its expiry — the server is gone | `EXPIRED` |
+| 9 | the single-desktop queue was busy with another live claim | `QUEUED` |
+| 64 | usage/config error (bad flag, bad descriptor) | `REJECTED` |
+| 69 | not applicable on this platform (live mode requires the interactive Windows client) | `BLOCKED` |
+
+`ack` returns 0 only on `REPORTED_VERIFIED`; `NO_LAB_ACCEPTANCE` (exit 6) is how the
+origin learns that nobody picked it up, which is a different fact from "the lab
+looked and it failed".
+
+### 7.6 Honest limits of this mode (read before quoting a result)
+* **`origin-selftest` is not `live-origin`.** The CI harness exercises the identical
+  code path against a lab-owned backend so the logic can be regression-tested; every
+  artifact it writes says `origin-selftest`, and its capability verdict is
+  `SIMULATED`, which can never satisfy a live requirement (`lib/status.js` refuses the
+  upgrade).
+* The application-side half ships as `patches/` + an anchor-based applier, because
+  writes to `dictationb1/supreme-lamp` are denied for this session. Until someone
+  with access lands them, **no application run will self-advertise**, and the
+  `/api/logon-status` `logonType:''` defect is open. It is not "fixed but unproven" —
+  it is unfixed in the product, with a tested patch.
+* Web Desktop is only `PASS` with fresh frames from the intended RDP session
+  rendered by a real browser; a placeholder, a frozen frame or a prerecorded fixture
+  is a `FAIL` by design ("a frozen web-desktop frame is a FAIL, not a
+  PASS-with-screenshot").
+* Destructive lifecycle rows run only with `--allow-destructive`, only against
+  explicitly disposable run-owned fixtures, and only in the final stage; changed
+  settings are restored, evidence is preserved before cleanup, and no active working
+  data or unrelated session is touched.
+* Cleanup releases the desktop lock and this run's owned processes/credentials only.
+  The opt-in viewer (`keep_viewer_open_minutes`, capped at 60) is a job-owned process,
+  stopped by the postflight step: a viewer never outlives the job as an orphan, and a
+  job that must leave a viewer alive needs an explicitly managed interactive agent,
+  which this lab does not run.
+* Timing honesty: nothing here promises a duration. What is measured (claim → auth →
+  UI → report) is recorded per run in the report JSON.
