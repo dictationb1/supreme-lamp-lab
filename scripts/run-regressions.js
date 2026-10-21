@@ -1,290 +1,1078 @@
-const { execSync, spawn } = require('child_process');
+#!/usr/bin/env node
+'use strict';
+// Regression suite for the lab's verification machinery. Every test that
+// involves a server uses an OUT-OF-PROCESS fixture (scripts/test/fixtures/
+// fake-backend.js) and async child processes - nothing blocks the event loop,
+// so a same-process server can never produce a fake pass.
+//
+//   node scripts/run-regressions.js            # all tests
+//   REQUIRE_BROWSER_TESTS=1 ...                # browser e2e must run (CI)
+//   ONLY=<substring> ...                       # filter
+
+const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const registryUtils = require('./registry-utils');
+const net = require('net');
+const zlib = require('zlib');
+const { spawn } = require('child_process');
 
-let totalTests = 0;
-let passedTests = 0;
-let skippedTests = 0;
-let failedTests = 0;
+const ROOT = path.resolve(__dirname, '..');
+const S = p => path.join(ROOT, 'scripts', p);
+const FAKE = S('test/fixtures/fake-backend.js');
+const FIXTURE_PS = {
+  hang: S('test/fixtures/hang-ps.js'),
+  fail: S('test/fixtures/fail-ps.js'),
+  ok: S('test/fixtures/ok-ps.js')
+};
+// Env that makes lib/ps.js spawn <node> <fixture> instead of PowerShell.
+function fakePsEnv(fixture, extra = {}) {
+  return { LAB_PS_EXE: process.execPath, LAB_PS_ARGV_PREFIX: JSON.stringify([FIXTURE_PS[fixture]]), ...extra };
+}
+const SHA = '978a8375ee77b392ce11694ccee7722fd6ca4f71';
+const IS_WIN = process.platform === 'win32';
 
-function runTest(name, fn) {
-  totalTests++;
-  console.log(`\n=== Running Regression Test ${totalTests}: ${name} ===`);
+const { STATUS, aggregate, CapabilitySet } = require('./lib/status');
+const { evaluateReadiness, evaluateVersion, waitForReady, checkVersion } = require('./lib/readiness');
+const { request, formatErrorChain } = require('./lib/http');
+const { validatePngBuffer, validateJpegBuffer } = require('./lib/image');
+const { redact } = require('./lib/redact');
+const proc = require('./lib/proc');
+const psLib = require('./lib/ps');
+const reportLib = require('./verification-report');
+const tailnetDiag = require('./tailnet-token-exchange-diagnostic');
+
+const results = [];
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-reg-'));
+let counter = 0;
+function freshDirs() {
+  const d = path.join(tmpRoot, `t${++counter}`);
+  const dirs = { state: path.join(d, 'state'), art: path.join(d, 'art'), out: path.join(d, 'gh-output.txt') };
+  fs.mkdirSync(dirs.state, { recursive: true }); fs.mkdirSync(dirs.art, { recursive: true });
+  return dirs;
+}
+function childEnv(dirs, extra = {}) {
+  const env = { ...process.env, LAB_STATE_DIR: dirs.state, ARTIFACT_DIR: dirs.art, GITHUB_OUTPUT: dirs.out, GITHUB_RUN_ID: 'reg-run', GITHUB_RUN_ATTEMPT: '1', ...extra };
+  delete env.GITHUB_STEP_SUMMARY;
+  delete env.REGISTRY_PATH;
+  return env;
+}
+function readOutputs(file) {
+  const o = {};
+  if (!fs.existsSync(file)) return o;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) { const i = line.indexOf('='); if (i > 0) o[line.slice(0, i)] = line.slice(i + 1); }
+  return o;
+}
+
+function run(cmd, args, { env, timeoutMs = 60000 } = {}) {
+  return new Promise(resolve => {
+    const c = spawn(cmd, args, { env: env || process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = ''; let err = '';
+    c.stdout.on('data', d => { out += d; }); c.stderr.on('data', d => { err += d; });
+    const t = setTimeout(() => { c.kill('SIGKILL'); }, timeoutMs);
+    c.on('exit', code => { clearTimeout(t); resolve({ code, out, err }); });
+  });
+}
+
+function startFake(mode, extraEnv = {}) {
+  return new Promise((resolve, reject) => {
+    const c = spawn(process.execPath, [FAKE], { env: { ...process.env, MODE: mode, PORT: '0', EXPECT_SHA: SHA, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let buf = '';
+    const t = setTimeout(() => reject(new Error(`fake ${mode} did not start`)), 10000);
+    c.stdout.on('data', d => {
+      buf += d;
+      const m = buf.match(/FAKE_LISTENING port=(\d+) pid=(\d+)/);
+      if (m) { clearTimeout(t); resolve({ child: c, port: Number(m[1]), pid: Number(m[2]), url: `http://127.0.0.1:${m[1]}` }); }
+    });
+    c.on('exit', code => { clearTimeout(t); reject(Object.assign(new Error(`fake ${mode} exited ${code}`), { exitCode: code })); });
+  });
+}
+function stopFake(f) { if (f && f.child && f.child.exitCode === null) f.child.kill('SIGKILL'); }
+
+function freePort() {
+  return new Promise(res => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); });
+}
+
+async function test(name, fn, { skipIf } = {}) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
+  if (skipIf) {
+    const why = skipIf();
+    if (why) { results.push({ name, status: 'SKIPPED', detail: why }); console.log(`SKIP  ${name} (${why})`); return; }
+  }
+  const t0 = Date.now();
   try {
-    const result = fn();
-    if (result && result.status === 'SKIP') {
-      console.log(`[SKIP] ${name}: ${result.reason || 'Skipped'}`);
-      skippedTests++;
-      return true;
-    }
-    console.log(`[PASS] ${name}`);
-    passedTests++;
-    return true;
-  } catch (err) {
-    console.error(`[FAIL] ${name}:`, err.message);
-    failedTests++;
-    return false;
+    await fn();
+    results.push({ name, status: 'PASS', ms: Date.now() - t0 });
+    console.log(`PASS  ${name} (${Date.now() - t0}ms)`);
+  } catch (e) {
+    results.push({ name, status: 'FAIL', ms: Date.now() - t0, detail: e.stack || String(e) });
+    console.log(`FAIL  ${name}\n      ${String(e.stack || e).split('\n').slice(0, 6).join('\n      ')}`);
   }
 }
 
-// Defect 1: Restricted PowerShell Process-Scoped Bypass Execution
-runTest('PowerShell Process-Scoped Bypass Execution Under Restricted Child Policy', () => {
-  if (process.platform !== 'win32') {
-    return { status: 'SKIP', reason: 'PowerShell child policy test is Windows-specific' };
-  }
-  const cmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Restricted -Command "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command Write-Host 'Process Bypass OK'"`;
-  const output = execSync(cmd).toString();
-  if (!output.includes('Process Bypass OK')) {
-    throw new Error(`Expected output 'Process Bypass OK' not found. Got: ${output}`);
-  }
-});
+// ---------- helpers for image fixtures ----------
+function crc32(buf) {
+  let c; const table = [];
+  for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0; }
+  let crc = 0xffffffff;
+  for (const b of buf) crc = table[(crc ^ b) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function chunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+  return Buffer.concat([len, td, crc]);
+}
+function makePng(w, h, uniform = false) {
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = uniform ? 7 : x % 256; raw[o + 1] = uniform ? 7 : y % 256; raw[o + 2] = uniform ? 7 : (x * y) % 256; }
+  if (uniform) for (let y = 0; y < h; y++) raw[y * (w * 3 + 1)] = 7;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+function makeJpeg(w, h, withEoi = true) {
+  const sof = Buffer.from([0xff, 0xc0, 0x00, 0x11, 0x08, h >> 8, h & 0xff, w >> 8, w & 0xff, 0x03, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1]);
+  const app0 = Buffer.concat([Buffer.from([0xff, 0xe0, 0x01, 0x02]), Buffer.alloc(256)]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.alloc(64, 0x11), withEoi ? Buffer.from([0xff, 0xd9]) : Buffer.alloc(0)]);
+}
 
-// Defect 2: Fail-Fast Native Exit Code Propagation
-runTest('Native Command Non-Zero Exit Code Propagation', () => {
-  if (process.platform !== 'win32') {
-    return { status: 'SKIP', reason: 'Native exit code propagation test is Windows-specific' };
-  }
-  const cmd = `powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; cmd /c exit 42; if ($LASTEXITCODE -ne 0) { throw \\"Native command failed with code $LASTEXITCODE\\" }"`;
-  try {
-    execSync(cmd, { stdio: 'pipe' });
-    throw new Error('PowerShell should have thrown on non-zero LASTEXITCODE');
-  } catch (err) {
-    const combinedOutput = (err.message || '') + (err.stderr ? err.stderr.toString() : '');
-    if (!combinedOutput.includes('Native command failed with code 42')) {
-      throw new Error(`Unexpected error message: ${err.message}`);
-    }
-  }
-});
+// ---------- spawn a long-lived dummy process (for cleanup tests) ----------
+function spawnSleeper({ withGrandchild = false } = {}) {
+  const code = withGrandchild
+    ? "const {spawn}=require('child_process');const g=spawn(process.execPath,['-e','setTimeout(()=>{},120000)'],{stdio:'ignore'});console.log('GC '+g.pid);setTimeout(()=>{},120000)"
+    : "console.log('READY');setTimeout(()=>{},120000)";
+  return new Promise(resolve => {
+    const c = spawn(process.execPath, ['-e', code], { stdio: ['ignore', 'pipe', 'ignore'] });
+    c.stdout.once('data', d => { const m = String(d).match(/GC (\d+)/); resolve({ child: c, pid: c.pid, grandchild: m ? Number(m[1]) : null }); });
+  });
+}
+const alive = pid => proc.isAlive(pid) && Boolean(proc.getProcess(pid));
 
-// Defect 3: Interactive Headed Browser Launch Failure Handling
-runTest('Browser Check Strictly Fails on Headed Launch Failure', () => {
-  const browserScript = fs.readFileSync(path.join(__dirname, 'browser-check.js'), 'utf8');
-  if (browserScript.includes('falling back to headless')) {
-    throw new Error('browser-check.js still contains headless fallback logic!');
-  }
-  if (!browserScript.includes('HEADED_LAUNCH_FAILED')) {
-    throw new Error('browser-check.js does not explicitly fail on headed launch error!');
-  }
-});
+async function main() {
+  console.log(`regressions on ${process.platform} node ${process.version}; tmp ${tmpRoot}`);
 
-// Defect 4: Fresh Per-Run Output Directory Verification
-runTest('Per-Run Output Directory Isolation', () => {
-  const runId = 'test-run-123';
-  const runAttempt = '1';
-  const baseDir = process.env.RUNNER_TEMP || path.resolve(__dirname, '..');
-  const targetDir = path.join(baseDir, `artifacts`, `run-${runId}-${runAttempt}`);
-  if (targetDir.includes('artifacts/screenshot.png')) {
-    throw new Error('Output path is not isolated per run!');
-  }
-});
+  // ===== status aggregation =====
+  await test('status: only all-required-PASS is accepted', async () => {
+    const P = { status: 'PASS', required: true };
+    assert.strictEqual(aggregate({ a: P, b: P }).accepted, true);
+    assert.strictEqual(aggregate({ a: P, b: { status: 'NOT_RUN', required: true } }).status, 'NOT_RUN');
+    assert.strictEqual(aggregate({ a: P, b: { status: 'SIMULATED', required: true } }).accepted, false);
+    assert.strictEqual(aggregate({ a: P, b: { status: 'SKIPPED', required: true } }).accepted, false);
+    assert.strictEqual(aggregate({}).accepted, false, 'empty set must not be accepted');
+    assert.strictEqual(aggregate({ a: { status: 'BLOCKED', required: true }, b: { status: 'FAIL', required: true } }).status, 'FAIL');
+    assert.strictEqual(aggregate({ a: { status: 'BLOCKED', required: true, reason: 'x' }, b: { status: 'FAIL', required: true } }).firstCause.capability, 'a');
+    assert.throws(() => aggregate({ a: { status: 'GREEN', required: true } }), /INVALID_STATUS/);
+  });
+  await test('status: a FAIL is never overwritten by a later PASS', async () => {
+    const cs = new CapabilitySet({ x: { required: true } });
+    cs.set('x', STATUS.FAIL, 'first cause');
+    cs.set('x', STATUS.PASS, 'late pass');
+    assert.strictEqual(cs.get('x').status, 'FAIL');
+    assert.strictEqual(cs.get('x').reason, 'first cause');
+  });
 
-// Defect 5: Isolated Process Registry Encoding & Schema Integrity
-runTest('Process Registry UTF-8 Array Schema & Atomic Writes', () => {
-  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'reg-test-'));
-  const testRegPath = path.join(tempDir, 'test-registry.json');
+  // ===== readiness contract (pure) =====
+  await test('readiness: strict contract table', async () => {
+    const good = { ok: true, status: 'ok', phase: 'ready', apiReadiness: true, pid: 42, port: 7331 };
+    assert.strictEqual(evaluateReadiness(good, { expectPid: 42, expectPort: 7331 }).ready, true);
+    assert.strictEqual(evaluateReadiness({ ...good, ok: false, status: 'initializing', apiReadiness: false, phase: 'payloads' }).code, 'READINESS_NOT_READY');
+    assert.strictEqual(evaluateReadiness({ ...good, ok: false, status: 'initializing', apiReadiness: false, phase: 'ready' }).code, 'READINESS_NOT_READY', 'real server init state (phase may read ready)');
+    assert.strictEqual(evaluateReadiness({ ...good, status: 'initializing' }).code, 'READINESS_CONTRADICTORY');
+    assert.strictEqual(evaluateReadiness({ ...good, apiReadiness: false }).code, 'READINESS_CONTRADICTORY');
+    assert.strictEqual(evaluateReadiness({ ok: true, status: 'ok' }).code, 'READINESS_SCHEMA_INVALID');
+    assert.strictEqual(evaluateReadiness({ ...good, ok: 'true' }).code, 'READINESS_SCHEMA_INVALID');
+    assert.strictEqual(evaluateReadiness({ ...good, pid: '42' }).code, 'READINESS_SCHEMA_INVALID');
+    assert.strictEqual(evaluateReadiness([]).code, 'READINESS_SCHEMA_INVALID');
+    assert.strictEqual(evaluateReadiness(good, { expectPid: 43 }).code, 'READINESS_WRONG_PROCESS');
+    assert.strictEqual(evaluateReadiness(good, { expectPort: 8080 }).code, 'READINESS_WRONG_PORT');
+  });
+  await test('version: exact sha, no dev/unknown fallback', async () => {
+    assert.strictEqual(evaluateVersion({ ok: true, server: 'ghrdp', sha: SHA, sha7: SHA.slice(0, 7) }, SHA).ok, true);
+    assert.strictEqual(evaluateVersion({ ok: true, server: 'ghrdp', sha: 'dev', sha7: 'dev' }, SHA).code, 'VERSION_SHA_INVALID');
+    assert.strictEqual(evaluateVersion({ ok: true, server: 'ghrdp', sha: 'b'.repeat(40) }, SHA).code, 'VERSION_SHA_MISMATCH');
+    assert.strictEqual(evaluateVersion({ ok: true, server: 'other', sha: SHA }, SHA).code, 'VERSION_IDENTITY_MISMATCH');
+    assert.strictEqual(evaluateVersion({ ok: true, server: 'ghrdp', sha: SHA, sha7: 'abcdefg' }, SHA).code, 'VERSION_CONTRADICTORY');
+  });
 
-  try {
-    const initial = registryUtils.readRegistryFile(testRegPath);
-    if (!Array.isArray(initial) || initial.length !== 0) {
-      throw new Error('Initial registry read did not return an empty array');
-    }
-
-    const entry = registryUtils.registerProcess({
-      pid: process.pid,
-      processName: 'node-test',
-      exePath: process.execPath,
-      runId: 'isolated-test-run-1',
-      runAttempt: '1',
-      regPath: testRegPath
+  // ===== readiness against out-of-process fixtures =====
+  const readinessCases = [
+    ['ok', { ready: true, code: 'READY' }],
+    ['slow-ready', { ready: true, code: 'READY' }],
+    ['initializing', { ready: false, code: 'READINESS_NOT_READY' }],
+    ['contradictory', { ready: false, code: 'READINESS_CONTRADICTORY' }],
+    ['missing-fields', { ready: false, code: 'READINESS_SCHEMA_INVALID' }],
+    ['string-booleans', { ready: false, code: 'READINESS_SCHEMA_INVALID' }],
+    ['http-500', { ready: false, code: 'READINESS_HTTP_ERROR' }],
+    ['invalid-json', { ready: false, code: 'READINESS_SCHEMA_INVALID' }]
+  ];
+  for (const [mode, want] of readinessCases) {
+    await test(`fixture readiness: ${mode}`, async () => {
+      const f = await startFake(mode);
+      try {
+        const r = await waitForReady(f.url, { timeoutMs: 5000, intervalMs: 300, expectPid: f.pid });
+        assert.strictEqual(r.ready, want.ready, JSON.stringify(r.history));
+        assert.strictEqual(r.code, want.code, JSON.stringify(r.history));
+      } finally { stopFake(f); }
     });
-
-    if (!entry || !entry.createTime) {
-      throw new Error('Registered entry missing creation time metadata');
-    }
-
-    const records = registryUtils.readRegistryFile(testRegPath);
-    if (!Array.isArray(records) || records.length !== 1) {
-      throw new Error(`Expected 1 recorded process, found ${records.length}`);
-    }
-
-    if (records[0].pid !== process.pid || records[0].runId !== 'isolated-test-run-1') {
-      throw new Error('Registry recorded fields mismatch expected isolated test parameters');
-    }
-  } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
   }
-});
-
-// Defect 10: Workflow file does not allow mock fallback in live mode
-runTest('Workflow Disables Mock Fallback in Live Acceptance Mode', () => {
-  const wfPath = path.join(__dirname, '..', '.github', 'workflows', 'capability-check.yml');
-  const content = fs.readFileSync(wfPath, 'utf8');
-  if (content.includes('$env:ALLOW_MOCK_MISSION_CONTROL = "true"')) {
-    throw new Error('capability-check.yml still sets ALLOW_MOCK_MISSION_CONTROL to "true"!');
-  }
-  if (!content.includes('$env:ALLOW_MOCK_MISSION_CONTROL = "false"')) {
-    throw new Error('capability-check.yml does not explicitly set ALLOW_MOCK_MISSION_CONTROL to "false"!');
-  }
-});
-
-// Defect 6: Bounded Lock Acquisition and Safe Recovery
-runTest('Safe Lock Acquisition & Recovery Under Isolated Harness', () => {
-  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'lock-test-'));
-  const testLockDir = path.join(tempDir, 'test-lock.lock');
-
-  try {
-    const handle1 = registryUtils.acquireLock({
-      runId: 'lock-run-1',
-      runAttempt: '1',
-      timeoutMs: 1000,
-      lockDir: testLockDir
-    });
-
-    if (!fs.existsSync(testLockDir)) {
-      throw new Error('Lock directory was not created');
-    }
-
+  await test('fixture readiness: wrong-listener (pid of another process) is terminal', async () => {
+    const f = await startFake('wrong-listener');
     try {
-      registryUtils.acquireLock({
-        runId: 'lock-run-2',
-        runAttempt: '1',
-        timeoutMs: 500,
-        retryIntervalMs: 100,
-        lockDir: testLockDir
-      });
-      throw new Error('Concurrent lock acquisition should have failed with timeout');
-    } catch (err) {
-      if (!err.message.includes('LOCK_ACQUISITION_FAILED')) {
-        throw new Error(`Unexpected lock timeout error: ${err.message}`);
+      const r = await waitForReady(f.url, { timeoutMs: 5000, intervalMs: 300, expectPid: f.pid });
+      assert.strictEqual(r.code, 'READINESS_WRONG_PROCESS');
+    } finally { stopFake(f); }
+  });
+  await test('fixture readiness: crash-after-ready becomes unreachable with full cause chain', async () => {
+    const f = await startFake('crash-after-ready');
+    const r1 = await waitForReady(f.url, { timeoutMs: 3000, intervalMs: 200 });
+    assert.strictEqual(r1.ready, true);
+    await new Promise(r => f.child.once('exit', r));
+    const r2 = await waitForReady(f.url, { timeoutMs: 1500, intervalMs: 300 });
+    assert.strictEqual(r2.ready, false);
+    assert.strictEqual(r2.code, 'READINESS_UNREACHABLE');
+    assert.match(r2.detail, /ECONNREFUSED/);
+    assert.match(r2.detail, /caused by/);
+  });
+  await test('fixture readiness: exit-early fixture never listens', async () => {
+    await assert.rejects(startFake('exit-early'), e => e.exitCode === 3);
+  });
+  await test('fixture readiness: isAlive=false aborts with BACKEND_EXITED', async () => {
+    const port = await freePort();
+    const r = await waitForReady(`http://127.0.0.1:${port}`, { timeoutMs: 5000, intervalMs: 200, isAlive: () => false });
+    assert.strictEqual(r.code, 'BACKEND_EXITED');
+  });
+  for (const [mode, code] of [['ok', 'VERSION_OK'], ['wrong-sha', 'VERSION_SHA_MISMATCH'], ['dev-sha', 'VERSION_SHA_INVALID']]) {
+    await test(`fixture version: ${mode}`, async () => {
+      const f = await startFake(mode);
+      try { assert.strictEqual((await checkVersion(f.url, SHA)).code, code); } finally { stopFake(f); }
+    });
+  }
+
+  // ===== http diagnostics =====
+  await test('http: connection refused keeps nested cause (not just "fetch failed")', async () => {
+    const port = await freePort();
+    const r = await request(`http://127.0.0.1:${port}/x`, { timeoutMs: 2000 });
+    assert.strictEqual(r.transport, 'error');
+    assert.match(r.errorChain, /fetch failed.*caused by.*ECONNREFUSED/);
+    assert.ok(formatErrorChain(new Error('a', { cause: new Error('b') })).includes('caused by: Error: b'));
+  });
+
+  // ===== redaction =====
+  await test('redact: tokens, auth headers, URL creds, cmdkey /pass', async () => {
+    const s = redact('Authorization: Bearer abc.def ghp_' + 'x'.repeat(36) + ' https://u:p@host/ /pass:Secr3t! tskey-auth-abcdef123456 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXNpZ25hdHVyZQ', ['Secr3t!']);
+    for (const bad of ['abc.def', 'ghp_x', 'u:p@', 'Secr3t!', 'tskey-auth-abcdef', 'eyJhbGciOiJIUzI1NiJ9.eyJ']) assert.ok(!s.includes(bad), `${bad} leaked: ${s}`);
+  });
+
+  // ===== image validation =====
+  await test('image: PNG validation rejects truncated/tiny, flags uniform', async () => {
+    const good = makePng(64, 48);
+    const v = validatePngBuffer(good, { minWidth: 32, minHeight: 32, minBytes: 50 });
+    assert.strictEqual(v.valid, true, JSON.stringify(v));
+    assert.strictEqual(v.nearUniform, false);
+    assert.strictEqual(validatePngBuffer(good.subarray(0, good.length - 20), { minWidth: 32, minHeight: 32, minBytes: 50 }).valid, false);
+    assert.strictEqual(validatePngBuffer(makePng(8, 8), { minWidth: 32, minHeight: 32, minBytes: 10 }).valid, false);
+    assert.strictEqual(validatePngBuffer(Buffer.alloc(0)).valid, false);
+    assert.strictEqual(validatePngBuffer(makePng(64, 48, true), { minWidth: 32, minHeight: 32, minBytes: 50 }).nearUniform, true);
+  });
+  await test('image: JPEG validation needs SOI, SOF dims and EOI', async () => {
+    assert.strictEqual(validateJpegBuffer(makeJpeg(640, 480)).valid, true);
+    assert.strictEqual(validateJpegBuffer(makeJpeg(640, 480)).width, 640);
+    assert.strictEqual(validateJpegBuffer(makeJpeg(640, 480, false)).reason, 'MISSING_EOI');
+    assert.strictEqual(validateJpegBuffer(Buffer.from('no frame yet'.padEnd(300))).reason, 'BAD_SIGNATURE');
+  });
+
+  // ===== process identity =====
+  await test('proc: identity is stable and exact; createTime present', async () => {
+    const a = proc.getProcess(process.pid); const b = proc.getProcess(process.pid);
+    assert.ok(a && a.createTime, 'createTime must be available');
+    assert.strictEqual(a.createTime, b.createTime);
+    assert.strictEqual(proc.sameIdentity({ pid: a.pid, createTime: a.createTime }, b), true);
+    assert.strictEqual(proc.sameIdentity({ pid: a.pid, createTime: 'other' }, b), false);
+    assert.strictEqual(proc.sameIdentity({ pid: a.pid }, b), false, 'missing createTime is never a match');
+  });
+  await test('proc: descendants include grandchildren', async () => {
+    const s = await spawnSleeper({ withGrandchild: true });
+    try {
+      const snap = proc.snapshot({});
+      const d = proc.descendants(snap, s.pid, snap.byPid.get(s.pid).createTime).map(p => p.pid);
+      assert.ok(d.includes(s.grandchild), `grandchild ${s.grandchild} not in ${d}`);
+    } finally { try { process.kill(s.grandchild, 'SIGKILL'); } catch (e) { /* */ } s.child.kill('SIGKILL'); }
+  });
+
+  // ===== lock =====
+  const LOCK_HOLDER = "const l=require(process.argv[1]);const h=l.acquireLock({lockDir:process.argv[2],role:'holder',timeoutMs:5000});console.log('HELD');setTimeout(()=>{l.releaseLock(h);process.exit(0)},Number(process.argv[3]))";
+  function holdLock(lockDir, ms) {
+    return new Promise(resolve => {
+      const c = spawn(process.execPath, ['-e', LOCK_HOLDER, S('lib/lock.js'), lockDir, String(ms)], { stdio: ['ignore', 'pipe', 'inherit'] });
+      c.stdout.once('data', () => resolve(c));
+    });
+  }
+  await test('lock: live holder blocks; acquisition fails with holder info', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    const holder = await holdLock(dir, 4000);
+    try {
+      assert.throws(() => lock.acquireLock({ lockDir: dir, timeoutMs: 700, pollMs: 100 }), /LOCK_ACQUISITION_FAILED.*role=holder/);
+    } finally { holder.kill('SIGKILL'); }
+  });
+  await test('lock: dead owner (process gone) is recovered', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    const holder = await holdLock(dir, 60000);
+    holder.kill('SIGKILL');
+    await new Promise(r => holder.once('exit', r));
+    const h = lock.acquireLock({ lockDir: dir, timeoutMs: 3000, pollMs: 100 });
+    assert.ok(h.events.some(e => e.event === 'STALE_LOCK_RECOVERED'));
+    assert.strictEqual(lock.releaseLock(h), true);
+    assert.ok(!fs.existsSync(dir));
+  });
+  await test('lock: PID reuse (live pid, different createTime) counts as dead owner', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify({ token: 'old', pid: process.pid, createTime: 'not-the-real-create-time' }));
+    const h = lock.acquireLock({ lockDir: dir, timeoutMs: 3000, pollMs: 100 });
+    assert.ok(h.events.some(e => e.event === 'STALE_LOCK_RECOVERED'));
+    lock.releaseLock(h);
+  });
+  await test('lock: owner-less dir is only recovered after the grace period', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    fs.mkdirSync(dir);
+    assert.throws(() => lock.acquireLock({ lockDir: dir, timeoutMs: 500, pollMs: 100, noOwnerGraceMs: 60000 }), /LOCK_ACQUISITION_FAILED/);
+    const old = (Date.now() - 120000) / 1000; fs.utimesSync(dir, old, old);
+    const h = lock.acquireLock({ lockDir: dir, timeoutMs: 2000, pollMs: 100, noOwnerGraceMs: 60000 });
+    lock.releaseLock(h);
+  });
+  await test('lock: recovery race - a stale verdict never steals a re-acquired live lock', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    // recoverer B evaluated owner "old" as dead, but meanwhile A recovered and re-acquired
+    const staleView = { token: 'old-dead-owner', pid: 999999, createTime: 'gone' };
+    const live = lock.acquireLock({ lockDir: dir, timeoutMs: 1000 });
+    const events = [];
+    assert.strictEqual(lock.tryRecover(dir, staleView, events), false, 'must not steal');
+    assert.strictEqual(lock.readOwner(dir).token, live.token, 'live owner intact');
+    assert.deepStrictEqual(fs.readdirSync(dir).filter(f => f.startsWith('claim-')), [], 'claim marker removed');
+    // and an owner-less view must not steal a lock that now has an owner
+    assert.strictEqual(lock.tryRecover(dir, null, events), false);
+    assert.strictEqual(lock.releaseLock(live), true);
+  });
+  await test('lock: release by a non-owner handle is refused', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    const h = lock.acquireLock({ lockDir: dir, timeoutMs: 1000 });
+    assert.strictEqual(lock.releaseLock({ lockDir: dir, token: 'forged' }), false);
+    assert.ok(fs.existsSync(dir));
+    assert.strictEqual(lock.releaseLock(h), true);
+  });
+  const [NPROC, NINC] = IS_WIN ? [4, 5] : [6, 15]; // each Windows identity query spawns PowerShell
+  await test(`lock: ${NPROC} concurrent processes x ${NINC} increments = mutual exclusion (no lost update)`, async () => {
+    const dirs = freshDirs();
+    const counterFile = path.join(dirs.state, 'counter.txt');
+    fs.writeFileSync(counterFile, '0');
+    const code = "const l=require(process.argv[1]);const fs=require('fs');for(let i=0;i<Number(process.argv[4]);i++){const h=l.acquireLock({lockDir:process.argv[2],timeoutMs:60000,pollMs:5});const v=Number(fs.readFileSync(process.argv[3],'utf8'));l.sleepSync(2);fs.writeFileSync(process.argv[3],String(v+1));l.releaseLock(h);}";
+    const runs = await Promise.all(Array.from({ length: NPROC }, () => run(process.execPath, ['-e', code, S('lib/lock.js'), path.join(dirs.state, 'c.lock.d'), counterFile, String(NINC)], { timeoutMs: 300000 })));
+    runs.forEach(r => assert.strictEqual(r.code, 0, r.err));
+    assert.strictEqual(fs.readFileSync(counterFile, 'utf8'), String(NPROC * NINC));
+  });
+
+  // ===== registry =====
+  await test('registry: 5 concurrent registrations, no lost update, no tmp leftovers', async () => {
+    const dirs = freshDirs();
+    const sleepers = await Promise.all(Array.from({ length: 5 }, () => spawnSleeper()));
+    try {
+      const code = "const r=require(process.argv[1]);r.registerProcess({pid:Number(process.argv[2]),role:'t'})";
+      const runs = await Promise.all(sleepers.map(s => run(process.execPath, ['-e', code, S('lib/registry.js'), String(s.pid)], { env: childEnv(dirs) })));
+      runs.forEach(r => assert.strictEqual(r.code, 0, r.err));
+      const reg = JSON.parse(fs.readFileSync(path.join(dirs.state, 'process-registry.json'), 'utf8'));
+      assert.strictEqual(reg.records.length, 5);
+      assert.ok(reg.records.every(x => x.createTime && x.runId === 'reg-run' && x.runAttempt === '1'));
+      assert.deepStrictEqual(fs.readdirSync(dirs.state).filter(f => f.includes('.tmp')), []);
+    } finally { sleepers.forEach(s => s.child.kill('SIGKILL')); }
+  });
+  await test('registry: corrupt file is refused and preserved, never overwritten', async () => {
+    const dirs = freshDirs();
+    const reg = path.join(dirs.state, 'process-registry.json');
+    fs.writeFileSync(reg, '{"records": [ {"pid": 1, ');
+    const r = await run(process.execPath, ['-e', "require(process.argv[1]).registerProcess({pid:process.pid,role:'t'})", S('lib/registry.js')], { env: childEnv(dirs) });
+    assert.notStrictEqual(r.code, 0);
+    assert.match(r.err, /REGISTRY_CORRUPT/);
+    assert.strictEqual(fs.readFileSync(reg, 'utf8'), '{"records": [ {"pid": 1, ');
+  });
+
+  // ===== cleanup policy (pure) =====
+  await test('cleanup.decide: identity, protection, session and abandonment rules', async () => {
+    const { decide } = require('./cleanup-lab');
+    const live = { pid: 50, name: 'node', createTime: 'T1', sessionId: 1 };
+    const snap = { byPid: new Map([[50, live], [60, { pid: 60, name: 'Runner.Worker', createTime: 'A1' }], [70, { pid: 70, name: 'svchost.exe', createTime: 'S1', sessionId: 1 }]]) };
+    const ctx = { mode: 'postflight', protectedPids: new Set([1]), sessionId: 1 };
+    assert.strictEqual(decide({ pid: 99, createTime: 'x' }, snap, ctx).reason, 'PROCESS_GONE');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T0' }, snap, ctx).reason, 'PID_REUSED_BY_OTHER_PROCESS');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T0' }, snap, ctx).action, 'drop');
+    assert.strictEqual(decide({ pid: 50 }, snap, ctx).action, 'keep');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1' }, snap, { ...ctx, protectedPids: new Set([50]) }).reason, 'PROTECTED_ANCESTOR');
+    assert.match(decide({ pid: 70, createTime: 'S1' }, snap, ctx).reason, /PROTECTED_SYSTEM_PROCESS/);
+    assert.match(decide({ pid: 50, createTime: 'T1' }, snap, { ...ctx, sessionId: 2 }).reason, /OTHER_SESSION/);
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1' }, snap, ctx).action, 'terminate');
+    const pre = { ...ctx, mode: 'preflight' };
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1' }, snap, pre).reason, 'ABANDONMENT_UNPROVEN_NO_JOB_ANCHOR');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1', anchor: { pid: 60, createTime: 'A1' } }, snap, pre).reason, 'OWNING_JOB_STILL_ACTIVE');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1', anchor: { pid: 60, createTime: 'A0' } }, snap, pre).action, 'terminate');
+    assert.strictEqual(decide({ pid: 50, createTime: 'T1', anchor: { pid: 61, createTime: 'A1' } }, snap, pre).action, 'terminate');
+  });
+
+  // ===== cleanup integration (real processes) =====
+  await test('cleanup: postflight kills only this run+attempt (with descendants); preflight only abandoned', async () => {
+    const dirs = freshDirs();
+    const A = await spawnSleeper({ withGrandchild: true }); // run reg-run attempt 1
+    const B = await spawnSleeper(); // run reg-run attempt 2 (other attempt, owning job alive)
+    const C = await spawnSleeper(); // other run, owning job dead
+    const D = await spawnSleeper(); // other run, owning job alive
+    const deadAnchor = await spawnSleeper();
+    const deadAnchorId = proc.getProcess(deadAnchor.pid);
+    deadAnchor.child.kill('SIGKILL');
+    await new Promise(r => deadAnchor.child.once('exit', r));
+    const me = proc.getProcess(process.pid);
+    const reg = code => run(process.execPath, ['-e', code, S('lib/registry.js')], { env: childEnv(dirs) });
+    const regOne = (pid, runId, attempt, anchor) => reg(`require(process.argv[1]).registerProcess({pid:${pid},role:'t',runId:'${runId}',runAttempt:'${attempt}',anchor:${JSON.stringify(anchor)}})`);
+    try {
+      for (const [p, r, a, anc] of [[A.pid, 'reg-run', '1', null], [B.pid, 'reg-run', '2', { pid: me.pid, createTime: me.createTime }], [C.pid, 'old-run', '1', { pid: deadAnchorId.pid, createTime: deadAnchorId.createTime }], [D.pid, 'old-run2', '1', { pid: me.pid, createTime: me.createTime }]]) {
+        const res = await regOne(p, r, a, anc);
+        assert.strictEqual(res.code, 0, res.err);
       }
+      const post = await run(process.execPath, [S('cleanup-lab.js'), '--mode', 'postflight', '--deadline-ms', '20000'], { env: childEnv(dirs) });
+      assert.strictEqual(post.code, 0, post.out + post.err);
+      await new Promise(r => setTimeout(r, 300));
+      assert.ok(!alive(A.pid), 'A (this run+attempt) must be terminated');
+      assert.ok(!alive(A.grandchild), 'A grandchild must be terminated');
+      assert.ok(alive(B.pid) && alive(C.pid) && alive(D.pid), 'postflight must not touch other attempts/runs');
+      const pre = await run(process.execPath, [S('cleanup-lab.js'), '--mode', 'preflight', '--deadline-ms', '20000'], { env: childEnv(dirs) });
+      assert.strictEqual(pre.code, 0, pre.out + pre.err);
+      await new Promise(r => setTimeout(r, 300));
+      assert.ok(!alive(C.pid), 'C (owning job gone) must be terminated');
+      assert.ok(alive(B.pid), 'B (owning job alive) must survive preflight');
+      assert.ok(alive(D.pid), 'D (owning job alive) must survive preflight');
+      const left = JSON.parse(fs.readFileSync(path.join(dirs.state, 'process-registry.json'), 'utf8')).records.map(r => r.pid).sort();
+      assert.deepStrictEqual(left, [B.pid, D.pid].sort());
+    } finally {
+      for (const s of [A, B, C, D]) { try { s.child.kill('SIGKILL'); } catch (e) { /* */ } }
+      try { process.kill(A.grandchild, 'SIGKILL'); } catch (e) { /* */ }
     }
-
-    registryUtils.releaseLock(testLockDir);
-    if (fs.existsSync(testLockDir)) {
-      throw new Error('Lock directory was not cleaned up after release');
-    }
-  } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-  }
-});
-
-// Defect 7: Process Cleanup Protection and Verification
-runTest('Targeted Lab Cleanup Terminates Verified Process Without Affecting System', () => {
-  if (process.platform !== 'win32') {
-    return { status: 'SKIP', reason: 'Windows process cleanup verification requires win32 host' };
-  }
-
-  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'cleanup-test-'));
-  const testRegPath = path.join(tempDir, 'cleanup-registry.json');
-  const isolatedRunId = `cleanup-test-run-${Date.now()}`;
-
-  let dummyProc = null;
-  try {
-    dummyProc = spawn('ping', ['127.0.0.1', '-n', '60'], { stdio: 'ignore' });
-    if (!dummyProc.pid) {
-      throw new Error('Failed to spawn harness process for cleanup test');
-    }
-
-    registryUtils.registerProcess({
-      pid: dummyProc.pid,
-      processName: 'ping',
-      exePath: 'C:\\Windows\\System32\\PING.EXE',
-      runId: isolatedRunId,
-      runAttempt: '1',
-      regPath: testRegPath
-    });
-
-    const preAlive = registryUtils.isProcessAlive(dummyProc.pid);
-    if (!preAlive) {
-      throw new Error('Harness process PID was not detected as alive before cleanup');
-    }
-
-    const cleanupScriptPath = path.join(__dirname, 'cleanup-lab.ps1');
-    const cleanupCmd = `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${cleanupScriptPath}" -RegistryPath "${testRegPath}" -TargetRunId "${isolatedRunId}"`;
-    execSync(cleanupCmd, { stdio: 'pipe' });
-
-    const postAlive = registryUtils.isProcessAlive(dummyProc.pid);
-    if (postAlive) {
-      throw new Error('Harness process PID remained alive after cleanup!');
-    }
-  } finally {
-    if (dummyProc && dummyProc.pid) {
-      try { process.kill(dummyProc.pid); } catch (e) {}
-    }
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-  }
-});
-
-// Defect 8: Missing Mission Control backend fails live acceptance without mock fallback
-runTest('Missing Mission Control Backend Fails Live Acceptance Without Mock', () => {
-  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'mc-test-'));
-  try {
-    const env = { ...process.env, RUNNER_TEMP: tempDir, MISSION_CONTROL_URL: 'http://127.0.0.1:59999', ALLOW_MOCK_MISSION_CONTROL: 'false' };
-    const scriptPath = path.join(__dirname, 'mission-control-check.js');
+  });
+  await test('cleanup: PID-reuse record (wrong createTime) is dropped without killing', async () => {
+    const dirs = freshDirs();
+    const s = await spawnSleeper();
     try {
-      execSync(`node "${scriptPath}"`, { env, stdio: 'pipe' });
-      throw new Error('mission-control-check.js should have failed when backend is unreachable and mock is false');
-    } catch (err) {
-      const artDir = path.join(tempDir, 'artifacts');
-      let foundResults = false;
-      if (fs.existsSync(artDir)) {
-        const runs = fs.readdirSync(artDir);
-        for (const run of runs) {
-          const resFile = path.join(artDir, run, 'mission-control-results.json');
-          if (fs.existsSync(resFile)) {
-            foundResults = true;
-            const res = JSON.parse(fs.readFileSync(resFile, 'utf8'));
-            if (res.status === 'PASS') {
-              throw new Error('mission-control-check.js recorded status PASS for unreachable backend!');
-            }
-            if (res.isMockBackend === true) {
-              throw new Error('mission-control-check.js started mock server when ALLOW_MOCK_MISSION_CONTROL=false!');
-            }
-          }
+      fs.writeFileSync(path.join(dirs.state, 'process-registry.json'), JSON.stringify({ records: [{ pid: s.pid, createTime: 'stale-identity', runId: 'reg-run', runAttempt: '1', role: 't' }] }));
+      const r = await run(process.execPath, [S('cleanup-lab.js'), '--mode', 'postflight'], { env: childEnv(dirs) });
+      assert.strictEqual(r.code, 0, r.out + r.err);
+      assert.ok(alive(s.pid), 'unrelated process with reused PID must survive');
+      assert.match(r.out, /PID_REUSED_BY_OTHER_PROCESS/);
+    } finally { s.child.kill('SIGKILL'); }
+  });
+
+  // ===== verification report =====
+  await test('report: VERIFIED only when every capability PASS and static succeeded', async () => {
+    const { build, REQUIRED } = require('./verification-report');
+    const caps = scope => JSON.stringify(Object.fromEntries(Object.entries(REQUIRED).filter(([, v]) => v.scope === scope).map(([k]) => [k, { s: 'PASS', r: 'ok' }])));
+    const needs = {
+      static: { result: 'success', outputs: {} },
+      server: { result: 'success', outputs: { caps_server_local: caps('server_local'), tailscale_outcome: 'success', backend_pid: '4242', rdp_configured: 'true' } },
+      client: { result: 'success', outputs: { caps_client_local: caps('client_local'), caps_tailnet: caps('tailnet'), caps_remote: caps('remote'), backend_pid_remote: '4242' } }
+    };
+    assert.strictEqual(build(needs).verdict, 'VERIFIED');
+    const n2 = JSON.parse(JSON.stringify(needs)); n2.client.outputs.backend_pid_remote = '999';
+    const r2 = build(n2);
+    assert.strictEqual(r2.verdict, 'NOT_VERIFIED');
+    assert.match(r2.capabilities.backend_readiness_remote.reason, /IDENTITY_MISMATCH/);
+    const n3 = JSON.parse(JSON.stringify(needs)); n3.server.outputs.tailscale_outcome = 'failure'; n3.server.outputs.oidc_sub = 'repo:o@1/r@2:pull_request';
+    n3.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'BLOCKED', r: 'SERVER_NEVER_JOINED_TAILNET' } }); delete n3.client.outputs.caps_remote;
+    const r3 = build(n3);
+    // the reason reports the observed category; the OIDC subject is not used as
+    // an inferred cause (it is recorded separately in diagnostics.oidcSubject)
+    assert.match(r3.capabilities.tailnet_connectivity.reason, /EXTERNAL_TAILSCALE_JOIN_FAILED: category=JOIN_FAILED_UNCLASSIFIED/);
+    assert.strictEqual(r3.diagnostics.oidcSubject, 'repo:o@1/r@2:pull_request');
+    assert.doesNotMatch(r3.capabilities.tailnet_connectivity.reason, /subject must match|subject=repo/i);
+    assert.strictEqual(r3.capabilities.rdp_auto_login.status, 'BLOCKED');
+    const n4 = JSON.parse(JSON.stringify(needs)); n4.static.result = 'failure';
+    assert.strictEqual(build(n4).verdict, 'NOT_VERIFIED');
+    const n5 = JSON.parse(JSON.stringify(needs)); delete n5.client;
+    const r5 = build(n5);
+    assert.strictEqual(r5.capabilities.browser_synthetic.status, 'NOT_RUN');
+    assert.strictEqual(r5.verdict, 'NOT_VERIFIED');
+    const n6 = JSON.parse(JSON.stringify(needs)); n6.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'SIMULATED' }, dashboard_server_local: { s: 'PASS' } });
+    assert.strictEqual(build(n6).verdict, 'NOT_VERIFIED');
+  });
+
+  // ===== OIDC subject analysis =====
+  await test('oidc: immutable subject cannot match documented name-only pattern', async () => {
+    const { analyse } = require('./oidc-claims-diagnostic');
+    const a = analyse({ sub: 'repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request', repository: 'dictationb1/supreme-lamp-lab', repository_owner: 'dictationb1', repository_owner_id: '342137832', repository_id: '1425092794' });
+    assert.strictEqual(a.immutableSubjectFormat, true);
+    assert.strictEqual(a.matchesDocumentedLegacyPattern, false);
+    assert.strictEqual(a.recommendedSubjectPattern, 'repo:dictationb1@342137832/supreme-lamp-lab@1425092794:*');
+    assert.strictEqual(a.matchesRecommendedPattern, true);
+  });
+
+  // ===== tailnet peer matching =====
+  await test('peer: exact hostname / -N suffix, no prefix confusion between attempts', async () => {
+    const { findPeer } = require('./wait-for-peer');
+    const st = { Peer: {
+      a: { HostName: 'slab-srv-12-10', DNSName: 'slab-srv-12-10.tail.ts.net.', Online: true, TailscaleIPs: ['100.1.1.10'] },
+      b: { HostName: 'runnervm', DNSName: 'slab-srv-12-1-1.tail.ts.net.', Online: true, TailscaleIPs: ['100.1.1.1'] }
+    } };
+    assert.strictEqual(findPeer(st, 'slab-srv-12-1').TailscaleIPs[0], '100.1.1.1');
+    assert.strictEqual(findPeer(st, 'slab-srv-12-10').TailscaleIPs[0], '100.1.1.10');
+    assert.strictEqual(findPeer(st, 'slab-srv-12-2'), null);
+  });
+
+  // ===== CLI end-to-end (child processes, no browser needed) =====
+  await test('mc-check CLI: contradictory backend -> FAIL, dashboard BLOCKED, outputs written', async () => {
+    const dirs = freshDirs(); const f = await startFake('contradictory');
+    try {
+      const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--target', f.url, '--expect-sha', SHA, '--expect-pid', String(f.pid), '--expect-port', String(f.port), '--headless', '--ready-timeout-ms', '3000'], { env: childEnv(dirs) });
+      assert.strictEqual(r.code, 1, r.out + r.err);
+      const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8'));
+      assert.strictEqual(doc.capabilities.backend_readiness_server_local.status, 'FAIL');
+      assert.match(doc.capabilities.backend_readiness_server_local.reason, /READINESS_CONTRADICTORY/);
+      assert.strictEqual(doc.capabilities.dashboard_server_local.status, 'BLOCKED');
+      const o = JSON.parse(readOutputs(dirs.out).caps_server_local);
+      assert.strictEqual(o.backend_readiness_server_local.s, 'FAIL');
+    } finally { stopFake(f); }
+  });
+  await test('mc-check CLI: --blocked-reason records the prerequisite cause on every capability', async () => {
+    const dirs = freshDirs();
+    const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'remote', '--blocked-reason', 'DEPENDS_ON_TAILNET: peer absent'], { env: childEnv(dirs) });
+    assert.strictEqual(r.code, 1);
+    const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-remote.json'), 'utf8'));
+    for (const c of Object.values(doc.capabilities)) { assert.strictEqual(c.status, 'BLOCKED'); assert.match(c.reason, /DEPENDS_ON_TAILNET/); }
+  });
+  await test('mc-check CLI: --fail-reason is a causal FAIL on backend readiness, dependants BLOCKED', async () => {
+    const dirs = freshDirs();
+    const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--fail-reason', 'STAGING_FAILED: outcome=failure; boom @ x.ps1:3'], { env: childEnv(dirs) });
+    assert.strictEqual(r.code, 1);
+    const caps = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8')).capabilities;
+    assert.strictEqual(caps.backend_readiness_server_local.status, 'FAIL');
+    assert.match(caps.backend_readiness_server_local.reason, /STAGING_FAILED: outcome=failure; boom/);
+    assert.strictEqual(caps.dashboard_server_local.status, 'BLOCKED');
+    assert.match(caps.dashboard_server_local.reason, /DEPENDS_ON_BACKEND: STAGING_FAILED/);
+  });
+  await test('mc-check CLI: missing --expect-sha is BLOCKED (never PASS/SKIPPED)', async () => {
+    const dirs = freshDirs();
+    const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'remote', '--target', 'http://127.0.0.1:9'], { env: childEnv(dirs) });
+    assert.strictEqual(r.code, 1);
+    const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-remote.json'), 'utf8'));
+    for (const c of Object.values(doc.capabilities)) assert.strictEqual(c.status, 'BLOCKED');
+  });
+  await test('mc-check CLI: unreachable backend reports the cause chain', async () => {
+    const dirs = freshDirs(); const port = await freePort();
+    const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--target', `http://127.0.0.1:${port}`, '--expect-sha', SHA, '--ready-timeout-ms', '1500'], { env: childEnv(dirs) });
+    assert.strictEqual(r.code, 1);
+    const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8'));
+    assert.match(doc.capabilities.backend_readiness_server_local.reason, /READINESS_UNREACHABLE.*ECONNREFUSED/);
+  });
+  await test('session lock held -> browser-check FAILs both capabilities (no warn-and-continue)', async () => {
+    const dirs = freshDirs();
+    const lockDir = path.join(dirs.state, 'desktop-session.lock.d');
+    const holder = await holdLock(lockDir, 20000);
+    try {
+      const r = await run(process.execPath, [S('browser-check.js')], { env: childEnv(dirs, { SESSION_LOCK_TIMEOUT_MS: '800' }) });
+      assert.strictEqual(r.code, 1, r.out + r.err);
+      const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-client-local.json'), 'utf8'));
+      for (const c of Object.values(doc.capabilities)) { assert.strictEqual(c.status, 'FAIL'); assert.match(c.reason, /LOCK_ACQUISITION_FAILED/); }
+    } finally { holder.kill('SIGKILL'); }
+  });
+
+  // ===== backend supervisor (fixture as the server command) =====
+  // crash point for supervisor tests: after the (PowerShell-backed on Windows) identity
+  // and listener checks, so the asserted phase is the one actually exercised
+  const CRASH_MS = IS_WIN ? 12000 : 1500;
+  const sup = async (mode, extra = {}) => {
+    const dirs = freshDirs(); const port = extra.port || await freePort();
+    const okFile = path.join(dirs.art, 'server-ok.txt');
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', okFile, '--port', String(port), '--no-mc', '--ready-timeout-ms', String(extra.readyTimeoutMs || 5000)], { env: childEnv(dirs, { MODE: mode, EXPECT_SHA: SHA, ...(extra.env || {}) }) });
+    const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
+    return { r, summary, outputs: readOutputs(dirs.out) };
+  };
+  await test('supervisor: healthy fixture passes okfile+listener+readiness, then is stopped', async () => {
+    const { r, summary, outputs } = await sup('ok');
+    assert.strictEqual(r.code, 0, r.out + r.err);
+    assert.deepStrictEqual(summary.phases.map(p => `${p.name}:${p.ok}`), ['identity:true', 'okfile:true', 'listener:true', 'readiness:true']);
+    assert.ok(outputs.backend_pid);
+    await new Promise(res => setTimeout(res, 300));
+    assert.ok(!alive(Number(outputs.backend_pid)), 'backend must be stopped by the supervisor');
+  });
+  await test('supervisor: startup crash -> BACKEND_EXITED_BEFORE_LISTENING with stderr', async () => {
+    const { r, summary } = await sup('exit-early');
+    assert.strictEqual(r.code, 1);
+    const f = summary.phases.find(p => !p.ok);
+    assert.strictEqual(f.code, 'BACKEND_EXITED_BEFORE_LISTENING');
+    assert.match(f.detail, /simulated startup crash/);
+  });
+  await test('supervisor: readiness pid of another process -> READINESS_WRONG_PROCESS', async () => {
+    const { r, summary } = await sup('wrong-listener');
+    assert.strictEqual(r.code, 1);
+    assert.strictEqual(summary.phases.find(p => !p.ok).code, 'READINESS_WRONG_PROCESS');
+  });
+  await test('supervisor: port owned by a foreign process -> BACKEND_PORT_OWNED_BY_OTHER', async () => {
+    const port = await freePort();
+    const squatter = net.createServer().listen(port, '127.0.0.1');
+    await new Promise(r => squatter.once('listening', r));
+    try {
+      const { r, summary } = await sup('ok', { port, env: { FAKE_LISTEN_PORT: '0' } });
+      assert.strictEqual(r.code, 1);
+      assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_PORT_OWNED_BY_OTHER');
+    } finally { squatter.close(); }
+  }, { skipIf: () => (IS_WIN ? null : (fs.existsSync('/proc/net/tcp') ? null : 'no /proc/net/tcp')) });
+  await test('supervisor: crash while initializing -> BACKEND_EXITED (liveness monitored)', async () => {
+    const { r, summary } = await sup('crash-before-ready', { env: { CRASH_AFTER_MS: String(CRASH_MS) }, readyTimeoutMs: CRASH_MS + 15000 });
+    assert.strictEqual(r.code, 1);
+    assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_EXITED', JSON.stringify(summary.phases));
+  });
+  const http = require('http');
+  const fakeJobsApi = statusFn => new Promise(res => {
+    let calls = 0;
+    const srv = http.createServer((req, rsp) => { calls++; rsp.writeHead(200, { 'Content-Type': 'application/json' }); rsp.end(JSON.stringify({ jobs: [{ id: 1, name: 'client', status: statusFn(calls), conclusion: null, runner_name: 'fake' }] })); });
+    srv.listen(0, '127.0.0.1', () => res({ srv, url: `http://127.0.0.1:${srv.address().port}`, calls: () => calls }));
+  });
+  const supHold = async (mode, api) => {
+    const dirs = freshDirs(); const port = await freePort();
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc', '--hold', 'true', '--hold-poll-ms', '300', '--hold-max-ms', String(CRASH_MS + 20000), '--ready-timeout-ms', '5000'],
+      { env: childEnv(dirs, { MODE: mode, CRASH_AFTER_MS: String(CRASH_MS), EXPECT_SHA: SHA, GITHUB_API_URL: api.url, GITHUB_REPOSITORY: 'o/r', GH_TOKEN: 'test-token' }) });
+    return { r, summary: JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8')) };
+  };
+  await test('supervisor hold: keeps backend alive until the client job completes', async () => {
+    const api = await fakeJobsApi(n => (n < 4 ? 'in_progress' : 'completed'));
+    try {
+      const { r, summary } = await supHold('ok', api);
+      assert.strictEqual(r.code, 0, r.out + r.err);
+      const h = summary.phases.find(p => p.name === 'hold');
+      assert.ok(h.ok && /client job completed/.test(h.detail), JSON.stringify(h));
+      assert.ok(api.calls() >= 4);
+    } finally { api.srv.close(); }
+  });
+  await test('supervisor hold: backend dying during hold is a failure', async () => {
+    const api = await fakeJobsApi(() => 'in_progress');
+    try {
+      const { r, summary } = await supHold('crash-after-ready', api);
+      assert.strictEqual(r.code, 1, r.out + r.err);
+      assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_DIED_DURING_HOLD', JSON.stringify(summary.phases));
+    } finally { api.srv.close(); }
+  });
+
+  // ===== browser e2e (CI static job installs chromium) =====
+  const browserSkip = () => {
+    try { require.resolve('playwright'); } catch (e) { return process.env.REQUIRE_BROWSER_TESTS === '1' ? null : 'playwright not installed'; }
+    try { const { chromium } = require('playwright'); if (!fs.existsSync(chromium.executablePath())) return process.env.REQUIRE_BROWSER_TESTS === '1' ? null : 'chromium not installed'; } catch (e) { return process.env.REQUIRE_BROWSER_TESTS === '1' ? null : e.message; }
+    return null;
+  };
+  for (const [mode, want] of [['ok', { code: 0, backend: 'PASS', dash: 'PASS' }], ['ui-missing', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /UI_FILE_MISSING/ }], ['wrong-sha', { code: 1, backend: 'FAIL', dash: 'BLOCKED', reason: /VERSION_SHA_MISMATCH/ }],
+    ['ui-v2', { code: 0, backend: 'PASS', dash: 'PASS', reason: /v2: title ok/ }],
+    ['ui-v2-unmounted', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_V2_NOT_MOUNTED/ }],
+    ['ui-v2-stale', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_BUILD_MISMATCH: v2 #ghrdpBuild\[data-build\]/ }],
+    ['ui-v2-missing', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_V2_NOT_STAGED/ }]]) {
+    await test(`browser e2e mc-check server-local: ${mode}`, async () => {
+      const dirs = freshDirs(); const f = await startFake(mode);
+      try {
+        const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--target', f.url, '--expect-sha', SHA, '--expect-pid', String(f.pid), '--expect-port', String(f.port), '--headless', '--ready-timeout-ms', '5000'], { env: childEnv(dirs), timeoutMs: 120000 });
+        const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8'));
+        const c = doc.capabilities;
+        assert.strictEqual(c.backend_readiness_server_local.status, want.backend, JSON.stringify(c));
+        assert.strictEqual(c.dashboard_server_local.status, want.dash, JSON.stringify(c));
+        if (want.reason) assert.match(JSON.stringify(c), want.reason);
+        assert.strictEqual(r.code, want.code, r.out + r.err);
+      } finally { stopFake(f); }
+    }, { skipIf: browserSkip });
+  }
+
+
+  // ===== helper runner (the run 39548093609 ability 2 failure mode) =====
+  // The original defect: execFileSync('powershell.exe', ..., {timeout:30000})
+  // blocked the event loop, threw a bare "spawnSync powershell.exe ETIMEDOUT"
+  // and lost the helper's own output. These tests pin the replacement contract.
+  await test('ps: hanging helper reaches a bounded timeout, keeps stderr and reports its call site', async () => {
+    const t0 = Date.now();
+    const r = await psLib.runPowerShell({ script: '/nonexistent/Get-ProcessSnapshot.ps1', args: ['-ProcessIds', '1'], timeoutMs: 1200, operation: 'process-identity', env: fakePsEnv('hang') });
+    const elapsed = Date.now() - t0;
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'POWERSHELL_TIMEOUT');
+    assert.ok(r.timedOut, 'timedOut flag must be set');
+    assert.ok(elapsed >= 1000 && elapsed < 6000, `bounded: elapsed=${elapsed}ms`);
+    assert.ok(r.effectiveTimeoutMs <= 1200, 'timeout clamped to the requested budget');
+    assert.match(r.stderr, /HANGING_HELPER/, 'stderr captured before the timeout');
+    assert.match(r.stdout, /partial-output-before-hang/, 'stdout captured before the timeout');
+    assert.match(r.callSite, /run-regressions\.js:\d+/, `call site recorded: ${r.callSite}`);
+    assert.strictEqual(r.operation, 'process-identity');
+    const d = psLib.describe(r);
+    assert.match(d, /POWERSHELL_TIMEOUT/);
+    assert.match(d, /site=/);
+    assert.match(d, /stderr=/);
+  });
+
+  await test('ps: the enclosing deadline clamps the helper budget (no overrun past the deadline)', async () => {
+    const t0 = Date.now();
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 30000, deadlineAt: Date.now() + 700, operation: 'deadline-clamp', env: fakePsEnv('hang') });
+    const elapsed = Date.now() - t0;
+    assert.strictEqual(r.errorCode, 'POWERSHELL_TIMEOUT');
+    assert.ok(r.budgetClamped, 'must report that the budget was clamped');
+    assert.ok(elapsed < 4000, `must not outlive the deadline: ${elapsed}ms`);
+  });
+
+  await test('ps: an exhausted budget never spawns a helper', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, deadlineAt: Date.now() - 1, operation: 'exhausted', env: fakePsEnv('hang') });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'BUDGET_EXHAUSTED');
+    assert.strictEqual(r.elapsedMs < 500, true, `returned immediately: ${r.elapsedMs}ms`);
+  });
+
+  await test('ps: non-zero exit retains stderr, exit code and operation', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, operation: 'failing-helper', env: fakePsEnv('fail') });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.errorCode, 'POWERSHELL_EXIT_NONZERO');
+    assert.strictEqual(r.code, 7);
+    assert.match(r.stderr, /SIMULATED_HELPER_FAILURE/);
+    assert.match(psLib.describe(r), /exit=7/);
+  });
+
+  await test('ps: success keeps stdout and resolves the resolved executable', async () => {
+    const r = await psLib.runPowerShell({ script: '/nonexistent/x.ps1', timeoutMs: 5000, operation: 'ok-helper', env: fakePsEnv('ok') });
+    assert.strictEqual(r.ok, true, psLib.describe(r));
+    assert.strictEqual(JSON.parse(r.stdout.trim()).platform, 'win32');
+    assert.ok(r.exe, 'the executed helper binary is recorded');
+  });
+
+  await test('proc: a helper failure becomes a structured, sanitized diagnostic (not a bare ETIMEDOUT)', async () => {
+    const env = fakePsEnv('hang');
+    Object.assign(process.env, env);
+    psLib.resetResolvedForTests();
+    try {
+      process.env.LAB_PROC_FORCE_POWERSHELL = '1';
+      let err = null;
+      try { await proc.getProcessAsync(1234, { timeoutMs: 900, operation: 'process-identity-timeout-test', env: fakePsEnv('hang') }); } catch (e) { err = e; }
+      assert.ok(err, 'must throw a structured error');
+      assert.match(err.message, /POWERSHELL_HELPER_FAILED/);
+      assert.match(err.message, /POWERSHELL_TIMEOUT/);
+      assert.match(err.message, /op=process-identity-timeout-test/);
+      assert.match(err.message, /site=scripts\/lib\/proc\.js/);
+      assert.strictEqual(err.code, 'POWERSHELL_TIMEOUT');
+      assert.strictEqual(err.operation, 'process-identity-timeout-test');
+      assert.ok(err.diagnostic.timeoutMs <= 900);
+      assert.match(err.diagnostic.stderr, /HANGING_HELPER/);
+    } finally {
+      delete process.env.LAB_PS_EXE; delete process.env.LAB_PS_ARGV_PREFIX; delete process.env.LAB_PROC_FORCE_POWERSHELL;
+      psLib.resetResolvedForTests();
+    }
+  });
+
+  await test('supervisor: a helper timeout is an UNVERIFIED guard, never a backend crash', async () => {
+    const dirs = freshDirs(); const port = await freePort();
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]),
+      '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc',
+      '--identity-timeout-ms', '900', '--listener-timeout-ms', '900', '--ready-timeout-ms', '15000', '--startup-budget-ms', '30000'],
+      { env: childEnv(dirs, { MODE: 'ok', EXPECT_SHA: SHA, LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 90000 });
+    const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
+    const byName = Object.fromEntries(summary.phases.map(p => [p.name, p]));
+    // the backend is healthy: readiness must still be established
+    assert.strictEqual(byName.readiness.ok, true, JSON.stringify(summary.phases));
+    assert.strictEqual(byName.okfile.ok, true, JSON.stringify(summary.phases));
+    assert.strictEqual(r.code, 0, r.out + r.err);
+    // the helpers failed: recorded as degraded guards with their diagnostics
+    assert.strictEqual(byName.identity.ok, false);
+    assert.strictEqual(byName.identity.code, 'GUARD_IDENTITY_UNVERIFIED');
+    assert.strictEqual(byName.identity.severity, 'DEGRADED');
+    assert.strictEqual(byName.listener.code, 'GUARD_LISTENER_UNVERIFIED');
+    assert.strictEqual(byName.listener.severity, 'DEGRADED');
+    assert.ok(summary.helperFailures.length >= 2, JSON.stringify(summary.helperFailures));
+    for (const h of summary.helperFailures) { assert.ok(h.callSite, 'call site retained'); assert.ok(h.timeoutMs, 'timeout retained'); }
+    // never misreported as a crash, and identity is explicitly UNVERIFIED
+    for (const p of summary.phases) assert.ok(!/^BACKEND_(EXITED|DIED)/.test(p.code || ''), `no crash claim: ${p.code}`);
+    assert.strictEqual(summary.backendIdentityState, 'UNVERIFIED');
+    assert.strictEqual(summary.livenessAtExit.alive, true, 'liveness evidence captured before cleanup');
+    // safe cleanup without a verified identity: the direct child handle only
+    assert.strictEqual(summary.stopMethod, 'child-handle');
+    await new Promise(res => setTimeout(res, 400));
+    assert.ok(!alive(Number(byName.okfile && (summary.backend && summary.backend.pid)) || 0) || !summary.backend, 'supervised backend stopped');
+  });
+
+  await test('supervisor: a crashed backend is still distinguished from an unverified one', async () => {
+    const dirs = freshDirs(); const port = await freePort();
+    await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]),
+      '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc', '--identity-timeout-ms', '900', '--listener-timeout-ms', '900'],
+      { env: childEnv(dirs, { MODE: 'exit-early', EXPECT_SHA: SHA, LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 90000 });
+    const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
+    const fatal = summary.phases.find(p => !p.ok && p.severity === 'FATAL');
+    assert.ok(fatal, JSON.stringify(summary.phases));
+    assert.match(fatal.code, /BACKEND_EXITED/);
+    assert.strictEqual(summary.livenessAtExit.alive, false);
+  });
+
+  await test('cleanup: a helper timeout performs no kills and fails loudly', async () => {
+    const dirs = freshDirs();
+    // a real, unrelated-ish process owned by this run's record: it must survive
+    const sleeper = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await new Promise(r => setTimeout(r, 250));
+    const rec = { schema: 2, runId: 'reg-run', runAttempt: '1', pid: sleeper.pid, createTime: 'win32:unused-for-this-test', name: 'node', role: 'backend', anchor: null };
+    fs.mkdirSync(dirs.state, { recursive: true });
+    fs.writeFileSync(path.join(dirs.state, 'process-registry.json'), JSON.stringify({ schema: 2, records: [rec] }, null, 2));
+    try {
+      const r = await run(process.execPath, [S('cleanup-lab.js'), '--mode', 'postflight', '--deadline-ms', '1200', '--out', path.join(dirs.art, 'cleanup.json')],
+        { env: childEnv(dirs, { LAB_PROC_FORCE_POWERSHELL: '1', ...fakePsEnv('hang') }), timeoutMs: 60000 });
+      const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'cleanup.json'), 'utf8'));
+      assert.strictEqual(r.code, 4, `cleanup must fail with its own code: ${r.code} ${r.out}${r.err}`);
+      assert.match(String(summary.error), /CLEANUP_SNAPSHOT_FAILED/);
+      assert.strictEqual(summary.aborted, 'NO_KILLS_PERFORMED');
+      assert.strictEqual(summary.terminated, 0);
+      assert.ok(summary.helperDiagnostic && summary.helperDiagnostic.callSite, 'helper diagnostic retained');
+      assert.ok(alive(sleeper.pid), 'nothing may be killed when the identity snapshot is unavailable');
+    } finally { try { sleeper.kill('SIGKILL'); } catch (e) { /* gone */ } }
+  });
+
+  // ===== tailnet failure classification =====
+  await test('tailnet: the true category is retained (rejection is not inferred from a subject)', async () => {
+    const base = { configured: true, oidcOk: true, joinOutcome: 'failure' };
+    const rejected = tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 403, tokenIssued: false, message: 'invalid subject token' } });
+    assert.strictEqual(rejected.category, 'TRUST_CREDENTIAL_REJECTED');
+    assert.match(rejected.detail, /HTTP 403/);
+    assert.match(rejected.detail, /invalid subject token/);
+
+    const accepted = tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 200, tokenIssued: true } });
+    assert.strictEqual(accepted.category, 'JOIN_FAILED_AFTER_SUCCESSFUL_EXCHANGE');
+    assert.match(accepted.detail, /NOT a subject\/audience mismatch/);
+
+    assert.strictEqual(tailnetDiag.classify({ ...base, joinOutcome: 'success', exchange: { transport: 'ok', status: 200, tokenIssued: true } }).category, 'JOIN_OK');
+    assert.strictEqual(tailnetDiag.classify({ configured: false, oidcOk: false }).category, 'MISSING_CONFIG');
+    assert.strictEqual(tailnetDiag.classify({ configured: true, oidcOk: false }).category, 'OIDC_UNAVAILABLE');
+    assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'error', status: null, errorChain: 'ENOTFOUND' } }).category, 'TAILSCALE_API_UNREACHABLE');
+    assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 503 } }).category, 'TAILSCALE_API_ERROR');
+
+    // Post-exchange key-creation & local CLI sub-classifications
+    const tagDenied = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      keyProbe: { transport: 'ok', status: 400, requestedTags: ['tag:ci'], message: 'requested tags [tag:ci] are invalid or not permitted' }
+    });
+    assert.strictEqual(tagDenied.category, 'TAG_NOT_PERMITTED');
+    assert.match(tagDenied.detail, /NOT a subject\/audience mismatch/);
+    assert.match(tagDenied.detail, /requested tags \[tag:ci\] are invalid or not permitted/);
+
+    const scopeDenied = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true, grantedScope: 'devices:core:read', grantedTags: null },
+      keyProbe: { transport: 'ok', status: 403, requestedTags: ['tag:ci'], message: 'API token does not grant access to perform this action' }
+    });
+    assert.strictEqual(scopeDenied.category, 'MISSING_AUTH_KEYS_PERMISSION');
+    assert.match(scopeDenied.detail, /HTTP 403.*API token does not grant access/);
+
+    // Exact live response observed on PR #15 run 39557365420: HTTP 404 "not found" on POST /keys
+    const keys404 = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true, grantedScope: null, grantedTags: null },
+      keyProbe: { transport: 'ok', status: 404, listStatus: 404, requestedTags: ['tag:ci'], message: 'not found' }
+    });
+    assert.strictEqual(keys404.category, 'MISSING_AUTH_KEYS_PERMISSION');
+    assert.match(keys404.detail, /HTTP 404: not found.*GET \/keys=404/);
+
+    const oldVer = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      cliProbe: { version: '1.88.4', serviceState: 'RUNNING', backendState: 'NeedsLogin', upProbe: { exitCode: 1, stderr: 'flag provided but not defined: -client-id' } }
+    });
+    assert.strictEqual(oldVer.category, 'CLIENT_VERSION_UNSUPPORTED');
+
+    const svcDown = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      cliProbe: { version: '1.94.2', serviceState: 'STOPPED', backendState: null, upProbe: { exitCode: 1, stderr: 'failed to connect to local Tailscale service' } }
+    });
+    assert.strictEqual(svcDown.category, 'TAILSCALE_SERVICE_NOT_READY');
+  });
+
+  await test('lock: foreign live PID reuse (separate live child process, mismatched createTime) is recovered', async () => {
+    const lock = require('./lib/lock');
+    const dirs = freshDirs();
+    const lockDir = path.join(dirs.state, 'foreign-reuse.lock.d');
+    const sleeper = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await new Promise(r => setTimeout(r, 150));
+    try {
+      fs.mkdirSync(lockDir);
+      // Old lock > 5s ago whose PID happens to match a currently running unrelated process
+      fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({
+        token: 'stale-foreign',
+        pid: sleeper.pid,
+        createTime: 'stale-create-time-from-dead-process',
+        acquiredAt: new Date(Date.now() - 10000).toISOString()
+      }));
+      const h = lock.acquireLock({ lockDir, timeoutMs: 5000, pollMs: 50 });
+      assert.ok(h.events.some(e => e.event === 'STALE_LOCK_RECOVERED'), JSON.stringify(h.events));
+      assert.strictEqual(lock.releaseLock(h), true);
+    } finally {
+      try { sleeper.kill('SIGKILL'); } catch (e) { /* ignore */ }
+    }
+  });
+
+  // ===== report: both failures preserved =====
+  const reportNeeds = (over = {}) => ({
+    static: { result: 'success', outputs: {} },
+    server: {
+      result: 'failure',
+      outputs: {
+        caps_server_local: JSON.stringify({
+          backend_readiness_server_local: { s: 'FAIL', r: 'SUPERVISOR_IDENTITY: GUARD_IDENTITY_UNVERIFIED: POWERSHELL_HELPER_FAILED: POWERSHELL_TIMEOUT op=process-identity site=scripts/lib/proc.js:120' },
+          dashboard_server_local: { s: 'BLOCKED', r: 'DEPENDS_ON_BACKEND: SUPERVISOR_IDENTITY' }
+        }),
+        tailscale_outcome: 'failure',
+        ts_configured: 'true',
+        tailnet_category: 'TRUST_CREDENTIAL_REJECTED',
+        tailnet_detail: 'exchange rejected HTTP 403: invalid subject token',
+        oidc_sub: 'repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request',
+        supervisor_first_failure: 'identity:GUARD_IDENTITY_UNVERIFIED',
+        supervisor_degraded_guards: 'identity:GUARD_IDENTITY_UNVERIFIED,listener:GUARD_LISTENER_UNVERIFIED',
+        backend_identity_state: 'UNVERIFIED',
+        rdp_configured: 'true'
+      },
+      ...(over.server || {})
+    },
+    client: {
+      result: 'failure',
+      outputs: {
+        caps_client_local: JSON.stringify({ browser_synthetic: { s: 'PASS', r: null }, native_screenshot: { s: 'PASS', r: null } }),
+        caps_tailnet: JSON.stringify({ tailnet_connectivity: { s: 'BLOCKED', r: 'SERVER_NEVER_JOINED_TAILNET' } }),
+        caps_remote: JSON.stringify({
+          backend_readiness_remote: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, dashboard_client: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' },
+          web_desktop: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }
+        })
+      },
+      ...(over.client || {})
+    }
+  });
+
+  await test('report: a supervisor guard timeout and a tailnet rejection are BOTH preserved', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    const caps = rep.independentCauses.map(c => c.capability);
+    assert.ok(caps.includes('backend_readiness_server_local'), JSON.stringify(caps));
+    assert.ok(caps.includes('tailnet_connectivity'), JSON.stringify(caps));
+    // both subsystems visible, neither hidden behind a single first-cause field
+    assert.ok(rep.bySubsystem.server_local && rep.bySubsystem.server_local.length, JSON.stringify(rep.bySubsystem));
+    assert.ok(rep.bySubsystem.tailnet_or_remote && rep.bySubsystem.tailnet_or_remote.length, JSON.stringify(rep.bySubsystem));
+    // the tailnet reason carries the observed category and does not assert a subject
+    const tn = rep.capabilities.tailnet_connectivity;
+    assert.match(tn.reason, /category=TRUST_CREDENTIAL_REJECTED/);
+    assert.doesNotMatch(JSON.stringify(rep.capabilities), /subject must match/i);
+    assert.strictEqual(rep.diagnostics.tailnetCategory, 'TRUST_CREDENTIAL_REJECTED');
+  });
+
+  await test('report: an unverified diagnostic is never labelled a proven backend crash', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.strictEqual(rep.diagnostics.backendFailureClass, 'UNVERIFIED_DIAGNOSTIC_TIMEOUT');
+    assert.strictEqual(rep.diagnostics.backendHealthProven, false);
+    assert.strictEqual(reportLib.classifyBackendFailure('SUPERVISOR_OKFILE: BACKEND_EXITED_BEFORE_LISTENING: exit={"code":3}'), 'BACKEND_PROCESS_FAILED');
+    assert.strictEqual(reportLib.classifyBackendFailure('READINESS_WRONG_PROCESS: pid 9 != 7'), 'BACKEND_UNHEALTHY');
+  });
+
+  await test('report: prerequisites (BLOCKED) are listed separately from the causal FAIL', async () => {
+    const rep = reportLib.build(reportNeeds());
+    assert.deepStrictEqual(rep.diagnostics.prerequisitesMissing.sort(),
+      ['backend_readiness_remote', 'dashboard_client', 'dashboard_server_local', 'rdp_auto_login', 'tailnet_connectivity', 'web_desktop'].sort());
+    assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability).sort(),
+      ['backend_readiness_server_local', 'tailnet_connectivity'].sort());
+    assert.deepStrictEqual(rep.diagnostics.downstreamBlocked.map(c => c.capability).sort(),
+      ['backend_readiness_remote', 'dashboard_client', 'dashboard_server_local', 'rdp_auto_login', 'web_desktop'].sort());
+    const causal = rep.independentCauses.filter(c => c.status === 'FAIL').map(c => c.capability);
+    assert.ok(causal.includes('backend_readiness_server_local'), JSON.stringify(rep.independentCauses));
+    assert.strictEqual(rep.independentCauses.find(c => c.capability === 'tailnet_connectivity').category, 'TRUST_CREDENTIAL_REJECTED');
+  });
+
+  await test('report: VERIFIED is still impossible without every capability PASS', async () => {
+    const needs = reportNeeds();
+    const rep = reportLib.build(needs);
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    // a single failing required capability blocks the verdict
+    const ok = reportNeeds();
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null }, web_desktop: { s: 'PASS', r: null }, rdp_auto_login: { s: 'PASS', r: null }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    assert.strictEqual(reportLib.build(ok).verdict, 'VERIFIED');
+    ok.client.outputs.caps_remote = JSON.stringify({ ...JSON.parse(ok.client.outputs.caps_remote), rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP' } });
+    assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+  });
+
+  await test('proc: unused port returns empty listeners (never LISTENER_QUERY_FAILED) and active port returns owner PID', async () => {
+    const unused = await freePort();
+    const empty = await proc.listenersAsync(unused, { timeoutMs: 15000, operation: 'unused-port-test' });
+    assert.deepStrictEqual(empty, []);
+    const srv = net.createServer().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    try {
+      const boundPort = srv.address().port;
+      const active = await proc.listenersAsync(boundPort, { timeoutMs: 15000, operation: 'active-port-test' });
+      assert.ok(active.some(l => l.pid === process.pid && l.port === boundPort), JSON.stringify(active));
+    } finally {
+      srv.close();
+    }
+  });
+
+  await test('proc: 10 consecutive async identity+listener+subtree iterations complete reliably and compare pwsh vs powershell on Windows', async () => {
+    const s = await spawnSleeper({ withGrandchild: true });
+    const srv = net.createServer().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    const port = srv.address().port;
+    const samples = [];
+    try {
+      for (let i = 0; i < 10; i++) {
+        const t0 = Date.now();
+        const me = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: `iter-identity-${i}` });
+        const own = await proc.listenersAsync(port, { timeoutMs: 15000, operation: `iter-listener-${i}` });
+        const sub = await proc.descendantsOfAsync(s.pid, { timeoutMs: 15000, operation: `iter-subtree-${i}` });
+        samples.push(Date.now() - t0);
+        assert.ok(me && me.createTime, `iter ${i}: createTime present`);
+        assert.ok(own.some(x => x.pid === process.pid), `iter ${i}: listener owner found`);
+        assert.ok(sub.some(x => x.pid === s.grandchild), `iter ${i}: grandchild found`);
+      }
+      if (IS_WIN) {
+        const ps5Samples = [];
+        let ps5Create = null;
+        for (let i = 0; i < 3; i++) {
+          const t0 = Date.now();
+          const p5 = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: `ps5-identity-${i}`, env: { LAB_PS_MODE: 'powershell' } });
+          ps5Samples.push(Date.now() - t0);
+          assert.ok(p5 && p5.createTime);
+          ps5Create = p5.createTime;
         }
+        const def = psLib.resolvePowerShell();
+        const defProc = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: 'default-ps-identity' });
+        assert.strictEqual(defProc.createTime, ps5Create, 'pwsh and powershell.exe must produce identical ISO round-trip createTime');
+        const annotate = require('./lib/annotate');
+        annotate.notice(
+          'Windows PowerShell helper benchmark',
+          `defaultExe=${def.exe} (${def.source}) 10x(id+listener+subtree)=[${samples.join(',')}ms] | powershell.exe 3x(id)=[${ps5Samples.join(',')}ms] sameCreateTime=${defProc.createTime === ps5Create}`
+        );
       }
-      if (!foundResults) {
-        throw new Error('mission-control-results.json was not created during failure');
-      }
+    } finally {
+      srv.close();
+      try { process.kill(s.grandchild, 'SIGKILL'); } catch (e) { /* */ }
+      s.child.kill('SIGKILL');
     }
-  } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+  });
+
+  // ===== summary =====
+  const failed = results.filter(r => r.status === 'FAIL');
+  const skipped = results.filter(r => r.status === 'SKIPPED');
+  console.log(`\n${results.length} tests: ${results.length - failed.length - skipped.length} passed, ${failed.length} failed, ${skipped.length} skipped`);
+  const outDir = process.env.ARTIFACT_DIR || path.join(ROOT, 'artifacts');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, `regressions-${process.platform}.json`), JSON.stringify({ platform: process.platform, node: process.version, results }, null, 2));
+  try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch (e) { /* */ }
+  if (failed.length) {
+    if (process.env.GITHUB_ACTIONS === 'true') for (const f of failed) console.log(`::error title=regression ${f.name}::${String(f.detail).split('\n').filter(Boolean).slice(0, 8).join(' | ').replace(/%/g, '%25').slice(0, 1800)}`);
+    process.exit(1);
   }
-});
-
-// Defect 9: Registry Corruption Recovery and Atomic Writes
-runTest('Registry Handles Corrupt File and Recovers via Atomic Writes', () => {
-  const tempDir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'corrupt-test-'));
-  const testRegPath = path.join(tempDir, 'corrupt-registry.json');
-
-  try {
-    fs.writeFileSync(testRegPath, '{ invalid json: true }', 'utf8');
-    try {
-      registryUtils.readRegistryFile(testRegPath);
-      throw new Error('Expected REGISTRY_CORRUPT error on invalid JSON');
-    } catch (err) {
-      if (!err.message.includes('REGISTRY_CORRUPT')) {
-        throw new Error(`Unexpected error on corrupt registry read: ${err.message}`);
-      }
-    }
-    const files = fs.readdirSync(tempDir);
-    const corruptBackup = files.find(f => f.includes('.corrupt.'));
-    if (!corruptBackup) {
-      throw new Error('Backup file for corrupt registry was not created!');
-    }
-  } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
-  }
-});
-
-console.log('\n========================================');
-console.log(`Regression Test Summary: Total: ${totalTests} | Passed: ${passedTests} | Skipped: ${skippedTests} | Failed: ${failedTests}`);
-console.log('========================================');
-
-if (failedTests > 0) {
-  console.error(`\n[FAIL] ${failedTests} regression test(s) failed!`);
-  process.exit(1);
-} else {
-  console.log('\nAll regression checks completed successfully!');
 }
+
+main().catch(e => { console.error(e); process.exit(1); });
