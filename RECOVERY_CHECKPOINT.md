@@ -9,8 +9,25 @@ If this session ends early, this file is the resume point.
 | lab repository | `dictationb1/supreme-lamp-lab` |
 | session branch (this work) | `arena/44280da4-supreme-lamp-lab`, based on PR #18's head `a22353a` |
 | PR #18 branch (other session, **not writable from here**) | `arena/ba4f2d55-supreme-lamp-lab` @ `a22353a` |
+| this session's PR | **#19** → base `arena/ba4f2d55-supreme-lamp-lab`, head `arena/44280da4-supreme-lamp-lab` @ `913696e` |
 | stack | #16 (`arena/f823d76d`) → #17 (`arena/efe7639f`) → #18 (`arena/ba4f2d55`) → this branch |
 | application repository | `dictationb1/supreme-lamp` @ `978a837` pinned; `main` `daf13685` differs only in `docs/status.json` |
+
+## Latest measured result (run 39605267051, head `913696e`)
+
+* static job: **100 tests, 100 passed, 0 failed, 0 skipped** — the real-PowerShell
+  `$Matches` reproduction ran under **pwsh 7**.
+* client job (self-hosted, `rdp-lab-client`, **WIN-NFU1JG4VESE\User session 1,
+  PS 5.1.20348.5756**): **100 tests, 100 passed, 0 failed, 0 skipped** — the same
+  reproduction ran under **Windows PowerShell 5.1**, the production shell.
+* capabilities: `browser_synthetic` PASS, `native_screenshot` PASS,
+  `backend_readiness_server_local` PASS, `dashboard_server_local` PASS,
+  `tailnet_connectivity` PASS, `backend_readiness_remote` PASS,
+  `dashboard_client` PASS, `web_desktop` **BLOCKED**, `rdp_auto_login`
+  **BLOCKED (RDP_FILE_CONSENT_REQUIRED)** → `verdict=NOT_VERIFIED`.
+* the new SETUP step was correctly **skipped** in this full run (mode gating works).
+* the live manual action now names the SETUP procedure and the exact account, with
+  no `<server-ip>` placeholder.
 
 ## What is DONE in this branch
 
@@ -60,7 +77,12 @@ If this session ends early, this file is the resume point.
 
 ## Next concrete action
 
-1. Dispatch **`mode=consent-setup`** on this branch (bounded, ≤15 min).
+0. **You must dispatch it — this session cannot.** `gh workflow run` returns
+   `HTTP 403: Resource not accessible by integration` for
+   `capability-check.yml`. Use the Actions UI: *Run workflow* → branch
+   `arena/44280da4-supreme-lamp-lab` → `mode: consent-setup`
+   → `setup_timeout_ms: 600000`.
+1. That opens the bounded SETUP window (≤15 min, labelled SETUP).
 2. While it is open, on `WIN-NFU1JG4VESE\User` session 1: check
    *"I understand and allow RDP files to open on this device for my account"*,
    press **OK**.
