@@ -193,6 +193,7 @@ async function probeKeyCreation({ keysUrl, accessToken, tag, secrets }) {
   }
   const keyIssued = Boolean(res.transport === 'ok' && res.status === 200 && res.json && res.json.key);
   let revokedImmediately = null;
+  let listStatus = null;
   if (keyIssued && res.json && res.json.id) {
     const del = await request(`${keysUrl.replace(/\/$/, '')}/${encodeURIComponent(res.json.id)}`, {
       method: 'DELETE',
@@ -200,10 +201,22 @@ async function probeKeyCreation({ keysUrl, accessToken, tag, secrets }) {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
     });
     revokedImmediately = del.transport === 'ok' && (del.status === 200 || del.status === 204);
+  } else if (res.transport === 'ok' && res.status === 404) {
+    // Tailscale's REST API returns 404 {"message":"not found"} on POST /keys
+    // when a token lacks `auth_keys` write scope (even if it has read scope or
+    // another scope). A read-only GET /keys distinguishes `auth_keys:read`
+    // (GET=200, POST=404) from no `auth_keys` scope at all (GET=404, POST=404).
+    const rd = await request(keysUrl, {
+      method: 'GET',
+      timeoutMs: 10000,
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
+    });
+    listStatus = rd.transport === 'ok' ? rd.status : null;
   }
   return {
     transport: res.transport,
     status: res.status,
+    listStatus,
     durationMs: res.durationMs,
     requestedTags: [tag],
     keyIssued,
@@ -316,7 +329,7 @@ function classify({ configured, oidcOk, exchange, joinOutcome, keyProbe, cliProb
       }
       return {
         category: CATEGORY.MISSING_AUTH_KEYS_PERMISSION,
-        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch), and auth-key creation failed with HTTP ${keyProbe.status}: ${msg}`
+        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch; grantedScope=${JSON.stringify(ex.grantedScope ?? null)} grantedTags=${JSON.stringify(ex.grantedTags ?? null)}), and auth-key creation POST /api/v2/tailnet/-/keys returned HTTP ${keyProbe.status}: ${msg}${keyProbe.listStatus ? ` (GET /keys=${keyProbe.listStatus})` : ''} — in Tailscale API v2, missing Keys > Auth keys (Write) scope or missing tag permission returns HTTP 404/403`
       };
     }
 
@@ -451,6 +464,10 @@ async function main() {
         status: ex.status,
         durationMs: ex.durationMs,
         tokenIssued,
+        grantedScope: ex.json && ex.json.scope !== undefined ? ex.json.scope : null,
+        grantedTags: ex.json && ex.json.tags !== undefined ? ex.json.tags : null,
+        expiresIn: ex.json && typeof ex.json.expires_in === 'number' ? ex.json.expires_in : null,
+        responseFields: ex.json && typeof ex.json === 'object' ? Object.keys(ex.json).sort() : null,
         message: providerMessage(ex, secrets),
         errorChain: ex.transport !== 'ok' ? cleanText(ex.errorChain, secrets, 300) : null
       };
@@ -496,10 +513,13 @@ async function main() {
   if (sanitized.category === CATEGORY.JOIN_OK) annotate.notice('tailnet classification', msg);
   else annotate.error('tailnet classification', msg);
   if (sanitized.exchange) {
-    annotate.notice('tailnet token exchange', `status=${sanitized.exchange.status} transport=${sanitized.exchange.transport} tokenIssued=${sanitized.exchange.tokenIssued} elapsed=${sanitized.exchange.durationMs}ms`);
+    annotate.notice(
+      'tailnet token exchange',
+      `status=${sanitized.exchange.status} transport=${sanitized.exchange.transport} tokenIssued=${sanitized.exchange.tokenIssued} scope=${JSON.stringify(sanitized.exchange.grantedScope)} tags=${JSON.stringify(sanitized.exchange.grantedTags)} fields=${JSON.stringify(sanitized.exchange.responseFields)} elapsed=${sanitized.exchange.durationMs}ms`
+    );
   }
   if (sanitized.keyProbe) {
-    annotate.notice('tailnet key probe', `status=${sanitized.keyProbe.status} transport=${sanitized.keyProbe.transport} keyIssued=${sanitized.keyProbe.keyIssued} revoked=${sanitized.keyProbe.revokedImmediately} msg=${sanitized.keyProbe.message || 'none'}`);
+    annotate.notice('tailnet key probe', `status=${sanitized.keyProbe.status} listStatus=${sanitized.keyProbe.listStatus} transport=${sanitized.keyProbe.transport} keyIssued=${sanitized.keyProbe.keyIssued} revoked=${sanitized.keyProbe.revokedImmediately} msg=${sanitized.keyProbe.message || 'none'}`);
   }
   if (sanitized.cliProbe) {
     const up = sanitized.cliProbe.upProbe || {};

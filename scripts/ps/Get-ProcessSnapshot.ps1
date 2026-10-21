@@ -105,7 +105,12 @@ $listeners = @()
 $listenersError = $null
 if ($ListenPort -gt 0) {
     try {
-        $listeners = @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction Stop | ForEach-Object {
+        # Query MSFT_NetTCPConnection directly via CIM (State = 2 is Listen).
+        # Unlike CDXML Get-NetTCPConnection -ErrorAction Stop, which throws
+        # ObjectNotFound when no socket is listening AND imports NetTCPIP on
+        # cold start, Get-CimInstance returns an empty collection cleanly when
+        # unused and throws only when WMI/CIM itself fails.
+        $listeners = @(Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_NetTCPConnection -Filter "State = 2 AND LocalPort = $ListenPort" -ErrorAction Stop | ForEach-Object {
             [ordered]@{ port = [int]$_.LocalPort; address = [string]$_.LocalAddress; pid = [int]$_.OwningProcess }
         })
     } catch {
@@ -118,7 +123,7 @@ if ($ListenPort -gt 0) {
 $out = [ordered]@{
     platform           = 'win32'
     currentPid         = $PID
-    currentSessionId   = [int](Get-Process -Id $PID).SessionId
+    currentSessionId   = [int][System.Diagnostics.Process]::GetCurrentProcess().SessionId
     processes          = @($list)
     listeners          = @($listeners)
     listenersError     = $listenersError

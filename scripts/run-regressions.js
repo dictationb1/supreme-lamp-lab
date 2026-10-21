@@ -859,11 +859,20 @@ async function main() {
 
     const scopeDenied = tailnetDiag.classify({
       ...base,
-      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      exchange: { transport: 'ok', status: 200, tokenIssued: true, grantedScope: 'devices:core:read', grantedTags: null },
       keyProbe: { transport: 'ok', status: 403, requestedTags: ['tag:ci'], message: 'API token does not grant access to perform this action' }
     });
     assert.strictEqual(scopeDenied.category, 'MISSING_AUTH_KEYS_PERMISSION');
     assert.match(scopeDenied.detail, /HTTP 403.*API token does not grant access/);
+
+    // Exact live response observed on PR #15 run 39557365420: HTTP 404 "not found" on POST /keys
+    const keys404 = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true, grantedScope: null, grantedTags: null },
+      keyProbe: { transport: 'ok', status: 404, listStatus: 404, requestedTags: ['tag:ci'], message: 'not found' }
+    });
+    assert.strictEqual(keys404.category, 'MISSING_AUTH_KEYS_PERMISSION');
+    assert.match(keys404.detail, /HTTP 404: not found.*GET \/keys=404/);
 
     const oldVer = tailnetDiag.classify({
       ...base,
@@ -992,6 +1001,64 @@ async function main() {
     assert.strictEqual(reportLib.build(ok).verdict, 'VERIFIED');
     ok.client.outputs.caps_remote = JSON.stringify({ ...JSON.parse(ok.client.outputs.caps_remote), rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP' } });
     assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+  });
+
+  await test('proc: unused port returns empty listeners (never LISTENER_QUERY_FAILED) and active port returns owner PID', async () => {
+    const unused = await freePort();
+    const empty = await proc.listenersAsync(unused, { timeoutMs: 15000, operation: 'unused-port-test' });
+    assert.deepStrictEqual(empty, []);
+    const srv = net.createServer().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    try {
+      const boundPort = srv.address().port;
+      const active = await proc.listenersAsync(boundPort, { timeoutMs: 15000, operation: 'active-port-test' });
+      assert.ok(active.some(l => l.pid === process.pid && l.port === boundPort), JSON.stringify(active));
+    } finally {
+      srv.close();
+    }
+  });
+
+  await test('proc: 10 consecutive async identity+listener+subtree iterations complete reliably and compare pwsh vs powershell on Windows', async () => {
+    const s = await spawnSleeper({ withGrandchild: true });
+    const srv = net.createServer().listen(0, '127.0.0.1');
+    await new Promise(r => srv.once('listening', r));
+    const port = srv.address().port;
+    const samples = [];
+    try {
+      for (let i = 0; i < 10; i++) {
+        const t0 = Date.now();
+        const me = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: `iter-identity-${i}` });
+        const own = await proc.listenersAsync(port, { timeoutMs: 15000, operation: `iter-listener-${i}` });
+        const sub = await proc.descendantsOfAsync(s.pid, { timeoutMs: 15000, operation: `iter-subtree-${i}` });
+        samples.push(Date.now() - t0);
+        assert.ok(me && me.createTime, `iter ${i}: createTime present`);
+        assert.ok(own.some(x => x.pid === process.pid), `iter ${i}: listener owner found`);
+        assert.ok(sub.some(x => x.pid === s.grandchild), `iter ${i}: grandchild found`);
+      }
+      if (IS_WIN) {
+        const ps5Samples = [];
+        let ps5Create = null;
+        for (let i = 0; i < 3; i++) {
+          const t0 = Date.now();
+          const p5 = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: `ps5-identity-${i}`, env: { LAB_PS_MODE: 'powershell' } });
+          ps5Samples.push(Date.now() - t0);
+          assert.ok(p5 && p5.createTime);
+          ps5Create = p5.createTime;
+        }
+        const def = psLib.resolvePowerShell();
+        const defProc = await proc.getProcessAsync(process.pid, { timeoutMs: 15000, operation: 'default-ps-identity' });
+        assert.strictEqual(defProc.createTime, ps5Create, 'pwsh and powershell.exe must produce identical ISO round-trip createTime');
+        const annotate = require('./lib/annotate');
+        annotate.notice(
+          'Windows PowerShell helper benchmark',
+          `defaultExe=${def.exe} (${def.source}) 10x(id+listener+subtree)=[${samples.join(',')}ms] | powershell.exe 3x(id)=[${ps5Samples.join(',')}ms] sameCreateTime=${defProc.createTime === ps5Create}`
+        );
+      }
+    } finally {
+      srv.close();
+      try { process.kill(s.grandchild, 'SIGKILL'); } catch (e) { /* */ }
+      s.child.kill('SIGKILL');
+    }
   });
 
   // ===== summary =====

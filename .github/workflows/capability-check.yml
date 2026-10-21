@@ -236,6 +236,11 @@ jobs:
       - name: Preflight owned-process cleanup
         run: node scripts/cleanup-lab.js --mode preflight
 
+      - name: Verify Windows helper stability and pwsh vs powershell.exe parity
+        env:
+          ONLY: 'proc: '
+        run: node scripts/run-regressions.js
+
       - name: Checkout supreme-lamp at the exact app SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
