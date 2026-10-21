@@ -28,7 +28,7 @@ jobs:
       - name: Initial Diagnostic Check
         shell: cmd
         run: |
-          echo === PowerShell Execution Policy & Environment Diagnostics ===
+          echo === PowerShell Execution Policy ^& Environment Diagnostics ===
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Get-ExecutionPolicy -List"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Effective Policy:' (Get-ExecutionPolicy); Write-Host 'PS Version:' $PSVersionTable.PSVersion; Write-Host 'Language Mode:' $ExecutionContext.SessionState.LanguageMode"
           powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Host 'Runner Identity:' $env:COMPUTERNAME '\' $env:USERNAME; Write-Host 'Session ID:' (Get-Process -Id $PID).SessionId"
