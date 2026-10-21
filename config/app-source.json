@@ -1,0 +1,7 @@
+{
+  "repository": "dictationb1/supreme-lamp",
+  "sha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+  "uiReleaseTag": "ui-dist",
+  "reason": "Newest app commit with a commit-matched ui-dist-<sha>.zip (+ .sha256) in the app's ui-dist release. App main daf1368 differs from it only in docs/status.json and has no published UI bundle, so staging daf1368 would be refused by Stage-F60UiBundle (pinned-SHA miss throws). Override per run with workflow_dispatch input source_sha.",
+  "pinnedAt": "2026-10-21"
+}
