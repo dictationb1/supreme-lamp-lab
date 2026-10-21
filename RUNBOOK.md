@@ -1,54 +1,181 @@
-# Supreme Lamp Lab - Configuration & Runbook Guide (Sinhala)
+# Supreme Lamp Lab — Runbook
 
-මෙම ලේඛනය `supreme-lamp-lab` හි Windows පරිසරය, OIDC සහ Tailscale සකස් කිරීම පිළිබඳ විස්තර සපයයි.
+Verification lab for the **RDP Mission Control** integration of
+[`dictationb1/supreme-lamp`](https://github.com/dictationb1/supreme-lamp).
+Workflow: `.github/workflows/capability-check.yml`.
 
----
-
-## 1. Tailscale OIDC Federation සැකසුම (Setup Instructions & Trust Configuration)
-
-Tailscale OIDC Workload Identity Federation හි HTTP 403 (token exchange failed) දෝෂය විසඳීමට පහත පරිදි Tailscale Admin Console හි Custom OIDC Provider එක සකස් කළ යුතුය:
-
-- **Tailscale Admin Console Settings**:
-  - **Issuer**: `https://token.actions.githubusercontent.com`
-  - **Audience**: exact string matched with `TS_AUDIENCE` secret (e.g. `https://login.tailscale.com/v2/oauth` or explicit custom audience, do not invent from repo URL).
-  - **Permitted Tags**: `tag:ci`
-
-- **OIDC Claims matching**:
-  - `repository`: `dictationb1/supreme-lamp-lab`
-  - `sub` (subject): `repo:dictationb1/supreme-lamp-lab:ref:refs/heads/<branch>` (or `repo:dictationb1/supreme-lamp-lab:pull_request`)
-  - `actor`: GitHub user/bot identity
-  - `ref`: `refs/heads/<branch>` (or `refs/pull/*/merge`)
-
-- **GitHub Repository Secrets**:
-  - `TS_OAUTH_CLIENT_ID`: Tailscale OIDC client ID එක GitHub Secrets හි ඇතුළත් කරන්න.
-  - `TS_AUDIENCE`: Target OIDC audience string එක.
+> **සිංහල සාරාංශය:** පහත §2 හි ඇති admin ක්‍රියා තුන (Tailscale subject,
+> secrets, client tailnet) සම්පූර්ණ වන තුරු remote capabilities `BLOCKED`
+> ලෙස පෙන්වයි. එය නිවැරදි හැසිරීමයි — workflow එක කිසි විටෙකත් `BLOCKED`
+> හෝ `NOT_RUN` හෝ `SIMULATED` එකක් `PASS` ලෙස වාර්තා නොකරයි.
 
 ---
 
-## 2. Windows Runner සූදානම් කිරීම (Windows Self-Hosted Runner)
+## 1. Topology
 
-- **Execution Policy**:
-  - Persistent LocalMachine execution policy වෙනස් කිරීමට අවශ්‍ය නැත. Workflow එක process-scoped Bypass shell භාවිත කරයි (`powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"`).
+| job | runner | what it does |
+|---|---|---|
+| `static` | ubuntu-latest | resolves the app SHA **once** (`scripts/resolve-app-source.js`), verifies the Node pin against the GPG-signed `SHASUMS256.txt`, `node --check`, regression suite (browser e2e required), PowerShell parse of every `.ps1` **and** every PowerShell `run:` block, pinned checksum-verified actionlint |
+| `server` | **windows-latest (ephemeral)** | checks out the app at the exact SHA, stages it with the app's own `Stage-F60FromCheckout` + `Stage-F60UiBundle` (commit-matched, checksum-verified UI bundle), prepares an RDP target (user `slabrdp`, NLA, firewall limited to `100.64.0.0/10`, Web Desktop capture task at that user's logon), decodes the OIDC claims, joins the tailnet, then **one supervised step** starts the backend, runs the server-local checks, keeps it alive until the `client` job completes, and stops it |
+| `client` | self-hosted `[Windows, X64, rdp-lab-client]` interactive desktop | Windows regression suite, synthetic headed browser, native desktop screenshot, waits for `slab-srv-<run_id>-<attempt>` on its existing tailnet, then remote readiness, headed dashboard, mstsc RDP auto-login and Web Desktop against the server |
+| `report` | ubuntu-latest | merges every job's capability outputs into `verification-report.json`; exits 0 **only** for `VERIFIED` |
 
-- **Interactive Desktop Session**:
-  - Headed browser පරීක්ෂණ සහ native `mstsc.exe` RDP පරීක්ෂණ සඳහා Session ID > 0 සහිත සක්‍රීය Windows User Desktop Session එකක් අවශ්‍ය වේ.
+The self-hosted client **never starts a backend** and makes no machine-wide
+changes. Everything that needs elevation or system configuration (local user,
+RDP, firewall, scheduled task) happens on the throw-away hosted VM.
 
-- **Migration to Interactive Scheduled Task (VM එක මත ක්‍රියාත්මක කළ යුතු පියවර)**:
-  - CI ක්‍රියාවලියක ඇතුළත සිට මෙය ස්වයංක්‍රීයව සිදු කළ නොහැක. VM එකට login වී Administrator PowerShell එකක් විවෘත කර පහත විධානය ක්‍රියාත්මක කරන්න:
+### App commit under test
+
+`config/app-source.json` pins `978a8375ee77b392ce11694ccee7722fd6ca4f71` — the
+newest app commit with a published `ui-dist-<sha>.zip` + `.sha256`. App main
+`daf1368` differs only in `docs/status.json` and has no UI bundle (staging it
+would be refused). Override per run with the `source_sha` dispatch input; the
+resolver fails fast if the commit or its bundle does not exist (no `main.zip`
+or `unknown` fallback).
+
+## 2. Required one-time admin configuration
+
+These cannot be done from CI (the workflow token has no admin scope). Until
+they are done the corresponding capabilities report `BLOCKED` with the exact
+cause.
+
+### 2.1 Tailscale workload-identity trust credential (fixes the HTTP 403)
+
+This repository uses GitHub's **immutable OIDC subject** format
+(`use_immutable_subject: true`), so every token's `sub` looks like
+
+```
+repo:dictationb1@342137832/supreme-lamp-lab@1425092794:<context>
+```
+
+The previously documented pattern `repo:dictationb1/supreme-lamp-lab:*` **can
+never match** — that is the root cause of
+`token exchange failed with status 403` in run 39526409955. In the Tailscale
+admin console → *Settings → Trust credentials* (the credential whose client ID
+is in `TS_OAUTH_CLIENT_ID`):
+
+| field | value |
+|---|---|
+| Issuer | `https://token.actions.githubusercontent.com` (GitHub) |
+| Subject | `repo:dictationb1@342137832/supreme-lamp-lab@1425092794:*` (or narrower, e.g. `...:ref:refs/heads/main` + `...:pull_request`) |
+| Tags | `tag:ci` (must equal the workflow's `tags:`) |
+| Scopes | `auth_keys` (write) |
+
+The audience is generated by Tailscale for the credential — copy it verbatim
+into the `TS_AUDIENCE` secret. Every server job prints the decoded `sub`
+(annotation *OIDC subject*) so the match can be checked without guessing; the
+token itself is never printed. A quick standalone check:
+`workflow_dispatch` with `mode=auth-diagnostic`.
+
+### 2.2 Repository secrets
+
+| secret | used by | purpose |
+|---|---|---|
+| `TS_OAUTH_CLIENT_ID` | server | Tailscale trust-credential client ID |
+| `TS_AUDIENCE` | server | audience of that credential |
+| `RDP_LAB_PASSWORD` | server + client | password of the ephemeral `slabrdp` account (Windows complexity rules). Missing ⇒ `rdp_auto_login` / `web_desktop` `BLOCKED (MISSING_CONFIG)` |
+
+### 2.3 Client machine
+
+* Tailscale installed, logged in and **running** on the same tailnet
+  (`tailscale status --json` → `BackendState: Running`). The workflow only
+  reads status; it never logs in, out or changes preferences.
+* Tailnet policy must allow the client to reach `tag:ci` on TCP **7331**
+  (Mission Control), **7332** (Web Desktop websocket) and **3389** (RDP).
+* The runner must run in an **interactive, unlocked desktop session**
+  (session > 0) — see `scripts/migrate-runner.ps1` (run once, as admin, on
+  the client):
   ```powershell
-  .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "ඔබේ_භාවිතා_කරන්නාගේ_නම"
+  .\scripts\migrate-runner.ps1 -RunnerPath "C:\actions-runner" -TargetUser "<user>"
   ```
-  - ඉන්පසු Windows එකෙන් ලොග් අවුට් වී (Log out) නැවත ලොග් ඉන් (Log in) වන්න. එවිට At Logon trigger එක මගින් interactive runner එක ආරම්භ වේ.
 
----
+## 3. Capability contracts (all nine are required for `VERIFIED`)
 
-## 3. Local Verification Run (දේශීයව පරීක්ෂා කිරීම)
+| capability | where | PASS only if |
+|---|---|---|
+| `browser_synthetic` | client | headed Chromium asserts a DOM interaction, valid PNG screenshot, non-empty video |
+| `native_screenshot` | client | interactive desktop captured to a valid, non-uniform PNG |
+| `backend_readiness_server_local` | server | `/api/readiness`: `ok===true && status==='ok' && phase==='ready' && apiReadiness===true`, `pid` == supervised pid, `port` == 7331; `/api/version`: `server==='ghrdp'`, `sha` == app SHA (40-hex), `sha7` consistent; OkFile `LISTENING pid=<supervised>`; port listener owned by the supervised tree |
+| `dashboard_server_local` | server | `GET /` 200 HTML, title `RDP Mission Control`, `meta#ghrdpBuild` == app SHA, `#topbar` visible, valid screenshot, not the "UI file missing" placeholder |
+| `tailnet_connectivity` | client | peer `slab-srv-<run>-<attempt>` online in the client's tailnet **and** TCP 7331 reachable |
+| `backend_readiness_remote` | client | same readiness/version contract over the tailnet, and the reported pid equals the server's supervised pid (cross-checked by `report`) |
+| `dashboard_client` | client | same dashboard contract, **headed**, on the client desktop |
+| `rdp_auto_login` | client | `mstsc` with a stored `TERMSRV/<ip>` credential (no prompt); server `/api/logon-status`: `connected===true`, `logonType==='10'`, `ts` ≥ server-clock baseline, `sourceIp` == client tailnet IP; mstsc alive; valid native screenshot |
+| `web_desktop` | client | `/webdesk-status` `ok===true && 0<=frameAgeMs<15000`; `/webdesk-frame` valid JPEG; `/webdesk` renders `img#view` with `naturalWidth>0` |
 
-- **නැවත ධාවනය කිරීම**:
-  ```cmd
-  npm ci
-  node scripts/run-regressions.js
-  node scripts/browser-check.js
-  ```
-- **සාක්ෂි එකතු කිරීම (Evidence Artifacts)**:
-  - සියලු සාක්ෂි `artifacts/run-<run_id>-<attempt>/` නාමාවලියෙහි සුරැකේ. (Screenshot `.png`, Recorded Video `.webm`, JSON Telemetry Results).
+Statuses: `PASS`, `FAIL`, `BLOCKED` (prerequisite missing: config, external
+auth, peer), `NOT_RUN`, `SKIPPED`, `SIMULATED`. Only `PASS` counts; a `FAIL`
+is never overwritten by a later `PASS`; the first causal error is reported.
+There is **no mock mode** in the live workflow.
+
+## 4. Running a verification
+
+```bash
+# dispatch + follow the exact run (correlation id in the run name); exit 0 only if VERIFIED
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main            # pinned app SHA
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main --source-sha <40-hex>
+GH_TOKEN=... node scripts/dispatch-verification.js --ref main --mode auth-diagnostic
+```
+
+Locally (any OS, Node ≥ 22):
+
+```bash
+npm ci
+node scripts/run-regressions.js          # REQUIRE_BROWSER_TESTS=1 to make browser e2e mandatory
+```
+
+### Reading results without the log blob store
+
+Job logs/artifacts are served from a blob host that some tooling cannot
+reach. Every verdict-relevant line is therefore also an **annotation**,
+readable through `api.github.com`:
+
+```bash
+gh api repos/dictationb1/supreme-lamp-lab/actions/runs/<run>/jobs --jq '.jobs[] | [.name,.conclusion,.id] | @tsv'
+gh api repos/dictationb1/supreme-lamp-lab/check-runs/<job_id>/annotations --jq '.[] | [.title,.message] | @tsv'
+```
+
+## 5. Process safety (self-hosted client)
+
+* **Registry** (`<RUNNER_TOOL_CACHE>/supreme-lamp-lab-state/process-registry.json`):
+  every lab-started process is recorded with `(pid, createTime)` from a single
+  source (`Win32_Process.CreationDate` via `scripts/ps/Get-ProcessSnapshot.ps1`;
+  `/proc/<pid>/stat` on Linux), run id, **run attempt**, and the owning job's
+  `Runner.Worker` identity. Read-modify-write happens under a lock and commits
+  with an atomic rename (retries on transient Windows `EPERM/EBUSY`; never a
+  non-atomic copy). A corrupt registry is preserved and refused, never
+  overwritten.
+* **Locks**: atomic non-recursive `mkdir`; a lock is reclaimed only when its
+  owner's `(pid, createTime)` is gone, serialised by a per-owner claim marker
+  with re-verification. The desktop session lock is mandatory for browser /
+  Mission Control checks — failing to get it is a `FAIL`.
+* **Cleanup** (`scripts/cleanup-lab.js`; `cleanup-lab.ps1` is a thin wrapper):
+  terminates a process only if its live identity equals the record exactly.
+  *Postflight* touches only the current run **and** attempt (descendants
+  child-first, created-after-parent only). *Preflight* touches other
+  runs/attempts only when their `Runner.Worker` anchor is gone (job finished
+  ⇒ process abandoned). Never: ancestors of the cleanup process, runner or
+  system processes, processes in another Windows session, records without a
+  creation time (PID reuse ⇒ record dropped, nothing killed).
+* GitHub's own orphan-process cleanup happens once, at **job finalization**
+  ("Complete job"), for processes carrying the job's `RUNNER_TRACKING_ID` — not
+  after every step. The lab's postflight is the step-level safety net.
+
+## 6. Known gaps / honest limits
+
+* `rdp_auto_login` and `web_desktop` are only provable once §2 is configured;
+  until then they are `BLOCKED`, not `PASS`.
+* The Web Desktop capture engine (`payloads/ghrdp-pub2.ps1`) has no maintained
+  standalone entry point in the app; the lab starts it with the same
+  `GhrdpWebDesk` at-logon Interactive task the app's `main.yml` uses, for the
+  `slabrdp` session created by the client's mstsc login. If the engine does
+  not produce frames, `web_desktop` FAILs with `/webdesk-probe` diagnostics.
+* `mstsc` may still surface a dialog the `.rdp` settings cannot suppress (e.g.
+  a new Windows security prompt); the logon proof then fails and the native
+  screenshot shows the dialog.
+* UI bundle staging follows the app's production rule (`main.yml` ui-prebuilt:
+  exact `ui-dist-<sha>.zip`, sidecar, `f59-verify-sha256.mjs`, `index.html`
+  > 51200 bytes) instead of the app's F60 helper `Stage-F60UiBundle`, which
+  cannot run on current PowerShell (it passes an `object[]` to
+  `ExtractToFile`; see RECOVERY_CHECKPOINT "App-repo finding 2"). Once the app
+  fixes the helper, Stage-App can call it again.
