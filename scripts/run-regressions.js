@@ -1778,8 +1778,15 @@ async function main() {
   // exists - a skip is never a pass.
   await test('app defect: -notmatch clobbers $Matches before LogonType is read (real PowerShell)', async () => {
     const exe = process.env.LAB_PWSH || (IS_WIN ? (spawnSync('pwsh', ['-v'], { encoding: 'utf8' }).status === 0 ? 'pwsh' : 'powershell') : 'pwsh');
+    // NOTE: the message is assembled from [char] codes on purpose. PowerShell
+    // single-quoted strings do NOT interpret \r\n\t, and a double-quoted
+    // string would need backtick escapes that collide with this JS template
+    // literal. Real tabs/newlines matter: the app's regex relies on \s.
     const script = `
-$msg = 'An account was successfully logged on.\\r\\n\\tLogon Type:\\t\\t10\\r\\n\\tSource Network Address:\\t100.93.94.15\\r\\n\\tTarget User Name:\\tslabrdp'
+$nl = [string][char]13 + [char]10
+$tab = [string][char]9
+$msg = 'An account was successfully logged on.' + $nl + $tab + 'Logon Type:' + $tab + $tab + '10' + $nl + $tab + ` +
+      `'Source Network Address:' + $tab + '100.93.94.15' + $nl + $tab + 'Target User Name:' + $tab + 'slabrdp'
 $userQ = 'slabrdp'
 # --- order at app 978a837 (payloads/ghrdp-server.ps1 /api/logon-status) ---
 if ($msg -notmatch 'Logon Type:\\s+(2|10|11)\\b') { throw 'type regex did not match' }
