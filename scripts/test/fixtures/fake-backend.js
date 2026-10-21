@@ -34,6 +34,22 @@ function readiness() {
 }
 
 const DASH = sha => `<!doctype html><html><head><meta charset="utf-8"><meta id="ghrdpBuild" name="ghrdp-build" content="${sha}"><title>RDP Mission Control</title></head><body><div id="topbar">Mission Control</div></body></html>`;
+// v2 (app >= F43 default UI): vite stamps <meta name="ghrdp-build"> in the head and React
+// renders <span id="ghrdpBuild" data-build> + [data-testid=app-topbar] after mounting.
+const DASH_V2 = (metaSha, renderSha, mount = true) => `<!doctype html><html><head><meta charset="utf-8"><meta name="ghrdp-build" content="${metaSha}"><title>RDP Mission Control</title></head><body><div id="root"></div>` +
+  (mount ? `<script>setTimeout(function(){document.getElementById('root').innerHTML='<span id="ghrdpBuild" class="hidden" data-build="${renderSha}" aria-hidden="true"></span><header data-testid="app-topbar">Mission Control</header>';},400);</script>` : '') + '</body></html>';
+// server.ps1 F42: v2 requested but ui-v2.html not staged -> v1 + red banner (HTTP 200)
+const DASH_V2_MISSING = sha => DASH(sha).replace('<body>', '<body><div id="uiV2MissingBanner" role="alert">ui-v2.html not staged in this run - main.yml stage step failed; re-dispatch or check CI</div>');
+function dashFor(mode, sha) {
+  switch (mode) {
+    case 'ui-missing': return '<h1>Mission Control UI file missing</h1>';
+    case 'ui-v2': return DASH_V2(sha, sha);
+    case 'ui-v2-unmounted': return DASH_V2(sha, sha, false);
+    case 'ui-v2-stale': return DASH_V2(sha, 'c'.repeat(40));
+    case 'ui-v2-missing': return DASH_V2_MISSING(sha);
+    default: return DASH(sha);
+  }
+}
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -49,7 +65,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(MODE === 'ui-missing' ? '<h1>Mission Control UI file missing</h1>' : DASH(SHA));
+    return res.end(dashFor(MODE, SHA));
   }
   res.writeHead(404); res.end('not found');
 });

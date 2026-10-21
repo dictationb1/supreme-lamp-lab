@@ -652,7 +652,11 @@ async function main() {
     try { const { chromium } = require('playwright'); if (!fs.existsSync(chromium.executablePath())) return process.env.REQUIRE_BROWSER_TESTS === '1' ? null : 'chromium not installed'; } catch (e) { return process.env.REQUIRE_BROWSER_TESTS === '1' ? null : e.message; }
     return null;
   };
-  for (const [mode, want] of [['ok', { code: 0, backend: 'PASS', dash: 'PASS' }], ['ui-missing', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /UI_FILE_MISSING/ }], ['wrong-sha', { code: 1, backend: 'FAIL', dash: 'BLOCKED', reason: /VERSION_SHA_MISMATCH/ }]]) {
+  for (const [mode, want] of [['ok', { code: 0, backend: 'PASS', dash: 'PASS' }], ['ui-missing', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /UI_FILE_MISSING/ }], ['wrong-sha', { code: 1, backend: 'FAIL', dash: 'BLOCKED', reason: /VERSION_SHA_MISMATCH/ }],
+    ['ui-v2', { code: 0, backend: 'PASS', dash: 'PASS', reason: /v2: title ok/ }],
+    ['ui-v2-unmounted', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_V2_NOT_MOUNTED/ }],
+    ['ui-v2-stale', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_BUILD_MISMATCH: v2 #ghrdpBuild\[data-build\]/ }],
+    ['ui-v2-missing', { code: 1, backend: 'PASS', dash: 'FAIL', reason: /DASHBOARD_V2_NOT_STAGED/ }]]) {
     await test(`browser e2e mc-check server-local: ${mode}`, async () => {
       const dirs = freshDirs(); const f = await startFake(mode);
       try {

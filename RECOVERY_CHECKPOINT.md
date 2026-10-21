@@ -99,6 +99,18 @@ or make both `[CmdletBinding()]` so a mismatched parameter throws.
 `[System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry[0], $idx, $true)` (or drop the `@()`), in
 both `scripts/f60-stage-and-start.ps1` and `scripts/f60-bootstrap.ps1`.
 
+## Evidence: run 39545219301 attempt 1 (head 51e0ac8, pull_request)
+
+- server 119042286942: **staging succeeded** (`staged=38`, bundle `ui-dist-978a8375….zip` verified);
+  **`backend_readiness_server_local` = PASS** (`pid=1276 port=7331 phase=ready; sha=978a8375…`) - the real
+  backend is running the exact pinned commit. RDP target BLOCKED: `RDP_LAB_PASSWORD` not set.
+- `dashboard_server_local` FAIL `page.getAttribute: Timeout 30000ms` - the check only knew the classic v1
+  stamp `meta#ghrdpBuild`; at this app version `/` serves the **v2** bundle by default (server.ps1 F43
+  `UiV2Default`), whose stamps are `meta[name=ghrdp-build]` and the React-rendered `#ghrdpBuild[data-build]`.
+- Fix: variant-aware dashboard check (v1 or v2, each proving the exact SHA and a visible shell) and the F42
+  `#uiV2MissingBanner` is a FAIL (`DASHBOARD_V2_NOT_STAGED`); 4 new browser e2e cases
+  (v2 ok / never mounted / stale bundle SHA / not-staged banner).
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.

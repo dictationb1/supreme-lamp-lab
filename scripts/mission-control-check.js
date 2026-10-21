@@ -83,6 +83,31 @@ async function launchBrowser(headless) {
   return chromium.launch({ headless });
 }
 
+// The served dashboard is either the classic v1 ui.html or (app >= F43, the default
+// route) the v2 React bundle ui-v2.html. Each variant must prove the exact build:
+//   v1: meta#ghrdpBuild[content] == sha, #topbar visible
+//   v2: meta[name=ghrdp-build][content] == sha (vite stamp) AND the React-rendered
+//       #ghrdpBuild[data-build] == sha (proves the bundle mounted), app-topbar visible
+async function dashboardVariant(page, sha, pageErrors) {
+  const v1 = await page.$('meta#ghrdpBuild');
+  if (v1) {
+    const build = await v1.getAttribute('content');
+    if (build !== sha) throw new Error(`DASHBOARD_BUILD_MISMATCH: v1 meta#ghrdpBuild=${JSON.stringify(build)} expected ${sha}`);
+    try { await page.waitForSelector('#topbar', { state: 'visible', timeout: 20000 }); } catch (e) { throw new Error('DASHBOARD_SHELL_NOT_VISIBLE: v1 #topbar'); }
+    return { variant: 'v1', build, stamps: 'meta#ghrdpBuild', shell: '#topbar' };
+  }
+  const metaEl = await page.$('meta[name="ghrdp-build"]');
+  const metaBuild = metaEl ? await metaEl.getAttribute('content') : null;
+  if (metaBuild !== sha) throw new Error(`DASHBOARD_BUILD_MISMATCH: v2 meta[name=ghrdp-build]=${JSON.stringify(metaBuild)} expected ${sha}`);
+  try { await page.waitForSelector('#ghrdpBuild[data-build]', { state: 'attached', timeout: 20000 }); } catch (e) {
+    throw new Error(`DASHBOARD_V2_NOT_MOUNTED: #ghrdpBuild[data-build] never rendered${pageErrors.length ? `; page errors: ${pageErrors.slice(0, 2).join(' | ')}` : ''}`);
+  }
+  const build = await page.getAttribute('#ghrdpBuild', 'data-build');
+  if (build !== sha) throw new Error(`DASHBOARD_BUILD_MISMATCH: v2 #ghrdpBuild[data-build]=${JSON.stringify(build)} expected ${sha}`);
+  try { await page.waitForSelector('[data-testid="app-topbar"]', { state: 'visible', timeout: 20000 }); } catch (e) { throw new Error('DASHBOARD_SHELL_NOT_VISIBLE: v2 [data-testid=app-topbar]'); }
+  return { variant: 'v2', build, stamps: 'meta[name=ghrdp-build] + #ghrdpBuild[data-build]', shell: 'app-topbar' };
+}
+
 async function checkDashboard(caps, name, browser, args, outDir) {
   const ctx = await browser.newContext({ viewport: { width: 1366, height: 820 }, recordVideo: { dir: path.join(outDir, `video-${name}`) } });
   const page = await ctx.newPage();
@@ -96,16 +121,17 @@ async function checkDashboard(caps, name, browser, args, outDir) {
     if (resp.status() !== 200 || !ct.includes('text/html')) throw new Error(`DASHBOARD_HTTP: status=${resp.status()} content-type=${ct}`);
     const body = await page.content();
     if (body.includes('Mission Control UI file missing')) throw new Error('DASHBOARD_UI_FILE_MISSING: backend served the missing-ui placeholder (staging failed)');
+    // server.ps1 [F42]: v2 requested but ui-v2.html not staged -> v1 + red banner. Fail-visible, never a pass.
+    const banner = await page.$('#uiV2MissingBanner');
+    if (banner) throw new Error(`DASHBOARD_V2_NOT_STAGED: ${((await banner.textContent()) || '').trim().slice(0, 160)}`);
     const title = await page.title();
     if (title !== 'RDP Mission Control') throw new Error(`DASHBOARD_WRONG_TITLE: ${JSON.stringify(title)}`);
-    const build = await page.getAttribute('meta#ghrdpBuild', 'content');
-    if (build !== args.expectSha) throw new Error(`DASHBOARD_BUILD_MISMATCH: meta#ghrdpBuild=${JSON.stringify(build)} expected ${args.expectSha}`);
-    await page.waitForSelector('#topbar', { state: 'visible', timeout: 20000 });
+    const v = await dashboardVariant(page, args.expectSha, pageErrors);
     await page.waitForTimeout(1500);
     await page.screenshot({ path: shot });
     const img = validatePngBuffer(fs.readFileSync(shot), { minWidth: 640, minHeight: 400 });
     if (!img.valid) throw new Error(`DASHBOARD_SCREENSHOT_INVALID: ${img.reason}`);
-    caps.set(name, STATUS.PASS, `title ok, build ${build.slice(0, 12)}, #topbar visible, screenshot ${img.width}x${img.height}`, { screenshot: shot, pageErrors });
+    caps.set(name, STATUS.PASS, `${v.variant}: title ok, build ${v.build.slice(0, 12)} (${v.stamps}), ${v.shell} visible, screenshot ${img.width}x${img.height}`, { screenshot: shot, pageErrors, variant: v.variant });
   } catch (e) {
     try { await page.screenshot({ path: shot }); } catch (e2) { /* ignore */ }
     caps.set(name, STATUS.FAIL, e.message.split('\n')[0], { screenshot: fs.existsSync(shot) ? shot : null, pageErrors });
