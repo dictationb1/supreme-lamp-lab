@@ -176,7 +176,7 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
           hostname: slab-diag-${{ github.run_id }}-${{ github.run_attempt }}
-          retry: 1
+          retry: 3
       - name: Classify the join failure (documented token-exchange probe)
         id: tailnet
         if: always()
@@ -184,6 +184,7 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
           TAILSCALE_JOIN_OUTCOME: ${{ steps.tailscale.outcome }}
+          TAILSCALE_HOSTNAME: slab-diag-${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/tailnet-token-exchange-diagnostic.js
       - name: Diagnostic verdict
         env:
@@ -297,7 +298,7 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
           hostname: slab-srv-${{ github.run_id }}-${{ github.run_attempt }}
-          retry: 1
+          retry: 4
 
       - name: Classify the join failure (documented token-exchange probe)
         id: tailnet
@@ -306,6 +307,7 @@ jobs:
           TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           TS_AUDIENCE: ${{ secrets.TS_AUDIENCE }}
           TAILSCALE_JOIN_OUTCOME: ${{ steps.tailscale.outcome }}
+          TAILSCALE_HOSTNAME: slab-srv-${{ github.run_id }}-${{ github.run_attempt }}
         run: node scripts/tailnet-token-exchange-diagnostic.js
 
       - name: Tailnet address

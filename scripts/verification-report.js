@@ -41,10 +41,16 @@ function classifyBackendFailure(reason) {
 /** Extract an explicit `category=CODE` marker or a named failure token. */
 function causeCategory(reason) {
   const r = String(reason || '');
+  const dep = r.match(/^(DEPENDS_ON_[A-Z0-9_]+)/);
+  if (dep) return dep[1];
   const m = r.match(/category=([A-Z0-9_]+)/);
   if (m) return m[1];
-  const t = r.match(/\b(TRUST_CREDENTIAL_REJECTED|TOKEN_EXCHANGE_[A-Z_]+|MISSING_CONFIG|OIDC_UNAVAILABLE|JOIN_FAILED_[A-Z_]+|SERVER_NEVER_JOINED_TAILNET|SUPERVISOR_[A-Z_]+|DEPENDS_ON_[A-Z_]+|BACKEND_[A-Z_]+|READINESS_[A-Z_]+|VERSION_[A-Z_]+)\b/);
+  const t = r.match(/\b(TRUST_CREDENTIAL_REJECTED|TAG_NOT_PERMITTED|MISSING_AUTH_KEYS_PERMISSION|TAILSCALE_SERVICE_NOT_READY|CLIENT_VERSION_UNSUPPORTED|TAILSCALE_API_[A-Z_]+|TOKEN_EXCHANGE_[A-Z_]+|MISSING_CONFIG|OIDC_UNAVAILABLE|JOIN_FAILED_[A-Z_]+|SERVER_NEVER_JOINED_TAILNET|SUPERVISOR_[A-Z_]+|DEPENDS_ON_[A-Z_]+|BACKEND_[A-Z_]+|READINESS_[A-Z_]+|VERSION_[A-Z_]+)\b/);
   return t ? t[1] : null;
+}
+
+function isDownstreamDependency(reason) {
+  return /^(DEPENDS_ON_[A-Z0-9_]+|SERVER_RDP_NOT_CONFIGURED)\b/.test(String(reason || ''));
 }
 
 function subsystemOf(capability) {
@@ -144,7 +150,13 @@ function build(needs) {
     audienceMatchesConfigured: server.audience_matches === undefined ? null : server.audience_matches,
     rdpConfigured: server.rdp_configured || null,
     rdpReason: server.rdp_reason || null,
-    prerequisitesMissing: independentCauses.filter(c => c.status === STATUS.BLOCKED).map(c => c.capability)
+    prerequisitesMissing: independentCauses.filter(c => c.status === STATUS.BLOCKED).map(c => c.capability),
+    rootCauses: independentCauses.filter(c => !isDownstreamDependency(c.reason)),
+    downstreamBlocked: independentCauses.filter(c => isDownstreamDependency(c.reason)).map(c => ({
+      capability: c.capability,
+      subsystem: c.subsystem,
+      category: c.category
+    }))
   };
   return {
     verdict, aggregate: agg.status, firstCause, independentCauses, bySubsystem, diagnostics,
@@ -193,9 +205,15 @@ async function main() {
   const msg = `verdict=${report.verdict} ${Object.entries(report.capabilities).map(([k, c]) => `${k}=${c.status}`).join(' ')}`;
   if (report.verdict === 'VERIFIED') annotate.notice('Verification verdict', msg);
   else annotate.error('Verification verdict', `${msg} :: first cause ${report.firstCause && report.firstCause.capability}: ${report.firstCause && report.firstCause.reason}`);
-  if (report.verdict !== 'VERIFIED' && report.independentCauses && report.independentCauses.length) {
-    for (const c of report.independentCauses) {
+  if (report.verdict !== 'VERIFIED' && report.diagnostics && report.diagnostics.rootCauses) {
+    for (const c of report.diagnostics.rootCauses) {
       annotate.error(`independent cause ${c.capability}`, `${c.subsystem} ${c.status}${c.category ? ` ${c.category}` : ''}: ${String(c.reason || '').slice(0, 700)}`);
+    }
+    if (report.diagnostics.downstreamBlocked && report.diagnostics.downstreamBlocked.length) {
+      annotate.warning(
+        'downstream blocked capabilities',
+        report.diagnostics.downstreamBlocked.map(d => `${d.capability} (${d.category})`).join(', ')
+      );
     }
   }
   process.exit(report.verdict === 'VERIFIED' ? 0 : 1);

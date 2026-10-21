@@ -14,7 +14,7 @@ const PATTERNS = [
   // credentials embedded in URLs
   [/(https?:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[REDACTED]@'],
   // common secret-bearing CLI args
-  [/(--(?:authkey|id-token|client-secret|password|pass)[= ])[^\s"']+/gi, '$1[REDACTED]'],
+  [/(--(?:authkey|id-token|client-id|client-secret|password|pass)[= ])[^\s"']+/gi, '$1[REDACTED]'],
   [/(\/pass:)[^\s"']+/gi, '$1[REDACTED]'],
   [/((?:password|passwd|secret|token)\s*[=:]\s*)[^\s"',;]+/gi, '$1[REDACTED]']
 ];

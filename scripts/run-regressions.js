@@ -846,6 +846,61 @@ async function main() {
     assert.strictEqual(tailnetDiag.classify({ configured: true, oidcOk: false }).category, 'OIDC_UNAVAILABLE');
     assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'error', status: null, errorChain: 'ENOTFOUND' } }).category, 'TAILSCALE_API_UNREACHABLE');
     assert.strictEqual(tailnetDiag.classify({ ...base, exchange: { transport: 'ok', status: 503 } }).category, 'TAILSCALE_API_ERROR');
+
+    // Post-exchange key-creation & local CLI sub-classifications
+    const tagDenied = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      keyProbe: { transport: 'ok', status: 400, requestedTags: ['tag:ci'], message: 'requested tags [tag:ci] are invalid or not permitted' }
+    });
+    assert.strictEqual(tagDenied.category, 'TAG_NOT_PERMITTED');
+    assert.match(tagDenied.detail, /NOT a subject\/audience mismatch/);
+    assert.match(tagDenied.detail, /requested tags \[tag:ci\] are invalid or not permitted/);
+
+    const scopeDenied = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      keyProbe: { transport: 'ok', status: 403, requestedTags: ['tag:ci'], message: 'API token does not grant access to perform this action' }
+    });
+    assert.strictEqual(scopeDenied.category, 'MISSING_AUTH_KEYS_PERMISSION');
+    assert.match(scopeDenied.detail, /HTTP 403.*API token does not grant access/);
+
+    const oldVer = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      cliProbe: { version: '1.88.4', serviceState: 'RUNNING', backendState: 'NeedsLogin', upProbe: { exitCode: 1, stderr: 'flag provided but not defined: -client-id' } }
+    });
+    assert.strictEqual(oldVer.category, 'CLIENT_VERSION_UNSUPPORTED');
+
+    const svcDown = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      cliProbe: { version: '1.94.2', serviceState: 'STOPPED', backendState: null, upProbe: { exitCode: 1, stderr: 'failed to connect to local Tailscale service' } }
+    });
+    assert.strictEqual(svcDown.category, 'TAILSCALE_SERVICE_NOT_READY');
+  });
+
+  await test('lock: foreign live PID reuse (separate live child process, mismatched createTime) is recovered', async () => {
+    const lock = require('./lib/lock');
+    const dirs = freshDirs();
+    const lockDir = path.join(dirs.state, 'foreign-reuse.lock.d');
+    const sleeper = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    await new Promise(r => setTimeout(r, 150));
+    try {
+      fs.mkdirSync(lockDir);
+      // Old lock > 5s ago whose PID happens to match a currently running unrelated process
+      fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({
+        token: 'stale-foreign',
+        pid: sleeper.pid,
+        createTime: 'stale-create-time-from-dead-process',
+        acquiredAt: new Date(Date.now() - 10000).toISOString()
+      }));
+      const h = lock.acquireLock({ lockDir, timeoutMs: 5000, pollMs: 50 });
+      assert.ok(h.events.some(e => e.event === 'STALE_LOCK_RECOVERED'), JSON.stringify(h.events));
+      assert.strictEqual(lock.releaseLock(h), true);
+    } finally {
+      try { sleeper.kill('SIGKILL'); } catch (e) { /* ignore */ }
+    }
   });
 
   // ===== report: both failures preserved =====
@@ -912,6 +967,10 @@ async function main() {
     const rep = reportLib.build(reportNeeds());
     assert.deepStrictEqual(rep.diagnostics.prerequisitesMissing.sort(),
       ['backend_readiness_remote', 'dashboard_client', 'dashboard_server_local', 'rdp_auto_login', 'tailnet_connectivity', 'web_desktop'].sort());
+    assert.deepStrictEqual(rep.diagnostics.rootCauses.map(c => c.capability).sort(),
+      ['backend_readiness_server_local', 'tailnet_connectivity'].sort());
+    assert.deepStrictEqual(rep.diagnostics.downstreamBlocked.map(c => c.capability).sort(),
+      ['backend_readiness_remote', 'dashboard_client', 'dashboard_server_local', 'rdp_auto_login', 'web_desktop'].sort());
     const causal = rep.independentCauses.filter(c => c.status === 'FAIL').map(c => c.capability);
     assert.ok(causal.includes('backend_readiness_server_local'), JSON.stringify(rep.independentCauses));
     assert.strictEqual(rep.independentCauses.find(c => c.capability === 'tailnet_connectivity').category, 'TRUST_CREDENTIAL_REJECTED');
