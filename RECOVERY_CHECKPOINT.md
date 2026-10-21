@@ -39,6 +39,28 @@ _Updated by the consolidated repair (branch `arena/3d6eff95-supreme-lamp-lab`)._
   tool cache, screenshot via a `.ps1` helper, MOCK/NOT_RUN ⇒ not success,
   `mkdir`-based lock idea.
 
+## Evidence: PR #14, run 39542662709 attempt 1 (head a6adc76, pull_request)
+
+Observed from check-run annotations (job logs are not retrievable from this tooling):
+
+| Job | Result | Evidence |
+|---|---|---|
+| static 119033698032 | success | Node v22.23.3 win-x64 zip sha256 `2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71`, gpgv OK against nodejs/release-keys@481637f8; browser e2e required and passed; PowerShell parse of scripts + 22 workflow blocks passed; actionlint 1.7.12 (with shellcheck) passed |
+| server 119034250177 | failure | OIDC `sub=repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request` (immutable format confirmed in CI); Tailscale join failed (exit 1) -> `tailnet_connectivity` BLOCKED; app staging step failed (statement not surfaced - fixed below) -> `backend_readiness_server_local` FAIL `STAGING_FAILED` |
+| client 119034250032 | failure | runner `rdp-lab-client` `WIN-NFU1JG4VESE\User` session 1, PS 5.1.20348; `browser_synthetic` PASS (DOM asserted, 1280x720, video 64 KB); `native_screenshot` PASS (1024x768, session 1); remote capabilities BLOCKED `DEPENDS_ON_TAILNET`; 2 Windows regression failures (timing, fixed below) |
+| report 119035980575 | failure | `verdict=NOT_VERIFIED`, first cause `backend_readiness_server_local: STAGING_FAILED` |
+
+Follow-up fixes in the next commit:
+- Stage-App / Install-PinnedNode / Set-RdpCredential: top-level `trap` emits the failing message and
+  script:line as an `::error` annotation; the staging error is passed into the `STAGING_FAILED` reason.
+- `--fail-reason`: the backend capability carries the causal FAIL, dependants are BLOCKED
+  (`DEPENDS_ON_BACKEND`) instead of a second FAIL; regression test added (mutation-checked).
+- Supervisor crash tests: the fixture's crash point (`CRASH_AFTER_MS`) is 12 s on Windows, because the
+  PowerShell-backed identity/listener checks take seconds there and a 1.5 s crash landed in an earlier
+  phase than the one asserted. Assertions now print the full phase list.
+- `config/node-pin.json` records the signature-verified win-x64 hash above; the static job now
+  fails if the signed SHASUMS ever disagrees with it.
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.

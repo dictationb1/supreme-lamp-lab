@@ -533,6 +533,16 @@ async function main() {
     const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-remote.json'), 'utf8'));
     for (const c of Object.values(doc.capabilities)) { assert.strictEqual(c.status, 'BLOCKED'); assert.match(c.reason, /DEPENDS_ON_TAILNET/); }
   });
+  await test('mc-check CLI: --fail-reason is a causal FAIL on backend readiness, dependants BLOCKED', async () => {
+    const dirs = freshDirs();
+    const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--fail-reason', 'STAGING_FAILED: outcome=failure; boom @ x.ps1:3'], { env: childEnv(dirs) });
+    assert.strictEqual(r.code, 1);
+    const caps = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8')).capabilities;
+    assert.strictEqual(caps.backend_readiness_server_local.status, 'FAIL');
+    assert.match(caps.backend_readiness_server_local.reason, /STAGING_FAILED: outcome=failure; boom/);
+    assert.strictEqual(caps.dashboard_server_local.status, 'BLOCKED');
+    assert.match(caps.dashboard_server_local.reason, /DEPENDS_ON_BACKEND: STAGING_FAILED/);
+  });
   await test('mc-check CLI: missing --expect-sha is BLOCKED (never PASS/SKIPPED)', async () => {
     const dirs = freshDirs();
     const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'remote', '--target', 'http://127.0.0.1:9'], { env: childEnv(dirs) });
@@ -560,10 +570,13 @@ async function main() {
   });
 
   // ===== backend supervisor (fixture as the server command) =====
+  // crash point for supervisor tests: after the (PowerShell-backed on Windows) identity
+  // and listener checks, so the asserted phase is the one actually exercised
+  const CRASH_MS = IS_WIN ? 12000 : 1500;
   const sup = async (mode, extra = {}) => {
     const dirs = freshDirs(); const port = extra.port || await freePort();
     const okFile = path.join(dirs.art, 'server-ok.txt');
-    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', okFile, '--port', String(port), '--no-mc', '--ready-timeout-ms', '5000'], { env: childEnv(dirs, { MODE: mode, EXPECT_SHA: SHA, ...(extra.env || {}) }) });
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', okFile, '--port', String(port), '--no-mc', '--ready-timeout-ms', String(extra.readyTimeoutMs || 5000)], { env: childEnv(dirs, { MODE: mode, EXPECT_SHA: SHA, ...(extra.env || {}) }) });
     const summary = JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8'));
     return { r, summary, outputs: readOutputs(dirs.out) };
   };
@@ -598,9 +611,9 @@ async function main() {
     } finally { squatter.close(); }
   }, { skipIf: () => (IS_WIN ? null : (fs.existsSync('/proc/net/tcp') ? null : 'no /proc/net/tcp')) });
   await test('supervisor: crash while initializing -> BACKEND_EXITED (liveness monitored)', async () => {
-    const { r, summary } = await sup('crash-before-ready');
+    const { r, summary } = await sup('crash-before-ready', { env: { CRASH_AFTER_MS: String(CRASH_MS) }, readyTimeoutMs: CRASH_MS + 15000 });
     assert.strictEqual(r.code, 1);
-    assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_EXITED');
+    assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_EXITED', JSON.stringify(summary.phases));
   });
   const http = require('http');
   const fakeJobsApi = statusFn => new Promise(res => {
@@ -610,8 +623,8 @@ async function main() {
   });
   const supHold = async (mode, api) => {
     const dirs = freshDirs(); const port = await freePort();
-    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc', '--hold', 'true', '--hold-poll-ms', '300', '--hold-max-ms', '20000', '--ready-timeout-ms', '5000'],
-      { env: childEnv(dirs, { MODE: mode, EXPECT_SHA: SHA, GITHUB_API_URL: api.url, GITHUB_REPOSITORY: 'o/r', GH_TOKEN: 'test-token' }) });
+    const r = await run(process.execPath, [S('backend-supervisor.js'), '--server-cmd', JSON.stringify([process.execPath, FAKE]), '--ok-file', path.join(dirs.art, 'ok.txt'), '--port', String(port), '--no-mc', '--hold', 'true', '--hold-poll-ms', '300', '--hold-max-ms', String(CRASH_MS + 20000), '--ready-timeout-ms', '5000'],
+      { env: childEnv(dirs, { MODE: mode, CRASH_AFTER_MS: String(CRASH_MS), EXPECT_SHA: SHA, GITHUB_API_URL: api.url, GITHUB_REPOSITORY: 'o/r', GH_TOKEN: 'test-token' }) });
     return { r, summary: JSON.parse(fs.readFileSync(path.join(dirs.art, 'backend-supervisor.json'), 'utf8')) };
   };
   await test('supervisor hold: keeps backend alive until the client job completes', async () => {
@@ -629,7 +642,7 @@ async function main() {
     try {
       const { r, summary } = await supHold('crash-after-ready', api);
       assert.strictEqual(r.code, 1, r.out + r.err);
-      assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_DIED_DURING_HOLD');
+      assert.strictEqual(summary.phases.find(p => !p.ok).code, 'BACKEND_DIED_DURING_HOLD', JSON.stringify(summary.phases));
     } finally { api.srv.close(); }
   });
 
@@ -663,7 +676,7 @@ async function main() {
   fs.writeFileSync(path.join(outDir, `regressions-${process.platform}.json`), JSON.stringify({ platform: process.platform, node: process.version, results }, null, 2));
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch (e) { /* */ }
   if (failed.length) {
-    if (process.env.GITHUB_ACTIONS === 'true') for (const f of failed) console.log(`::error title=regression ${f.name}::${String(f.detail).split('\n')[0]}`);
+    if (process.env.GITHUB_ACTIONS === 'true') for (const f of failed) console.log(`::error title=regression ${f.name}::${String(f.detail).split('\n').filter(Boolean).slice(0, 8).join(' | ').replace(/%/g, '%25').slice(0, 1800)}`);
     process.exit(1);
   }
 }

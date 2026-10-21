@@ -3,7 +3,7 @@
 // Out-of-process fake of the supreme-lamp backend HTTP contract, used ONLY by
 // scripts/run-regressions.js. Never used by the live workflow.
 //
-// env: MODE, PORT (0 = ephemeral), EXPECT_SHA, OK_FILE (optional)
+// env: MODE, PORT (0 = ephemeral), EXPECT_SHA, OK_FILE (optional), CRASH_AFTER_MS (crash modes)
 // stdout: "FAKE_LISTENING port=<n> pid=<pid>" once listening.
 
 const http = require('http');
@@ -58,5 +58,7 @@ server.listen(Number(process.env.FAKE_LISTEN_PORT || process.env.PORT || 0), '12
   const { port } = server.address();
   if (process.env.OK_FILE) fs.writeFileSync(process.env.OK_FILE, `LISTENING pid=${process.pid} port=${port}`);
   process.stdout.write(`FAKE_LISTENING port=${port} pid=${process.pid}\n`);
-  if (MODE === 'crash-after-ready' || MODE === 'crash-before-ready') setTimeout(() => process.exit(1), 1500);
+  // CRASH_AFTER_MS: Windows identity/listener checks spawn PowerShell (seconds), so the
+// suite scales the crash point to land in the phase under test on every platform.
+if (MODE === 'crash-after-ready' || MODE === 'crash-before-ready') setTimeout(() => process.exit(1), Number(process.env.CRASH_AFTER_MS || 1500));
 });

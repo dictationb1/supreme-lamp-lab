@@ -18,6 +18,17 @@ param(
     [string]$LabOut = ''
 )
 $ErrorActionPreference = 'Stop'
+
+# Surface the failing statement as an annotation: job logs live on a blob host
+# that some tooling cannot read, annotations are readable via api.github.com.
+trap {
+    $m = ($_.Exception.Message -replace '[\r\n]+', ' ')
+    $pos = ''
+    if ($_.InvocationInfo) { $pos = ('{0}:{1} {2}' -f $_.InvocationInfo.ScriptName, $_.InvocationInfo.ScriptLineNumber, ($_.InvocationInfo.Line -replace '[\r\n]+', ' ').Trim()) }
+    Write-Host ('::error title=Stage-App failed::' + $m + ' @ ' + $pos)
+    if ($env:GITHUB_OUTPUT) { ('stage_error=' + $m + ' @ ' + $pos) | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
+    exit 1
+}
 $ProgressPreference = 'SilentlyContinue'
 
 $keep = @{ AppDir = (Resolve-Path -LiteralPath $LabAppDir).Path; Sha = $LabSha; StageRoot = $LabStageRoot; Repo = $LabAppRepo; Out = $LabOut }

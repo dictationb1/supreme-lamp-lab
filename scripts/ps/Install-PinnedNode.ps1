@@ -14,6 +14,16 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedSha256
 )
 $ErrorActionPreference = 'Stop'
+
+# Surface the failing statement as an annotation: job logs live on a blob host
+# that some tooling cannot read, annotations are readable via api.github.com.
+trap {
+    $m = ($_.Exception.Message -replace '[\r\n]+', ' ')
+    $pos = ''
+    if ($_.InvocationInfo) { $pos = ('{0}:{1} {2}' -f $_.InvocationInfo.ScriptName, $_.InvocationInfo.ScriptLineNumber, ($_.InvocationInfo.Line -replace '[\r\n]+', ' ').Trim()) }
+    Write-Host ('::error title=Install-PinnedNode failed::' + $m + ' @ ' + $pos)
+    exit 1
+}
 $ProgressPreference = 'SilentlyContinue'
 if ($ExpectedSha256 -notmatch '^[0-9a-f]{64}$') { throw "NODE_PIN_INVALID: expected sha256 '$ExpectedSha256' is not 64 hex chars" }
 if ($Version -notmatch '^v\d+\.\d+\.\d+$') { throw "NODE_VERSION_INVALID: $Version" }

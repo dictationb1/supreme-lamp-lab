@@ -303,7 +303,13 @@ async function main() {
     }
   } catch (e) {
     const status = e.blocked ? STATUS.BLOCKED : STATUS.FAIL;
-    for (const n of names) if (caps.get(n).status === STATUS.NOT_RUN) caps.set(n, status, e.message);
+    const backendName = args.scope === 'server-local' ? 'backend_readiness_server_local' : 'backend_readiness_remote';
+    for (const n of names) {
+      if (caps.get(n).status !== STATUS.NOT_RUN) continue;
+      // the backend capability carries the causal FAIL; dependants are BLOCKED by it
+      if (status === STATUS.FAIL && args.failReason && n !== backendName) caps.set(n, STATUS.BLOCKED, `DEPENDS_ON_BACKEND: ${e.message}`);
+      else caps.set(n, status, e.message);
+    }
   } finally {
     try { cleanupRdp(rdpHandle); } catch (e) { annotate.warning('rdp cleanup', e.message); }
     if (browser) await browser.close().catch(() => {});

@@ -14,6 +14,16 @@ param(
     [string]$PasswordEnv = 'RDP_LAB_PASSWORD'
 )
 $ErrorActionPreference = 'Stop'
+
+# Surface the failing statement as an annotation: job logs live on a blob host
+# that some tooling cannot read, annotations are readable via api.github.com.
+trap {
+    $m = ($_.Exception.Message -replace '[\r\n]+', ' ')
+    $pos = ''
+    if ($_.InvocationInfo) { $pos = ('{0}:{1} {2}' -f $_.InvocationInfo.ScriptName, $_.InvocationInfo.ScriptLineNumber, ($_.InvocationInfo.Line -replace '[\r\n]+', ' ').Trim()) }
+    Write-Host ('::error title=Set-RdpCredential failed::' + $m + ' @ ' + $pos)
+    exit 1
+}
 $src = @'
 using System;
 using System.Runtime.InteropServices;

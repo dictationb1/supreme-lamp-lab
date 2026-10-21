@@ -297,9 +297,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STAGE_OUTCOME: ${{ steps.stage.outcome }}
+          STAGE_ERROR: ${{ steps.stage.outputs.stage_error }}
         run: |
           if ($env:STAGE_OUTCOME -ne 'success') {
-            node scripts/mission-control-check.js --scope server-local --fail-reason "STAGING_FAILED: app staging step outcome=$env:STAGE_OUTCOME (see 'Stage backend' annotations)"
+            node scripts/mission-control-check.js --scope server-local --fail-reason "STAGING_FAILED: outcome=$env:STAGE_OUTCOME; $env:STAGE_ERROR"
             exit 1
           }
           node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
