@@ -150,7 +150,7 @@ jobs:
           node scripts/browser-check.js
           if ($LASTEXITCODE -ne 0) { throw "Browser check failed with code $LASTEXITCODE" }
 
-      - name: Checkout & Provision Real Mission Control Application (supreme-lamp)
+      - name: Provision, Launch and Verify Real Mission Control Application (supreme-lamp)
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
@@ -271,14 +271,12 @@ jobs:
             throw "Backend failed to become ready at $url within 30 seconds."
           }
 
-          Add-Content -Path $env:GITHUB_ENV -Value "MISSION_CONTROL_URL=http://127.0.0.1:7331"
-          Add-Content -Path $env:GITHUB_ENV -Value "RDP_TARGET=127.0.0.1"
-          Add-Content -Path $env:GITHUB_ENV -Value "SUPREME_LAMP_SHA=$appSha"
-
-      - name: Run Mission Control Verification Profile
-        run: |
-          $ErrorActionPreference = 'Stop'
+          Write-Host "Executing Mission Control Verification Profile..."
+          $env:MISSION_CONTROL_URL = "http://127.0.0.1:7331"
+          $env:RDP_TARGET = "127.0.0.1"
+          $env:SUPREME_LAMP_SHA = $appSha
           $env:ALLOW_MOCK_MISSION_CONTROL = "false"
+
           node scripts/mission-control-check.js
           if ($LASTEXITCODE -ne 0) { throw "Mission Control check failed with code $LASTEXITCODE" }
 
@@ -288,7 +286,6 @@ jobs:
           powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "scripts/cleanup-lab.ps1"
 
       - name: Validate Expected Artifacts
-        if: always()
         run: |
           $ErrorActionPreference = 'Stop'
           $runId = if ($env:GITHUB_RUN_ID) { $env:GITHUB_RUN_ID } else { "local-run" }
@@ -296,18 +293,10 @@ jobs:
           $baseDir = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { ".." }
           $artDir = "$baseDir/artifacts/run-$runId-$runAttempt"
 
-          if (-not (Test-Path "$artDir/results.json")) {
-            throw "Missing results.json in $artDir"
-          }
-          if (-not (Test-Path "$artDir/screenshot.png")) {
-            throw "Missing screenshot.png in $artDir"
-          }
-          if (-not (Test-Path "$artDir/mission-control-results.json")) {
-            throw "Missing mission-control-results.json in $artDir"
-          }
-          if (-not (Test-Path "$artDir/mc-dashboard.png")) {
-            throw "Missing mc-dashboard.png in $artDir"
-          }
+          if (-not (Test-Path "$artDir/results.json")) { throw "Missing results.json in $artDir" }
+          if (-not (Test-Path "$artDir/screenshot.png")) { throw "Missing screenshot.png in $artDir" }
+          if (-not (Test-Path "$artDir/mission-control-results.json")) { throw "Missing mission-control-results.json in $artDir" }
+          if (-not (Test-Path "$artDir/mc-dashboard.png")) { throw "Missing mc-dashboard.png in $artDir" }
           Write-Host "All required artifacts verified in $artDir"
 
       - name: Upload Private Artifacts
