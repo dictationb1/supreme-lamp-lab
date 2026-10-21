@@ -6,7 +6,17 @@
 - **Working branch (this session)**: `arena/f823d76d-supreme-lamp-lab`
 - **Base**: PR #15 head `1beca6ffa2ee974e89cf07d1cbfc13ef94cf0122` (PR #15's own head branch `arena/32a8931c-...` is not writable from this session, so this branch carries the increment and is proposed as a follow-up PR)
 - **PR #15**: https://github.com/dictationb1/supreme-lamp-lab/pull/15 — the *observed* failing run is 39555536075 attempt 1 (`capability pull_request PR #15`, head `3442e835`, base `8067e4e9`).
-- **PR #16 (open)**: https://github.com/dictationb1/supreme-lamp-lab/pull/16 — this branch -> `main`. Latest verified run **39558818002 attempt 1**: static 80/80/0/0, client (win32) **80/80/0/0**, verdict `NOT_VERIFIED` (single external cause: Tailscale trust credential).
+- **PR #16 (open)**: https://github.com/dictationb1/supreme-lamp-lab/pull/16 — this branch -> `main`.
+
+### Run history (same-attempt server + client, `capability-check.yml`)
+| run | head | Windows client suite | verdict |
+|---|---|---|---|
+| 39555536075 (PR #15) | `3442e83` | 74 tests: 73 passed, **1 failed** (`LOCK_ACQUISITION_FAILED` after 60 s) | `NOT_VERIFIED` |
+| 39557365420 | `1beca6f` | lock test pass; tailnet 404 captured | `NOT_VERIFIED` |
+| 39558818002 | `3f27c8e` | **80 tests: 80 passed, 0 failed, 0 skipped** | `NOT_VERIFIED` (external only) |
+| 39559894221 | `f1437f8` | **80 tests: 80 passed, 0 failed, 0 skipped** | `NOT_VERIFIED` (external only) |
+
+Every push triggers a full run, including documentation-only commits; the report job fails whenever the verdict is not `VERIFIED`, so a red `report` check alone is not a regression. Always read the annotations of the **newest** run for the current head SHA rather than a cached earlier run.
 
 ## Confirmed findings (evidence, not inference)
 1. **Failing Windows regression**: `lock: 4 concurrent processes x 5 increments = mutual exclusion (no lost update)`, `AssertionError [ERR_ASSERTION] ... scripts\lib\lock.js:120`, holder `run 39555536075/1 role=unknown pid=6712`, dir `%TEMP%\slab-reg-...\t7\state\c.lock.d`. `role=unknown` is simply the default because the worker passes no role. The holder pid was live in the last observed owner snapshot; the surviving annotations cannot prove whether it was starved or had failed to release.
