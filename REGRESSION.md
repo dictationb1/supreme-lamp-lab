@@ -36,3 +36,21 @@ backend liveness.
 | 17 | Screenshot "exists" counted as evidence | no decoding | "image: PNG validation…", "image: JPEG validation…" | truncated/tiny/uniform rejected |
 | 18 | Secrets in evidence | no sanitisation | "redact: tokens, auth headers, URL creds, cmdkey /pass" | all masked |
 | 19 | PowerShell quoting broke steps | no parse gate | `static` job: `Test-PowerShellSyntax.ps1` over `scripts/**/*.ps1` + extracted workflow `run:` blocks | 0 parse errors |
+
+---
+
+### Defect 8: Windows lock contention starvation and orphaned live-owner locks
+- **Trigger**: `lock: 4 concurrent processes x 5 increments = mutual exclusion (no lost update)` on the self-hosted Windows client (`rdp-lab-client`), run 39555536075 attempt 1. `LOCK_ACQUISITION_FAILED` after 60000 ms, stack `scripts/lib/lock.js:120`, holder `run 39555536075/1 role=unknown pid=6712`, directory `%TEMP%\slab-reg-...\t7\state\c.lock.d`.
+- **Root cause (source + reproduction)**: `acquireLock()` ran a full `(pid, createTime)` identity query for a live owner on *every* contender poll. On Windows that query spawns `powershell.exe` + CIM (~0.7–3 s under load), so four contenders polling at 5 ms spent the acquisition deadline inside diagnostics instead of waiting on the lock. Independently, `releaseLock()` swallowed the directory-rename error (Windows sharing violation: a peer reading `owner.json`, virus scanner on a fresh file) and returned `false`, which every caller ignored; the releasing process kept running and its *next* acquisition then waited on its own orphaned lock until the deadline. Both defects produce the same observed signature (a live pid in the holder field), so the surviving annotations cannot apportion the original failure between them.
+- **Fix**: cheap `process.kill(pid, 0)` liveness on every poll; identity re-verification retained (throttled, cached, and always applied to stale/foreign owners); bounded release retries with an owner-token-bound `relinquish.json` fallback so peers can take over without weakening the identity check; self-orphan detection; `withLock()` now reports an incomplete release instead of hiding it.
+- **Regression tests**: multi-process mutual exclusion with a merged per-worker timeline (3 rounds on Windows, 2 elsewhere); simulated slow identity query (bounded query count and wall clock); injected release-rename failures ⇒ retry + relinquish + takeover by the next process; live holder never stolen even when the lock looks old; crashed owner recovered while an unrelated process survives.
+- **Expected verdict**: `PASS`.
+- **Time limit**: 60 s per acquisition (unchanged — the timeout is not the fix), whole suite < 8 min on Windows.
+- **Evidence files**: `artifacts/run-<id>-<attempt>/lock-timeline.json`, `.../regressions-summary.json`, workflow annotations.
+
+### Defect 9: the tailnet gate reported a guess instead of the actual join error
+- **Trigger**: `Join tailnet (workload identity)` failed while the token-exchange probe returned HTTP 200, so the gate asserted an OIDC subject mismatch that was never observed.
+- **Observed (run 39557365420 attempt 1)**: token exchange HTTP 200; `tailscaled` reported `unexpected error while creating authkey: Status: 404, Message: "not found"` on `POST /api/v2/tailnet/-/keys`; CLI 1.94.2, service RUNNING, `backendState=NeedsLogin`. The OIDC subject and audience already match.
+- **Fix**: capture and annotate the first client error line, record the failed operation/CLI version/service state, and probe the exchanged token's scopes with **read-only** `GET` requests (no keys are created or deleted). New category `CREDENTIAL_CANNOT_CREATE_AUTH_KEYS` (the trust credential is not authorized to mint an auth key) is kept distinct from `TAG_NOT_PERMITTED` (HTTP 400 with a tag message), `MISSING_AUTH_KEYS_PERMISSION` (HTTP 403), `TAILSCALE_SERVICE_NOT_READY` and `CLIENT_VERSION_UNSUPPORTED`.
+- **Expected verdict**: reported as `BLOCKED` (external credential configuration), never as a subject mismatch.
+- **Evidence files**: `tailnet-diagnostic.json`, `tailnet first error` annotation, `verification-report.json` (`diagnostics.tailnetFirstError`).

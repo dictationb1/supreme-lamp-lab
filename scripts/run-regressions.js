@@ -38,6 +38,8 @@ const { request, formatErrorChain } = require('./lib/http');
 const { validatePngBuffer, validateJpegBuffer } = require('./lib/image');
 const { redact } = require('./lib/redact');
 const proc = require('./lib/proc');
+const annotate = require('./lib/annotate');
+const { artifactDir } = require('./lib/results');
 const psLib = require('./lib/ps');
 const reportLib = require('./verification-report');
 const tailnetDiag = require('./tailnet-token-exchange-diagnostic');
@@ -367,15 +369,187 @@ async function main() {
     assert.ok(fs.existsSync(dir));
     assert.strictEqual(lock.releaseLock(h), true);
   });
+  // ===== lock: multi-process mutual exclusion with a merged event timeline =====
+  // Run 39555536075 attempt 1 failed exactly here ("lock: 4 concurrent processes
+  // x 5 increments = mutual exclusion (no lost update)", lock.js:120) on the
+  // self-hosted Windows client. The failure carried only
+  // `role=unknown pid=6712`, which is not enough to tell a live-but-slow holder
+  // from an orphaned release, so every worker now writes a bounded JSONL
+  // timeline (pid, createTime, exit state, per-poll verdict, query and
+  // operation timings) and the parent merges the four files.
+  const LOCK_WORKER = "const l=require(process.argv[1]);const fs=require('fs');" +
+    "const lockDir=process.argv[2],counter=process.argv[3],ninc=Number(process.argv[4]),role=process.argv[5],timeoutMs=Number(process.argv[6]),pollMs=Number(process.argv[7]);" +
+    "for(let i=0;i<ninc;i++){const h=l.acquireLock({lockDir,role,timeoutMs,pollMs});" +
+    "const v=Number(fs.readFileSync(counter,'utf8'));l.sleepSync(2);fs.writeFileSync(counter,String(v+1));" +
+    "const rel=l.releaseLockEx(h);if(!rel.released&&!rel.relinquished){console.error('RELEASE_INCOMPLETE '+JSON.stringify(rel));process.exit(3);}}";
+
+  function readTimeline(files) {
+    const ev = [];
+    for (const [worker, file] of Object.entries(files)) {
+      if (!fs.existsSync(file)) continue;
+      for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        try { ev.push({ worker, ...JSON.parse(line) }); } catch (e) { /* torn line */ }
+      }
+    }
+    return ev.sort((a, b) => a.t - b.t);
+  }
+  function timelineText(events, limit = 60) {
+    const interesting = events.length <= limit ? events : [...events.slice(0, limit / 2), ...events.slice(-limit / 2)];
+    return interesting.map(e => {
+      const bits = [`+${String(e.t - (events[0] ? events[0].t : e.t)).padStart(6)}ms`, `w${e.worker}`, `pid=${e.pid}`, e.event];
+      if (e.role) bits.push(`role=${e.role}`);
+      if (e.verdict) bits.push(`verdict=${e.verdict}`);
+      if (e.holder) bits.push(`holder=${e.holder.pid}/${e.holder.role}`);
+      if (e.elapsedMs !== undefined) bits.push(`${e.elapsedMs}ms`);
+      if (e.queryMs) bits.push(`query=${e.queryMs}ms`);
+      if (e.errorCode) bits.push(`err=${e.errorCode}`);
+      if (e.reason) bits.push(`reason=${e.reason}`);
+      return bits.join(' ');
+    }).join('\n      ');
+  }
+  function persistTimeline(name, dirs, nproc, ninc, rounds, runs, events) {
+    const doc = {
+      test: name, platform: process.platform, node: process.version,
+      testDir: dirs.state, lockDir: path.join(dirs.state, 'c.lock.d'),
+      workers: runs.map((r, i) => ({ worker: i + 1, pid: r.pid, exitCode: r.code, signal: r.signal || null, endedAt: r.endedAt })),
+      nproc, ninc, rounds, eventCount: events.length, events: events.slice(-400)
+    };
+    const file = path.join(artifactDir(), 'lock-timeline.json');
+    fs.writeFileSync(file, JSON.stringify(doc, null, 2));
+    return file;
+  }
+  async function concurrentRound({ round, nproc, ninc, timeoutMs = 60000, pollMs = 5, env = {}, testName, dirs }) {
+    const counterFile = path.join(dirs.state, `counter-${round}.txt`);
+    fs.writeFileSync(counterFile, '0');
+    const files = {};
+    for (let k = 0; k < nproc; k++) files[k + 1] = path.join(dirs.state, `events-w${k + 1}-r${round}.jsonl`);
+    const runs = await Promise.all(Array.from({ length: nproc }, (_, i) => {
+      const k = i + 1;
+      return run(process.execPath, ['-e', LOCK_WORKER, S('lib/lock.js'), path.join(dirs.state, 'c.lock.d'), counterFile,
+        String(ninc), `worker-${k}`, String(timeoutMs), String(pollMs)],
+      { timeoutMs: timeoutMs * 2, env: { ...process.env, LAB_LOCK_EVENTS: files[k], ...env } })
+        .then(r => ({ ...r, endedAt: new Date().toISOString(), pid: (readTimeline({ [k]: files[k] })[0] || {}).pid || null }));
+    }));
+    const events = readTimeline(files);
+    const acquired = events.filter(e => e.event === 'LOCK_ACQUIRED').length;
+    const queries = events.filter(e => e.event === 'IDENTITY_QUERY').length;
+    const fails = runs.filter(r => r.code !== 0);
+    if (fails.length) {
+      const file = persistTimeline(testName, dirs, nproc, ninc, round, runs, events);
+      annotate.error('lock timeline', `round=${round} dirs=${dirs.state} timeline=${file} acquired=${acquired} identityQueries=${queries}\n${timelineText(events)}`);
+      throw new Error(`round ${round}: worker(s) failed: ${fails.map(f => `code=${f.code} ${String(f.err).split('\n').slice(0, 4).join(' | ')}`).join(' ; ')}\n      timeline(${file}):\n      ${timelineText(events)}`);
+    }
+    return { events, acquired, queries, runs, counterFile, dirs };
+  }
+
   const [NPROC, NINC] = IS_WIN ? [4, 5] : [6, 15]; // each Windows identity query spawns PowerShell
   await test(`lock: ${NPROC} concurrent processes x ${NINC} increments = mutual exclusion (no lost update)`, async () => {
     const dirs = freshDirs();
-    const counterFile = path.join(dirs.state, 'counter.txt');
-    fs.writeFileSync(counterFile, '0');
-    const code = "const l=require(process.argv[1]);const fs=require('fs');for(let i=0;i<Number(process.argv[4]);i++){const h=l.acquireLock({lockDir:process.argv[2],timeoutMs:60000,pollMs:5});const v=Number(fs.readFileSync(process.argv[3],'utf8'));l.sleepSync(2);fs.writeFileSync(process.argv[3],String(v+1));l.releaseLock(h);}";
-    const runs = await Promise.all(Array.from({ length: NPROC }, () => run(process.execPath, ['-e', code, S('lib/lock.js'), path.join(dirs.state, 'c.lock.d'), counterFile, String(NINC)], { timeoutMs: 300000 })));
-    runs.forEach(r => assert.strictEqual(r.code, 0, r.err));
-    assert.strictEqual(fs.readFileSync(counterFile, 'utf8'), String(NPROC * NINC));
+    const rounds = Number(process.env.LOCK_STRESS_ROUNDS || (IS_WIN ? 3 : 2));
+    for (let round = 1; round <= rounds; round++) {
+      const r = await concurrentRound({ round, nproc: NPROC, ninc: NINC, testName: `lock: ${NPROC}x${NINC} mutual exclusion`, dirs });
+      assert.strictEqual(readFileText(r.counterFile), String(NPROC * NINC));
+      assert.strictEqual(r.acquired, NPROC * NINC, `round ${round}: expected ${NPROC * NINC} acquisitions, saw ${r.acquired}`);
+      assert.ok(!r.events.some(e => e.event === 'ACQUIRE_TIMEOUT'), `round ${round}: unexpected timeout\n${timelineText(r.events)}`);
+      assert.ok(!r.events.some(e => e.event === 'RELEASE_RELINQUISHED'), `round ${round}: release had to be relinquished\n${timelineText(r.events)}`);
+    }
+  });
+  function readFileText(file) { return fs.readFileSync(file, 'utf8'); }
+
+  await test('lock: a live holder is never stolen, even when the lock looks old', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    const holder = await holdLock(dir, 2500);
+    try {
+      // age the directory and the owner metadata far past every grace period
+      const old = (Date.now() - 600000) / 1000;
+      fs.utimesSync(dir, old, old);
+      const owner = JSON.parse(fs.readFileSync(path.join(dir, 'owner.json'), 'utf8'));
+      owner.acquiredAt = new Date(Date.now() - 600000).toISOString();
+      fs.writeFileSync(path.join(dir, 'owner.json'), JSON.stringify(owner));
+      assert.throws(
+        () => lock.acquireLock({ lockDir: dir, timeoutMs: 600, pollMs: 50 }),
+        /LOCK_ACQUISITION_FAILED.*role=holder/
+      );
+      assert.ok(fs.existsSync(path.join(dir, 'owner.json')), 'live owner metadata must be untouched');
+      assert.strictEqual(lock.readOwner(dir).token, owner.token, 'live owner token intact');
+      assert.strictEqual(String(lock.readOwner(dir).pid), String(owner.pid), 'live owner pid intact');
+    } finally { holder.kill('SIGKILL'); }
+  });
+
+  await test('lock: crashed owner is recovered and an unrelated live process is left alone', async () => {
+    const lock = require('./lib/lock');
+    const dir = path.join(freshDirs().state, 'x.lock.d');
+    const bystander = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+    const holder = await holdLock(dir, 60000);
+    try {
+      holder.kill('SIGKILL');
+      await new Promise(r => holder.once('exit', r));
+      const h = lock.acquireLock({ lockDir: dir, timeoutMs: 5000, pollMs: 50 });
+      assert.ok(h.events.some(e => e.event === 'STALE_LOCK_RECOVERED'), JSON.stringify(h.events));
+      assert.strictEqual(lock.releaseLockEx(h).released, true);
+      assert.ok(!fs.existsSync(dir), 'lock directory removed');
+      // the unrelated process was never a lock owner and must survive
+      process.kill(bystander.pid, 0);
+    } finally {
+      try { bystander.kill('SIGKILL'); } catch (e) { /* ignore */ }
+      try { holder.kill('SIGKILL'); } catch (e) { /* ignore */ }
+    }
+  });
+
+  await test('lock: a failed release is retried, relinquished, and the next worker takes over (no self-deadlock)', async () => {
+    // Windows sharing violations (a peer reading owner.json, Defender scanning a
+    // freshly written file) can make the directory rename fail. Before the fix,
+    // releaseLock() returned false, the worker ignored it, and its NEXT
+    // acquisition waited on its own orphaned lock until the 60s deadline, which
+    // is exactly the run-39555536075 symptom (live pid in the holder field).
+    const lock = require('./lib/lock');
+    const dirs = freshDirs();
+    const lockDir = path.join(dirs.state, 'c.lock.d');
+    const blocker = spawn(process.execPath, ['-e',
+      "const l=require(process.argv[1]);const h=l.acquireLock({lockDir:process.argv[2],role:'blocked-releaser',timeoutMs:5000});" +
+      "const rel=l.releaseLockEx(h);console.log(JSON.stringify(rel));process.exit(rel.released?0:3);",
+      S('lib/lock.js'), lockDir],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, LAB_LOCK_TEST_HOOKS: '1', LAB_LOCK_TEST_RELEASE_RENAME_FAILS: '99' } });
+    let out = ''; blocker.stdout.on('data', d => { out += d; });
+    const code = await new Promise(r => blocker.once('exit', r));
+    assert.strictEqual(code, 3, `release must report failure, got ${code}: ${out}`);
+    const rel = JSON.parse(out.trim().split('\n').pop());
+    assert.strictEqual(rel.released, false);
+    assert.strictEqual(rel.relinquished, true);
+    assert.ok(fs.existsSync(path.join(lockDir, 'relinquish.json')), 'owner-authorized relinquish marker written');
+    const marker = JSON.parse(fs.readFileSync(path.join(lockDir, 'relinquish.json'), 'utf8'));
+    assert.strictEqual(marker.token, lock.readOwner(lockDir).token, 'marker bound to the owner token');
+    // A different process must now take over quickly instead of waiting out its deadline.
+    const t0 = Date.now();
+    const h = lock.acquireLock({ lockDir, role: 'next-worker', timeoutMs: 4000, pollMs: 25 });
+    assert.ok(Date.now() - t0 < 4000, 'takeover happened before the deadline');
+    assert.strictEqual(lock.releaseLockEx(h).released, true);
+    assert.ok(!fs.existsSync(lockDir), 'lock directory freed');
+  });
+
+  await test('lock: a live holder with a slow identity query is not poll-stormed (bounded identity queries, bounded wall clock)', async () => {
+    // Simulates the Windows cost that produced run 39555536075: each full
+    // (pid, createTime) query is a PowerShell spawn. The lock must keep the
+    // same identity guarantees without one spawn per 5ms poll.
+    const dirs = freshDirs();
+    const nproc = 4; const ninc = 5;
+    const t0 = Date.now();
+    const r = await concurrentRound({
+      round: 1, nproc, ninc, timeoutMs: 30000, pollMs: 5,
+      env: { LAB_LOCK_TEST_HOOKS: '1', LAB_LOCK_TEST_IDENTITY_DELAY_MS: '250' },
+      testName: 'lock: slow identity query', dirs
+    });
+    const elapsed = Date.now() - t0;
+    assert.strictEqual(readFileText(r.counterFile), String(nproc * ninc));
+    assert.strictEqual(r.acquired, nproc * ninc);
+    assert.ok(elapsed < 30000, `round finished in ${elapsed}ms`);
+    // With a 250ms simulated spawn, an unthrottled loop would issue hundreds of
+    // queries; the fix must keep this bounded per worker.
+    assert.ok(r.queries <= nproc * 6, `identity queries=${r.queries} (expected <= ${nproc * 6})`);
+    for (const res of r.runs) assert.strictEqual(res.code, 0, res.err);
+    assert.strictEqual(readFileText(r.counterFile), String(nproc * ninc));
   });
 
   // ===== registry =====
@@ -477,10 +651,11 @@ async function main() {
   await test('report: VERIFIED only when every capability PASS and static succeeded', async () => {
     const { build, REQUIRED } = require('./verification-report');
     const caps = scope => JSON.stringify(Object.fromEntries(Object.entries(REQUIRED).filter(([, v]) => v.scope === scope).map(([k]) => [k, { s: 'PASS', r: 'ok' }])));
+    const greenRegression = JSON.stringify({ platform: 'linux', total: 80, passed: 80, failed: 0, skipped: 0, requireBrowser: true, failures: [] });
     const needs = {
-      static: { result: 'success', outputs: {} },
+      static: { result: 'success', outputs: { caps_regressions: greenRegression } },
       server: { result: 'success', outputs: { caps_server_local: caps('server_local'), tailscale_outcome: 'success', backend_pid: '4242', rdp_configured: 'true' } },
-      client: { result: 'success', outputs: { caps_client_local: caps('client_local'), caps_tailnet: caps('tailnet'), caps_remote: caps('remote'), backend_pid_remote: '4242' } }
+      client: { result: 'success', outputs: { caps_client_local: caps('client_local'), caps_tailnet: caps('tailnet'), caps_remote: caps('remote'), backend_pid_remote: '4242', caps_regressions: greenRegression } }
     };
     assert.strictEqual(build(needs).verdict, 'VERIFIED');
     const n2 = JSON.parse(JSON.stringify(needs)); n2.client.outputs.backend_pid_remote = '999';
@@ -857,6 +1032,19 @@ async function main() {
     assert.match(tagDenied.detail, /NOT a subject\/audience mismatch/);
     assert.match(tagDenied.detail, /requested tags \[tag:ci\] are invalid or not permitted/);
 
+    const keyDenied404 = tailnetDiag.classify({
+      ...base,
+      exchange: { transport: 'ok', status: 200, tokenIssued: true },
+      credential: { requestedTags: ['tag:ci'], keysRead: { transport: 'ok', status: 404, message: 'not found' }, devicesRead: { transport: 'ok', status: 404, message: 'not found' } },
+      cliProbe: { version: '1.94.2', serviceState: 'RUNNING', backendState: 'NeedsLogin', upProbe: { exitCode: 1, stderr: 'unexpected error while creating authkey: Status: 404, Message: "not found"' } }
+    });
+    assert.strictEqual(keyDenied404.category, 'CREDENTIAL_CANNOT_CREATE_AUTH_KEYS');
+    assert.match(keyDenied404.detail, /POST \/api\/v2\/tailnet\/-\/keys/);
+    assert.match(keyDenied404.detail, /404/);
+    assert.match(keyDenied404.detail, /NOT a subject\/audience mismatch/);
+    assert.strictEqual(tailnetDiag.firstErrorLine({ upProbe: { stderr: '\nunexpected error while creating authkey: Status: 404, Message: "not found"\nsecond' } }),
+      'unexpected error while creating authkey: Status: 404, Message: "not found"');
+
     const scopeDenied = tailnetDiag.classify({
       ...base,
       exchange: { transport: 'ok', status: 200, tokenIssued: true },
@@ -905,7 +1093,13 @@ async function main() {
 
   // ===== report: both failures preserved =====
   const reportNeeds = (over = {}) => ({
-    static: { result: 'success', outputs: {} },
+    static: {
+      result: 'success',
+      outputs: {
+        caps_regressions: JSON.stringify({ platform: 'linux', total: 80, passed: 80, failed: 0, skipped: 0, requireBrowser: true, failures: [] })
+      },
+      ...(over.static || {})
+    },
     server: {
       result: 'failure',
       outputs: {
@@ -933,7 +1127,8 @@ async function main() {
         caps_remote: JSON.stringify({
           backend_readiness_remote: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, dashboard_client: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' },
           web_desktop: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }, rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_TAILNET' }
-        })
+        }),
+        caps_regressions: JSON.stringify({ platform: 'win32', total: 80, passed: 80, failed: 0, skipped: 0, requireBrowser: true, failures: [] })
       },
       ...(over.client || {})
     }
@@ -976,6 +1171,31 @@ async function main() {
     assert.strictEqual(rep.independentCauses.find(c => c.capability === 'tailnet_connectivity').category, 'TRUST_CREDENTIAL_REJECTED');
   });
 
+  await test('report: all nine capabilities PASS is NOT VERIFIED when a regression gate failed', async () => {
+    const ok = reportNeeds();
+    ok.static.outputs.caps_regressions = JSON.stringify({ platform: 'linux', total: 80, passed: 80, failed: 0, skipped: 0, requireBrowser: true, failures: [] });
+    ok.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'PASS', r: null }, dashboard_server_local: { s: 'PASS', r: null } });
+    ok.server.outputs.tailscale_outcome = 'success';
+    ok.client.outputs.caps_tailnet = JSON.stringify({ tailnet_connectivity: { s: 'PASS', r: null } });
+    ok.client.outputs.caps_remote = JSON.stringify({
+      backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null }, web_desktop: { s: 'PASS', r: null }, rdp_auto_login: { s: 'PASS', r: null }
+    });
+    ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    ok.client.outputs.caps_regressions = JSON.stringify({ platform: 'win32', total: 80, passed: 79, failed: 1, skipped: 0, requireBrowser: true, failures: [{ name: 'lock: 4 concurrent processes x 5 increments = mutual exclusion (no lost update)', detail: 'LOCK_ACQUISITION_FAILED' }] });
+    const rep = reportLib.build(ok);
+    assert.strictEqual(rep.verdict, 'NOT_VERIFIED');
+    assert.strictEqual(rep.regressions.client.status, 'FAIL');
+    assert.ok(rep.independentCauses.some(c => c.capability === 'regressions_client' && c.category === 'REGRESSION_GATE_FAILED'), JSON.stringify(rep.independentCauses));
+    assert.match(rep.firstCause.reason, /REGRESSION_GATE_FAILED|regressions/);
+    // a skipped required regression is also a gate failure
+    ok.client.outputs.caps_regressions = JSON.stringify({ platform: 'win32', total: 80, passed: 72, failed: 0, skipped: 8, requireBrowser: true, failures: [] });
+    assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+    // and a missing summary can never be treated as green
+    delete ok.client.outputs.caps_regressions;
+    assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
+    assert.strictEqual(reportLib.build(ok).regressions.client.status, 'MISSING');
+  });
+
   await test('report: VERIFIED is still impossible without every capability PASS', async () => {
     const needs = reportNeeds();
     const rep = reportLib.build(needs);
@@ -998,9 +1218,31 @@ async function main() {
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');
   console.log(`\n${results.length} tests: ${results.length - failed.length - skipped.length} passed, ${failed.length} failed, ${skipped.length} skipped`);
-  const outDir = process.env.ARTIFACT_DIR || path.join(ROOT, 'artifacts');
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, `regressions-${process.platform}.json`), JSON.stringify({ platform: process.platform, node: process.version, results }, null, 2));
+  const outDir = artifactDir();
+  const summary = {
+    schema: 1,
+    platform: process.platform,
+    node: process.version,
+    requireBrowser: process.env.REQUIRE_BROWSER_TESTS === '1',
+    total: results.length,
+    passed: results.length - failed.length - skipped.length,
+    failed: failed.length,
+    skipped: skipped.length,
+    failures: failed.map(f => ({ name: f.name, detail: String(f.detail || '').split('\n').slice(0, 8).join(' | ').slice(0, 1200) })),
+    skips: skipped.map(s => ({ name: s.name, detail: String(s.detail || '').slice(0, 200) })),
+    finishedAt: new Date().toISOString()
+  };
+  fs.writeFileSync(path.join(outDir, `regressions-${process.platform}.json`), JSON.stringify({ ...summary, results }, null, 2));
+  fs.writeFileSync(path.join(outDir, 'regressions-summary.json'), JSON.stringify(summary, null, 2));
+  if (process.env.GITHUB_OUTPUT) {
+    const compact = { ...summary };
+    delete compact.skips;
+    compact.failures = compact.failures.map(f => ({ name: f.name, detail: f.detail.slice(0, 300) }));
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `caps_regressions=${JSON.stringify(compact)}\n`);
+  }
+  annotate.notice('regression summary',
+    `${summary.total} tests: ${summary.passed} passed, ${summary.failed} failed, ${summary.skipped} skipped ` +
+    `(${process.platform}${summary.requireBrowser ? ', browser e2e required' : ', browser e2e optional'})`);
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch (e) { /* */ }
   if (failed.length) {
     if (process.env.GITHUB_ACTIONS === 'true') for (const f of failed) console.log(`::error title=regression ${f.name}::${String(f.detail).split('\n').filter(Boolean).slice(0, 8).join(' | ').replace(/%/g, '%25').slice(0, 1800)}`);

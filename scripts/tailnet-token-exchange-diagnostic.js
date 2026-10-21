@@ -33,6 +33,7 @@ const { redact, redactDeep, knownSecrets } = require('./lib/redact');
 
 const DEFAULT_EXCHANGE_URL = 'https://api.tailscale.com/api/v2/oauth/token-exchange';
 const DEFAULT_KEYS_URL = 'https://api.tailscale.com/api/v2/tailnet/-/keys';
+const DEFAULT_DEVICES_URL = 'https://api.tailscale.com/api/v2/tailnet/-/devices';
 
 const CATEGORY = Object.freeze({
   JOIN_OK: 'JOIN_OK',
@@ -45,6 +46,7 @@ const CATEGORY = Object.freeze({
   MISSING_AUTH_KEYS_PERMISSION: 'MISSING_AUTH_KEYS_PERMISSION',
   TAILSCALE_SERVICE_NOT_READY: 'TAILSCALE_SERVICE_NOT_READY',
   CLIENT_VERSION_UNSUPPORTED: 'CLIENT_VERSION_UNSUPPORTED',
+  CREDENTIAL_CANNOT_CREATE_AUTH_KEYS: 'CREDENTIAL_CANNOT_CREATE_AUTH_KEYS',
   JOIN_FAILED_AFTER_SUCCESSFUL_EXCHANGE: 'JOIN_FAILED_AFTER_SUCCESSFUL_EXCHANGE',
   JOIN_FAILED_UNCLASSIFIED: 'JOIN_FAILED_UNCLASSIFIED'
 });
@@ -163,54 +165,38 @@ function readDaemonLogTail(secrets = []) {
   }
 }
 
-async function probeKeyCreation({ keysUrl, accessToken, tag, secrets }) {
-  const body = JSON.stringify({
-    capabilities: {
-      devices: {
-        create: {
-          reusable: false,
-          ephemeral: true,
-          preauthorized: true,
-          tags: [tag]
-        }
-      }
-    },
-    expirySeconds: 60,
-    description: 'supreme-lamp-lab diagnostic preflight'
-  });
-  const res = await request(keysUrl, {
-    method: 'POST',
-    timeoutMs: 20000,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    },
-    body
-  });
-  if (res.json && typeof res.json.key === 'string') {
-    secrets.push(res.json.key);
-  }
-  const keyIssued = Boolean(res.transport === 'ok' && res.status === 200 && res.json && res.json.key);
-  let revokedImmediately = null;
-  if (keyIssued && res.json && res.json.id) {
-    const del = await request(`${keysUrl.replace(/\/$/, '')}/${encodeURIComponent(res.json.id)}`, {
-      method: 'DELETE',
-      timeoutMs: 10000,
+// READ-ONLY credential probe. It never creates or deletes tailnet keys: the
+// exact failing write (auth-key creation) is already reproduced by the client
+// itself, and a diagnostic must not mutate the tailnet. Two documented GETs
+// establish which scopes the exchanged token actually carries:
+//   GET /api/v2/tailnet/-/keys    -> auth_keys:read
+//   GET /api/v2/tailnet/-/devices -> devices:core:read (or all:read)
+async function probeCredential({ keysUrl, devicesUrl, tag, accessToken, secrets }) {
+  const get = async (url) => {
+    const r = await request(url, {
+      timeoutMs: 15000,
       headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' }
     });
-    revokedImmediately = del.transport === 'ok' && (del.status === 200 || del.status === 204);
-  }
-  return {
-    transport: res.transport,
-    status: res.status,
-    durationMs: res.durationMs,
-    requestedTags: [tag],
-    keyIssued,
-    revokedImmediately,
-    message: providerMessage(res, secrets),
-    errorChain: res.transport !== 'ok' ? cleanText(res.errorChain, secrets, 240) : null
+    return {
+      transport: r.transport,
+      status: r.status,
+      durationMs: r.durationMs,
+      message: providerMessage(r, secrets),
+      errorChain: r.transport !== 'ok' ? cleanText(r.errorChain, secrets, 200) : null
+    };
   };
+  const keysRead = await get(keysUrl);
+  const devicesRead = devicesUrl ? await get(devicesUrl) : null;
+  return { requestedTags: [tag], keysRead, devicesRead };
+}
+
+/** First non-empty line of the real client error (already redacted upstream). */
+function firstErrorLine(cliProbe) {
+  if (!cliProbe) return null;
+  const up = cliProbe.upProbe || {};
+  const raw = up.stderr || up.spawnError || up.stdout || cliProbe.statusStderr || '';
+  const line = String(raw).split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0];
+  return line ? line.slice(0, 400) : null;
 }
 
 async function mintOidcToken(audience) {
@@ -297,7 +283,7 @@ function semverBefore1901(versionLine) {
   return pat < 1;
 }
 
-function classify({ configured, oidcOk, exchange, joinOutcome, keyProbe, cliProbe }) {
+function classify({ configured, oidcOk, exchange, joinOutcome, keyProbe, credential, cliProbe }) {
   if (!configured) return { category: CATEGORY.MISSING_CONFIG, detail: 'TS_OAUTH_CLIENT_ID and/or TS_AUDIENCE not provided to this step' };
   if (!oidcOk) return { category: CATEGORY.OIDC_UNAVAILABLE, detail: 'could not obtain a GitHub OIDC identity token (id-token: write / event context)' };
   const ex = exchange || {};
@@ -306,17 +292,39 @@ function classify({ configured, oidcOk, exchange, joinOutcome, keyProbe, cliProb
     if (joinOutcome === 'success') return { category: CATEGORY.JOIN_OK, detail: 'identity token exchanged and tailscale up succeeded' };
     if (joinOutcome === 'skipped') return { category: CATEGORY.JOIN_OK, detail: `identity token exchanged successfully; join step ${joinOutcome}` };
 
-    if (keyProbe && keyProbe.transport === 'ok' && keyProbe.status >= 400 && keyProbe.status < 500) {
-      const msg = keyProbe.message || `HTTP ${keyProbe.status} with no error text`;
-      if (/tag/i.test(msg)) {
-        return {
-          category: CATEGORY.TAG_NOT_PERMITTED,
-          detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch), and auth-key creation for tags=[${(keyProbe.requestedTags || ['tag:ci']).join(',')}] failed with HTTP ${keyProbe.status}: ${msg}`
-        };
-      }
+    const firstError = firstErrorLine(cliProbe) || (keyProbe && keyProbe.message ? `unexpected error while creating authkey: ${keyProbe.message}` : null);
+    const keysProbe = credential && credential.keysRead ? credential.keysRead : null;
+    const devicesProbe = credential && credential.devicesRead ? credential.devicesRead : null;
+    const probeNote = [
+      keysProbe ? `list-keys HTTP ${keysProbe.status}` : null,
+      devicesProbe ? `list-devices HTTP ${devicesProbe.status}` : null
+    ].filter(Boolean).join(', ');
+
+    // A tag rejection is reported by the API as HTTP 400 with an explicit
+    // message; do not confuse it with a scope problem.
+    if (/requested tags|invalid.*tag|tag.*not permitted/i.test(firstError || '')) {
+      return {
+        category: CATEGORY.TAG_NOT_PERMITTED,
+        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch); auth-key creation for tags=[${(credential && credential.requestedTags || ['tag:ci']).join(',')}] was rejected: ${firstError}${probeNote ? ` (${probeNote})` : ''}`.slice(0, 700)
+      };
+    }
+    // Tailscale answers an unauthorized POST /api/v2/tailnet/-/keys with an
+    // opaque 404 {"message":"not found"} (the same masking it documents for
+    // token exchange). The client surfaces it as
+    // "unexpected error while creating authkey: Status: 404 ...".
+    if (/creating authkey.*(404|not found)/i.test(firstError || '') ||
+        (keysProbe && keysProbe.status === 404) ||
+        (keyProbe && keyProbe.status === 404)) {
+      return {
+        category: CATEGORY.CREDENTIAL_CANNOT_CREATE_AUTH_KEYS,
+        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch), but the control plane refused auth-key creation: POST /api/v2/tailnet/-/keys -> HTTP 404 "not found"` +
+          `${firstError ? `; client error: ${firstError}` : ''}${probeNote ? ` (${probeNote})` : ''}`.slice(0, 700)
+      };
+    }
+    if ((keysProbe && keysProbe.status === 403) || (credential && credential.status === 403) || (keyProbe && keyProbe.status === 403)) {
       return {
         category: CATEGORY.MISSING_AUTH_KEYS_PERMISSION,
-        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch), and auth-key creation failed with HTTP ${keyProbe.status}: ${msg}`
+        detail: `federated identity accepted this token (HTTP 200, NOT a subject/audience mismatch), and the credential is not permitted to manage auth keys: ${keysProbe && keysProbe.message ? keysProbe.message : 'HTTP 403'}${firstError ? `; client error: ${firstError}` : ''}`.slice(0, 700)
       };
     }
 
@@ -326,7 +334,8 @@ function classify({ configured, oidcOk, exchange, joinOutcome, keyProbe, cliProb
         cliProbe.version ? `version=${cliProbe.version}` : null,
         cliProbe.serviceState ? `service=${cliProbe.serviceState}` : null,
         cliProbe.backendState ? `backendState=${cliProbe.backendState}` : null,
-        keyProbe && keyProbe.status ? `keyProbeStatus=${keyProbe.status}` : null,
+        (credential && credential.keysRead) ? `listKeys=${credential.keysRead.status}` : null,
+        (credential && credential.devicesRead) ? `listDevices=${credential.devicesRead.status}` : null,
         cliProbe.upProbe ? `upExit=${cliProbe.upProbe.exitCode}` : null,
         upErr ? `cli="${upErr}"` : null
       ].filter(Boolean).join(' ');
@@ -376,6 +385,8 @@ function resolutionHintFor(category) {
       return 'Tailscale docs: token-exchange rejection details for a federated identity are shown in the admin console -> Trust credentials. Verify issuer=https://token.actions.githubusercontent.com, audience, and subject pattern against the observed OIDC subject.';
     case CATEGORY.TAG_NOT_PERMITTED:
       return 'Trust subject & audience ALREADY MATCH (token exchange HTTP 200). Fix in Tailscale Admin: (1) ensure `tagOwners` in the ACL policy defines `"tag:ci"`, and (2) ensure this federated Trust Credential has `Keys > Auth keys` write permission scoped to `tag:ci`.';
+    case CATEGORY.CREDENTIAL_CANNOT_CREATE_AUTH_KEYS:
+      return 'Trust subject & audience ALREADY MATCH (token exchange HTTP 200) - do NOT change them. The failure is at POST /api/v2/tailnet/-/keys after the exchange: the federated identity is not authorized to mint an auth key for this tailnet. In Tailscale admin console -> Trust credentials -> this Client ID, grant the writable `auth_keys` scope and make sure `tag:ci` is one of the credential tags (it must also exist in the tailnet policy `tagOwners`). Both are properties of the trust credential, not of the OIDC subject.';
     case CATEGORY.MISSING_AUTH_KEYS_PERMISSION:
       return 'Trust subject & audience ALREADY MATCH (token exchange HTTP 200). Fix in Tailscale Admin -> Trust credentials: edit this federated credential and grant `Keys > Auth keys` (Write) permission with tag `tag:ci` (read-only or non-key scopes exchange tokens successfully yet cannot mint node auth keys).';
     case CATEGORY.TAILSCALE_SERVICE_NOT_READY:
@@ -383,7 +394,7 @@ function resolutionHintFor(category) {
     case CATEGORY.CLIENT_VERSION_UNSUPPORTED:
       return 'Workload identity (`--client-id` + `--id-token`) requires Tailscale >= 1.90.1.';
     case CATEGORY.JOIN_FAILED_AFTER_SUCCESSFUL_EXCHANGE:
-      return 'Trust subject & audience ALREADY MATCH (token exchange HTTP 200) — DO NOT modify the trust subject unless changing repo/workflow. Inspect keyProbe / cliProbe details for exact tag, scope, device policy or local client error.';
+      return 'Trust subject & audience ALREADY MATCH (token exchange HTTP 200) — DO NOT modify the trust subject. Inspect the credential-scope probe and the captured client error for the exact tag, scope, device-policy or local-client cause.';
     default:
       return null;
   }
@@ -459,7 +470,13 @@ async function main() {
       // AND the workflow's own Tailscale join step did not succeed.
       if (tokenIssued && out.joinOutcome !== 'success' && out.joinOutcome !== 'skipped') {
         if (keysUrl) {
-          out.keyProbe = await probeKeyCreation({ keysUrl, accessToken, tag, secrets });
+          out.credential = await probeCredential({
+            keysUrl,
+            devicesUrl: process.env.TAILNET_DEVICES_URL || (keysUrl === DEFAULT_KEYS_URL ? DEFAULT_DEVICES_URL : ''),
+            tag,
+            accessToken,
+            secrets
+          });
         }
         if (process.env.TAILSCALE_SKIP_CLI_PROBE !== '1') {
           out.cliProbe = await probeLocalCli({ clientId, audience, tag, hostname, secrets });
@@ -475,11 +492,15 @@ async function main() {
     oidcOk,
     exchange: out.exchange,
     joinOutcome: out.joinOutcome,
-    keyProbe: out.keyProbe,
+    credential: out.credential,
     cliProbe: out.cliProbe
   });
   out.category = verdict.category;
   out.detail = verdict.detail;
+  out.firstError = firstErrorLine(out.cliProbe);
+  out.failedOperation = out.category === CATEGORY.CREDENTIAL_CANNOT_CREATE_AUTH_KEYS
+    ? 'POST /api/v2/tailnet/-/keys (auth-key creation after a successful token exchange)'
+    : (out.joinOutcome !== 'success' ? 'tailscale up' : null);
   out.resolutionHint = resolutionHintFor(verdict.category);
 
   const sanitized = redactDeep(out, secrets);
@@ -488,7 +509,13 @@ async function main() {
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `tailnet_category=${sanitized.category}\ntailnet_detail=${String(sanitized.detail).replace(/[\r\n]+/g, ' ')}\ntailnet_exchange_status=${sanitized.exchange ? sanitized.exchange.status : ''}\n`
+      `tailnet_category=${sanitized.category}\n` +
+      `tailnet_detail=${String(sanitized.detail).replace(/[\r\n]+/g, ' ')}\n` +
+      `tailnet_exchange_status=${sanitized.exchange ? sanitized.exchange.status : ''}\n` +
+      `tailnet_first_error=${String(sanitized.firstError || '').replace(/[\r\n]+/g, ' ').slice(0, 400)}\n` +
+      `tailnet_cli_version=${String((sanitized.cliProbe && sanitized.cliProbe.version) || '').slice(0, 60)}\n` +
+      `tailnet_service_state=${String((sanitized.cliProbe && sanitized.cliProbe.serviceState) || '').slice(0, 40)}\n` +
+      `tailnet_failed_operation=${sanitized.failedOperation || ''}\n`
     );
   }
 
@@ -498,8 +525,16 @@ async function main() {
   if (sanitized.exchange) {
     annotate.notice('tailnet token exchange', `status=${sanitized.exchange.status} transport=${sanitized.exchange.transport} tokenIssued=${sanitized.exchange.tokenIssued} elapsed=${sanitized.exchange.durationMs}ms`);
   }
-  if (sanitized.keyProbe) {
-    annotate.notice('tailnet key probe', `status=${sanitized.keyProbe.status} transport=${sanitized.keyProbe.transport} keyIssued=${sanitized.keyProbe.keyIssued} revoked=${sanitized.keyProbe.revokedImmediately} msg=${sanitized.keyProbe.message || 'none'}`);
+  if (sanitized.firstError) {
+    annotate.error('tailnet first error', `operation=${sanitized.failedOperation || 'n/a'} :: ${sanitized.firstError}`);
+  }
+  if (sanitized.credential) {
+    const cr = sanitized.credential;
+    annotate.notice('tailnet credential scopes', [
+      cr.keysRead ? `listKeys=${cr.keysRead.status}${cr.keysRead.message ? ` (${cr.keysRead.message})` : ''}` : null,
+      cr.devicesRead ? `listDevices=${cr.devicesRead.status}${cr.devicesRead.message ? ` (${cr.devicesRead.message})` : ''}` : null,
+      `requestedTags=${(cr.requestedTags || []).join(',') || 'none'}`
+    ].filter(Boolean).join(' '));
   }
   if (sanitized.cliProbe) {
     const up = sanitized.cliProbe.upProbe || {};
@@ -508,7 +543,7 @@ async function main() {
       `version=${sanitized.cliProbe.version || 'unknown'} service=${sanitized.cliProbe.serviceState || 'n/a'} backendState=${sanitized.cliProbe.backendState || 'unknown'} upExit=${up.exitCode === undefined ? 'n/a' : up.exitCode} stderr=${up.stderr || 'empty'} stdout=${up.stdout || 'empty'} log=${sanitized.cliProbe.daemonLogTail || 'empty'}`
     );
   }
-  console.log(JSON.stringify({ category: sanitized.category, detail: sanitized.detail, exchange: sanitized.exchange, keyProbe: sanitized.keyProbe, oidc: sanitized.oidc }, null, 2));
+  console.log(JSON.stringify({ category: sanitized.category, detail: sanitized.detail, exchange: sanitized.exchange, credential: sanitized.credential, firstError: sanitized.firstError, oidc: sanitized.oidc }, null, 2));
   return 0;
 }
 
@@ -520,4 +555,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { classify, CATEGORY, decodeClaims, semverBefore1901 };
+module.exports = { classify, CATEGORY, decodeClaims, semverBefore1901, firstErrorLine };

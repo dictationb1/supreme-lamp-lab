@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { STATUS, aggregate } = require('./lib/status');
-const { request } = require('./lib/http');
+const { request, summarize } = require('./lib/http');
 const annotate = require('./lib/annotate');
 const { redactDeep } = require('./lib/redact');
 
@@ -58,6 +58,29 @@ function subsystemOf(capability) {
       capability === 'web_desktop' || capability === 'rdp_auto_login') return 'tailnet_or_remote';
   if (capability === 'backend_readiness_server_local' || capability === 'dashboard_server_local') return 'server_local';
   return 'client_local';
+}
+
+/** A regression summary is a GATE: all tests must pass, none may be skipped. */
+function regressionGate(outputs, jobName) {
+  const raw = outputs && outputs.caps_regressions;
+  const base = { job: jobName, required: true, total: null, passed: null, failed: null, skipped: null, failures: [], reason: null };
+  if (!raw) return { ...base, status: 'MISSING', reason: `NO_RESULT: job ${jobName} produced no caps_regressions output` };
+  let s;
+  try { s = JSON.parse(raw); } catch (e) { return { ...base, status: 'UNPARSEABLE', reason: `RESULT_UNPARSEABLE: ${e.message}` }; }
+  const failures = Array.isArray(s.failures) ? s.failures.map(f => ({ name: String(f.name || '').slice(0, 200), detail: String(f.detail || '').slice(0, 400) })) : [];
+  const skipped = Number(s.skipped || 0);
+  const failed = Number(s.failed || 0);
+  const browserRequired = s.requireBrowser !== false;
+  const ok = failed === 0 && (!browserRequired || skipped === 0);
+  return {
+    ...base,
+    status: ok ? 'PASS' : 'FAIL',
+    total: Number(s.total || 0), passed: Number(s.passed || 0), failed, skipped,
+    browserRequired,
+    platform: s.platform || null,
+    failures,
+    reason: ok ? null : `REGRESSION_GATE_FAILED: ${failed} failed, ${skipped} skipped (browser e2e required=${browserRequired})`
+  };
 }
 
 function parseCaps(raw) {
@@ -116,8 +139,20 @@ function build(needs) {
   }
   const agg = aggregate(caps);
   const staticOk = jobs.static ? jobs.static.result === 'success' : false;
-  const verdict = agg.accepted && staticOk ? 'VERIFIED' : 'NOT_VERIFIED';
-  const firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : agg.firstCause;
+  // Regression suites are gates, not advisory: a green capability table must
+  // never hide a failing (or skipped) required regression.
+  const regressions = {
+    static: regressionGate(jobs.static && jobs.static.outputs, 'static'),
+    client: regressionGate(jobs.client && jobs.client.outputs, 'client')
+  };
+  const regressionFailures = Object.entries(regressions).filter(([, r]) => r.status !== 'PASS')
+    .map(([job, r]) => ({ job, status: r.status, reason: r.reason, failures: r.failures, failed: r.failed, skipped: r.skipped }));
+  const regressionsOk = regressionFailures.length === 0;
+  const verdict = agg.accepted && staticOk && regressionsOk ? 'VERIFIED' : 'NOT_VERIFIED';
+  let firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : agg.firstCause;
+  if (!firstCause && !regressionsOk) {
+    firstCause = { capability: 'regressions', status: STATUS.FAIL, reason: regressionFailures.map(r => `${r.job}: ${r.reason}`).join('; ') };
+  }
 
   // EVERY independently observed failure, so a single "first cause" field can
   // never hide a second one (e.g. a supervisor guard timeout AND a tailnet join
@@ -131,6 +166,13 @@ function build(needs) {
       category: causeCategory(c.reason),
       reason: c.reason
     }));
+  for (const r of regressionFailures) {
+    independentCauses.push({
+      capability: `regressions_${r.job}`, subsystem: 'regression', status: STATUS.FAIL,
+      category: r.status === 'MISSING' ? 'REGRESSION_GATE_MISSING' : 'REGRESSION_GATE_FAILED',
+      reason: `${r.reason}${r.failures && r.failures.length ? ` :: ${r.failures.map(f => f.name).join(' | ')}` : ''}`
+    });
+  }
   const bySubsystem = {};
   for (const c of independentCauses) {
     bySubsystem[c.subsystem] = bySubsystem[c.subsystem] || [];
@@ -146,6 +188,12 @@ function build(needs) {
     tailscaleStepOutcome: server.tailscale_outcome || null,
     tailnetCategory: server.tailnet_category || (server.ts_configured === 'false' ? 'MISSING_CONFIG' : null),
     tailnetDetail: server.tailnet_detail || null,
+    tailnetFirstError: server.tailnet_first_error || null,
+    tailnetFailedOperation: server.tailnet_failed_operation || null,
+    tailnetCliVersion: server.tailnet_cli_version || null,
+    tailnetServiceState: server.tailnet_service_state || null,
+    regressionGates: regressions,
+    regressionGateFailures: regressionFailures,
     oidcSubject: server.oidc_sub || null,
     audienceMatchesConfigured: server.audience_matches === undefined ? null : server.audience_matches,
     rdpConfigured: server.rdp_configured || null,
@@ -159,8 +207,42 @@ function build(needs) {
     }))
   };
   return {
-    verdict, aggregate: agg.status, firstCause, independentCauses, bySubsystem, diagnostics,
+    verdict, aggregate: agg.status, firstCause, independentCauses, bySubsystem, diagnostics, regressions,
     capabilities: caps, jobs: Object.fromEntries(Object.entries(jobs).map(([k, v]) => [k, v.result]))
+  };
+}
+
+const COMMENT_MARKER = '<!-- supreme-lamp-verification -->';
+
+/**
+ * Publish the same sanitized verdict that is written to the artifact as a PR
+ * comment. Job logs and artifacts live on the results blob host, which some
+ * driving tools cannot reach; a PR comment is readable through api.github.com,
+ * so the evidence stays inspectable. Failure to comment never changes a verdict.
+ */
+async function publishPrComment(markdown, report) {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GH_TOKEN;
+  const pr = process.env.PR_NUMBER;
+  if (!repo || !token || !pr) return { published: false, reason: 'NO_PR_CONTEXT' };
+  const headers = {
+    Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
+    'Content-Type': 'application/json', 'User-Agent': 'supreme-lamp-lab'
+  };
+  const body = `${COMMENT_MARKER}\n${markdown}\n\n<sub>verification-report-${report.runId}-${report.runAttempt}.json · lab ${report.labCommit || '?'} · app ${report.appCommit || '?'}</sub>`;
+  const list = await request(`https://api.github.com/repos/${repo}/issues/${pr}/comments?per_page=100`, { timeoutMs: 15000, headers });
+  let existing = null;
+  if (list.transport === 'ok' && Array.isArray(list.json)) {
+    existing = list.json.find(c => typeof c.body === 'string' && c.body.includes(COMMENT_MARKER));
+  }
+  const url = existing
+    ? `https://api.github.com/repos/${repo}/issues/comments/${existing.id}`
+    : `https://api.github.com/repos/${repo}/issues/${pr}/comments`;
+  const r = await request(url, { method: existing ? 'PATCH' : 'POST', timeoutMs: 15000, headers, body: JSON.stringify({ body }) });
+  return {
+    published: Boolean(r.ok), updated: Boolean(existing && r.ok), created: Boolean(!existing && r.ok),
+    id: (r.json && r.json.id) || (existing && existing.id) || null,
+    status: r.status, error: r.ok ? null : summarize(r)
   };
 }
 
@@ -192,19 +274,40 @@ async function main() {
     jobsDetail: await runners()
   });
   const out = process.env.REPORT_PATH || path.join(process.cwd(), 'verification-report.json');
-  fs.writeFileSync(out, JSON.stringify(report, null, 2));
   const rows = Object.entries(report.capabilities).map(([k, c]) => `| ${k} | ${c.status} | ${String(c.reason || '').replace(/\|/g, '\\|').slice(0, 220)} |`);
   const md = [`## Verification verdict: **${report.verdict}**`, '', `run ${report.runId} attempt ${report.runAttempt} · lab ${report.labCommit} · app ${report.appCommit}`, '',
     report.firstCause ? `First cause: \`${report.firstCause.capability}\` = ${report.firstCause.status} — ${report.firstCause.reason}` : '', '',
     report.independentCauses && report.independentCauses.length > 1
       ? `Independent causes (${report.independentCauses.length}): ${report.independentCauses.map(c => `\`${c.capability}\` ${c.status}${c.category ? ` [${c.category}]` : ''}`).join('; ')}`
       : '', '',
-    '| capability | status | reason |', '|---|---|---|', ...rows].join('\n');
+    '| capability | status | reason |', '|---|---|---|', ...rows, '',
+    '### Regression gates', '',
+    '| job | status | total | passed | failed | skipped |', '|---|---|---|---|---|---|',
+    ...Object.entries(report.regressions).map(([job, r]) => `| ${job} | ${r.status} | ${r.total} | ${r.passed} | ${r.failed} | ${r.skipped} |`),
+    '',
+    ...Object.values(report.regressions).flatMap(r => (r.failures || []).map(f => `- **${r.job}** regression failed: \`${f.name}\` — ${f.detail}`)),
+    report.diagnostics && report.diagnostics.tailnetFirstError
+      ? `\n**Tailscale join failure (actual first error):** \`${String(report.diagnostics.tailnetFirstError).replace(/\|/g, '\\|')}\` (operation: ${report.diagnostics.tailnetFailedOperation || 'n/a'}, CLI ${report.diagnostics.tailnetCliVersion || '?'}, service ${report.diagnostics.tailnetServiceState || '?'})`
+      : ''
+  ].join('\n');
+  report.publish = await publishPrComment(md, report);
+  fs.writeFileSync(out, JSON.stringify(report, null, 2));
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
   console.log(md);
   const msg = `verdict=${report.verdict} ${Object.entries(report.capabilities).map(([k, c]) => `${k}=${c.status}`).join(' ')}`;
+  if (report.publish && report.publish.published) annotate.notice('verification report published', `PR comment ${report.publish.updated ? 'updated' : 'created'} (id=${report.publish.id})`);
+  else if (report.publish && report.publish.reason !== 'NO_PR_CONTEXT') annotate.warning('verification report not published', String(report.publish.error || report.publish.reason));
   if (report.verdict === 'VERIFIED') annotate.notice('Verification verdict', msg);
   else annotate.error('Verification verdict', `${msg} :: first cause ${report.firstCause && report.firstCause.capability}: ${report.firstCause && report.firstCause.reason}`);
+  if (report.regressions) {
+    for (const [job, r] of Object.entries(report.regressions)) {
+      if (r.status === 'PASS') annotate.notice(`regression gate ${job}`, `${r.total} tests: ${r.passed} passed, ${r.failed} failed, ${r.skipped} skipped`);
+      else annotate.error(`regression gate ${job}`, `${r.reason} :: ${(r.failures || []).map(f => f.name).join(' | ') || 'no named failures'}`);
+    }
+  }
+  if (report.diagnostics && report.diagnostics.tailnetFirstError) {
+    annotate.error('tailscale join failure (actual first error)', `${report.diagnostics.tailnetFirstError} (operation=${report.diagnostics.tailnetFailedOperation || 'n/a'} cli=${report.diagnostics.tailnetCliVersion || '?'} service=${report.diagnostics.tailnetServiceState || '?'})`);
+  }
   if (report.verdict !== 'VERIFIED' && report.diagnostics && report.diagnostics.rootCauses) {
     for (const c of report.diagnostics.rootCauses) {
       annotate.error(`independent cause ${c.capability}`, `${c.subsystem} ${c.status}${c.category ? ` ${c.category}` : ''}: ${String(c.reason || '').slice(0, 700)}`);
@@ -220,4 +323,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { build, REQUIRED, classifyBackendFailure, causeCategory, subsystemOf };
+module.exports = { build, REQUIRED, classifyBackendFailure, causeCategory, subsystemOf, regressionGate };

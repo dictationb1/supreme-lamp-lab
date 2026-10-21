@@ -54,6 +54,7 @@ jobs:
       app_sha: ${{ steps.app.outputs.app_sha }}
       node_version: ${{ steps.nodepin.outputs.node_version }}
       node_win_sha256: ${{ steps.nodepin.outputs.node_win_sha256 }}
+      caps_regressions: ${{ steps.regress.outputs.caps_regressions }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,6 +112,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Regression suite (Linux, browser e2e required)
+        id: regress
         env:
           REQUIRE_BROWSER_TESTS: '1'
           ARTIFACT_DIR: ${{ runner.temp }}/artifacts
@@ -218,6 +220,10 @@ jobs:
       audience_matches: ${{ steps.oidc.outputs.audience_matches }}
       tailnet_category: ${{ steps.tailnet.outputs.tailnet_category }}
       tailnet_detail: ${{ steps.tailnet.outputs.tailnet_detail }}
+      tailnet_first_error: ${{ steps.tailnet.outputs.tailnet_first_error }}
+      tailnet_failed_operation: ${{ steps.tailnet.outputs.tailnet_failed_operation }}
+      tailnet_cli_version: ${{ steps.tailnet.outputs.tailnet_cli_version }}
+      tailnet_service_state: ${{ steps.tailnet.outputs.tailnet_service_state }}
       backend_identity_state: ${{ steps.supervise.outputs.backend_identity_state }}
       supervisor_degraded_guards: ${{ steps.supervise.outputs.supervisor_degraded_guards }}
       rdp_configured: ${{ steps.rdp.outputs.rdp_configured }}
@@ -372,6 +378,7 @@ jobs:
     env:
       APP_SHA: ${{ needs.static.outputs.app_sha }}
     outputs:
+      caps_regressions: ${{ steps.regress.outputs.caps_regressions }}
       caps_client_local: ${{ steps.browser.outputs.caps_client_local }}
       caps_tailnet: ${{ steps.peer.outputs.caps_tailnet }}
       caps_remote: ${{ steps.remote.outputs.caps_remote }}
@@ -405,8 +412,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
 
       - name: Regression suite (Windows, real processes)
+        id: regress
         env:
           REQUIRE_BROWSER_TESTS: '1'
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           node scripts/run-regressions.js
           exit $LASTEXITCODE
@@ -414,6 +423,8 @@ jobs:
       - name: Client-local capabilities (synthetic browser, native screenshot)
         id: browser
         if: always()
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           node scripts/browser-check.js
           exit $LASTEXITCODE
@@ -464,6 +475,10 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -479,6 +494,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_TOKEN: ${{ github.token }}
           REPORT_PATH: ${{ runner.temp }}/verification-report.json
         run: node scripts/verification-report.js
