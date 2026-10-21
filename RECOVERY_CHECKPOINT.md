@@ -124,6 +124,20 @@ both `scripts/f60-stage-and-start.ps1` and `scripts/f60-bootstrap.ps1`.
   fresh evidence comes from new pushes; the post-merge `workflow_dispatch` must be started by a maintainer
   (`node scripts/dispatch-verification.js --ref main`), while the `push: main` trigger runs automatically.
 
+## Reference run: 39547233082 attempt 1 (head 31b35e0, pull_request) - complete evidence
+
+| Capability | Status | Evidence |
+|---|---|---|
+| browser_synthetic | PASS | client `WIN-NFU1JG4VESE\User` session 1: DOM interaction asserted, 1280x720, video 40786 B |
+| native_screenshot | PASS | 1024x768 capture of interactive session 1 |
+| backend_readiness_server_local | PASS | pid 6756, port 7331, phase=ready, `/api/version` sha=978a8375ee77b392ce11694ccee7722fd6ca4f71 |
+| dashboard_server_local | PASS | v2 bundle, `meta[name=ghrdp-build]` + `#ghrdpBuild[data-build]` = 978a8375…, app-topbar visible, 1366x820 |
+| tailnet_connectivity | BLOCKED | `EXTERNAL_TAILSCALE_JOIN_FAILED`; OIDC sub `repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request` |
+| backend_readiness_remote, dashboard_client, web_desktop, rdp_auto_login | BLOCKED | `DEPENDS_ON_TAILNET` (+ `RDP_LAB_PASSWORD` not set for rdp_auto_login / web_desktop) |
+
+Verdict `NOT_VERIFIED` (first cause tailnet_connectivity, external). Windows regression suite passed on the
+real client in the same attempt. PR #14 is therefore NOT merged; #10-#13 left open.
+
 ## Remaining external actions (cannot be done from CI)
 
 * Tailscale trust credential subject (above) — owner: tailnet admin.
