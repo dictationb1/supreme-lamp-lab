@@ -3,7 +3,10 @@
 name: _actionlint-report
 on:
   push:
-    paths: ['.github/workflows/_actionlint-report.yml']
+    paths:
+      - '.github/workflows/_actionlint-report.yml'
+      - '.github/workflows/live-run.yml'
+      - '.github/workflows/origin-probe.yml'
 permissions:
   contents: read
 jobs:
