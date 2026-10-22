@@ -22,6 +22,8 @@ const zlib = require('zlib');
 module.exports = async function registerOriginDiscoveryTests(H) {
   const { test } = H;
   const discovery = require('../lib/origin-discovery');
+  const signalLib = require('../lib/live-signal');
+  const signalLibName = () => signalLib.SIGNAL_NAME;
   const identity = require('../lib/server-identity');
   const rd = require('../lib/run-descriptor');
   const { setAllowedOriginRepos } = rd;
@@ -86,7 +88,21 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       const srv = http.createServer((req, res) => {
         const u = new URL(req.url, 'http://127.0.0.1');
         const p = u.pathname;
+        let body = '';
+        req.on('data', (d) => { body += d; });
+        req.on('end', () => {
         const json = (o, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+        if (req.method === 'POST' && /\/check-runs$/.test(p)) {
+          state.checkRunCreated = JSON.parse(body || '{}');
+          return json({ id: 4242 }, 201);
+        }
+        if (req.method === 'PATCH' && /\/check-runs\/4242$/.test(p)) {
+          state.checkRunPatched = JSON.parse(body || '{}');
+          if (state.checkRunPatched.output && state.checkRunPatched.output.summary) {
+            state.checkRuns = [{ id: 4242, name: signalLibName(), status: state.checkRunPatched.status, started_at: new Date().toISOString(), output: state.checkRunPatched.output }];
+          }
+          return json({ id: 4242 });
+        }
         if (p === '/api/config') return json(state.config || {});
         if (p === '/api/version') return json(state.version || {});
         const mList = p.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/runs$/);
@@ -151,6 +167,7 @@ module.exports = async function registerOriginDiscoveryTests(H) {
           return res.end(b);
         }
         res.writeHead(404); res.end('not found');
+        });
       });
       srv.listen(0, '127.0.0.1', () => {
         const port = srv.address().port;
@@ -436,7 +453,6 @@ module.exports = async function registerOriginDiscoveryTests(H) {
     });
 
     // ------------------------------------------------------ live check-run signal
-    const signalLib = require('../lib/live-signal');
     const { publicKey: sigPub, privateKey: sigPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
     const PUB_PEM = sigPub.export({ type: 'spki', format: 'pem' });
     const PRIV_PEM = sigPriv.export({ type: 'pkcs8', format: 'pem' });
@@ -496,6 +512,43 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       assert.strictEqual(found.evidence.transport, 'run-archive');
       assert.strictEqual(found.evidence.signalFallback, 'SIGNAL_STALE_ATTEMPT');
       assert.ok(!JSON.stringify(found.evidence).includes(KEY));
+    });
+
+    await test('app publisher (real file) publishes an encrypted signal that the lab reader decrypts', async () => {
+      state.checkRunCreated = null; state.checkRunPatched = null;
+      const { spawn } = require('child_process');
+      const publisher = path.join(__dirname, '..', '..', 'patches', 'app-live-signal-publisher.js');
+      const key = 'pub-' + crypto.randomBytes(8).toString('hex');
+      // ASYNC spawn: the fake GitHub API lives in THIS process, so a sync child
+      // would deadlock the event loop that has to answer its request.
+      const out = await new Promise((resolve, reject) => {
+        const ch = spawn(process.execPath, [publisher], {
+          env: {
+            ...process.env,
+            GH_API_URL: apiUrl, GH_TOKEN: 'test', GH_REPO: 'dictationb1/supreme-lamp',
+            GH_RUN_ID: '9001', GH_RUN_ATTEMPT: '3', GH_SHA: SHA,
+            LAB_SIGNAL_PUBKEY: PUB_PEM, MC_SIGNAL_KEY: key,
+            MC_SIGNAL_ENDPOINT: 'http://100.101.102.103:7331/', MC_SIGNAL_ONCE: '1'
+          }
+        });
+        let s = '';
+        ch.stdout.on('data', d => { s += d; });
+        ch.stderr.on('data', d => { s += d; });
+        const timer = setTimeout(() => { ch.kill('SIGKILL'); reject(new Error('publisher timeout: ' + s.slice(0, 200))); }, 30000);
+        ch.on('close', code => { clearTimeout(timer); resolve(s + (code ? ` [exit ${code}]` : '')); });
+      });
+      assert.ok(/published/.test(out), out.slice(0, 200));
+      const created = state.checkRunCreated;
+      assert.ok(created, 'the publisher must create the check run');
+      assert.strictEqual(created.name, signalLib.SIGNAL_NAME);
+      assert.strictEqual(created.head_sha, SHA);
+      assert.strictEqual(created.status, 'in_progress');
+      const text = created.output.summary;
+      assert.ok(!text.includes(key), 'the public signal must never carry the plaintext key');
+      const resolved = signalLib.resolveSignal(text, { repo: 'dictationb1/supreme-lamp', runId: 9001, attempt: 3, appSha: SHA }, PRIV_PEM);
+      assert.strictEqual(resolved.ok, true, resolved.detail || '');
+      assert.strictEqual(resolved.key, key);
+      assert.strictEqual(resolved.host, '100.101.102.103');
     });
 
     // ------------------------------------------------------------- workflows

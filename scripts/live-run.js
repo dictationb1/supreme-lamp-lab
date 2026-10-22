@@ -855,6 +855,43 @@ async function cmdDiscover(a) {
   return process.exit(out.ok ? EXIT.OK : EXIT.BLOCKED);
 }
 
+function cmdSignalKeygen() {
+  const crypto = require('crypto');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 3072 });
+  const pub = publicKey.export({ type: 'spki', format: 'pem' });
+  const priv = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const fp = require('./lib/live-signal').keyFingerprint(pub);
+  console.log('# 1) set this as the APPLICATION repository VARIABLE LAB_SIGNAL_PUBKEY:');
+  console.log(pub.trim());
+  console.log(`# key fingerprint (goes into every envelope): ${fp}`);
+  console.log('# 2) set this as the LAB repository SECRET LAB_SIGNAL_PRIVATE_KEY (never commit it):');
+  console.log(priv.trim());
+  return process.exit(EXIT.OK);
+}
+
+async function cmdSignal(a) {
+  const privateKeyPem = process.env.LAB_SIGNAL_PRIVATE_KEY || '';
+  const repo = a.originRepo || 'dictationb1/supreme-lamp';
+  let run = null;
+  try {
+    if (a.originRunId) {
+      const found = await discovery.discoverOrigin({ originRepo: repo, explicitRunId: a.originRunId });
+      run = found;
+      const readable = found.ok
+        ? { ok: true, transport: found.evidence.transport, endpoint: found.descriptor.authorizedEndpoint, checkRun: found.evidence.checkRun, attempt: found.descriptor.originAttempt, fingerprint16: String(found.descriptor.dashTokenFingerprint || '').slice(0, 16) }
+        : { ok: false, code: found.code, detail: found.detail, rejected: (found.rejected || []).slice(0, 3) };
+      console.log(JSON.stringify(readable, null, 2));
+      return process.exit(found.ok ? EXIT.OK : EXIT.BLOCKED);
+    }
+    const res = await discovery.probeOrigin({ originRepo: repo });
+    console.log(JSON.stringify({ ok: res.ok, code: res.code, detail: res.detail, listed: (res.probe || {}).listed }, null, 2));
+    return process.exit(res.ok ? EXIT.OK : EXIT.BLOCKED);
+  } catch (e) {
+    console.log(JSON.stringify({ ok: false, code: 'SIGNAL_COMMAND_ERROR', detail: String(e.message || e).slice(0, 200) }));
+    return process.exit(EXIT.ERROR);
+  } finally { void run; void privateKeyPem; }
+}
+
 async function cmdProbe(a) {
   const res = await discovery.probeOrigin({
     originRepo: a.originRepo || 'dictationb1/supreme-lamp',
@@ -1244,6 +1281,8 @@ async function main() {
     case 'live': return cmdLive(a);
     case 'discover': return cmdDiscover(a);
     case 'probe': return cmdProbe(a);
+    case 'signal-keygen': return cmdSignalKeygen();
+    case 'signal': return cmdSignal(a);
     case 'ack': return cmdAck(a);
     case 'poll-records': return cmdPoll(a);
     case 'ack-state': return cmdAckState(a);

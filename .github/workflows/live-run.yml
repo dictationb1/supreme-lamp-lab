@@ -154,6 +154,7 @@ jobs:
         env:
           MODE: ${{ steps.mode.outputs.mode }}
           GH_TOKEN: ${{ github.token }}
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           if [ "$MODE" = "origin-probe" ]; then
@@ -180,6 +181,7 @@ jobs:
         if: steps.mode.outputs.mode == 'live-origin'
         env:
           GH_TOKEN: ${{ github.token }}
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
           ORIGIN_REPO: ${{ inputs.origin_repo || 'dictationb1/supreme-lamp' }}
           ORIGIN_RUN: ${{ inputs.origin_run || '0' }}
           ORIGIN_ATTEMPT: ${{ inputs.origin_attempt || '0' }}

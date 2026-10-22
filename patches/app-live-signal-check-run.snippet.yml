@@ -1,0 +1,43 @@
+# APP-SIDE PATCH — the ONE change that makes the integration automatic.
+# Apply to `dictationb1/supreme-lamp` (app). Nothing here is secret: the public
+# key is a repository VARIABLE, and the dashboard key is RSA-encrypted to it.
+#
+# 1) Add `patches/app-live-signal-publisher.js` as `scripts/live-signal-publisher.js`.
+# 2) Add `checks: write` to the workflow's top-level `permissions:` block
+#    (main.yml currently declares contents/actions only).
+# 3) Add the repository VARIABLE `LAB_SIGNAL_PUBKEY` = the lab public key PEM
+#    (printed by `node scripts/live-run.js signal-keygen` in the lab repo).
+# 4) Add this step to the `rdp` job, AFTER the step that starts the server and
+#    BEFORE the long keep-alive step. It backgrounds itself, so the job keeps
+#    running; the runner kills the child when the job ends.
+#
+# WHY A CHECK RUN: measured 2026-10-22 — the origin run's Actions log is not
+# readable while the run is alive (run-level 404; per-job 302 -> blob 404 for
+# queued/running jobs, six attempts from inside a runner). A public check-run
+# output IS readable live (12 s in the lab harness), needs no PAT, and is
+# visible only while this run is alive.
+
+permissions:
+  contents: read
+  checks: write        # <-- the one permission to ADD to the workflow block
+jobs:
+  rdp:
+    # ...existing job definition unchanged...
+    steps:
+      # ...existing steps...
+      - name: Publish live Mission Control signal (non-secret, encrypted key)
+        if: ${{ always() && vars.LAB_SIGNAL_PUBKEY != '' }}
+        shell: pwsh
+        env:
+          LAB_SIGNAL_PUBKEY: ${{ vars.LAB_SIGNAL_PUBKEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GH_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Background: waits (bounded) for the server to write its key, then
+          # republishes every 20 s while the job lives. Never fails the job.
+          Start-Process -FilePath 'node' -ArgumentList 'scripts/live-signal-publisher.js' -NoNewWindow
+      # ...existing keep-alive step continues...
