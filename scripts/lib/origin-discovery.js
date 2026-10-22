@@ -278,7 +278,7 @@ async function downloadJobLogText({ originRepo, jobId, timeoutMs = 60000 } = {})
   if (r.status === 404 || r.status === 403 || r.status === 410) return fail('JOB_LOG_UNAVAILABLE', `HTTP ${r.status}`);
   if (r.status >= 300 && r.status < 400 && r.headers && r.headers.location) {
     const blob = await fetchSignedBlob(r.headers.location, { timeoutMs });
-    if (!blob.ok) return blob;
+    if (!blob.ok) return { ...blob, detail: `${blob.detail} (redirect status ${r.status}, host ${(() => { try { return new URL(r.headers.location).host; } catch (e) { return 'unparseable'; } })()})` };
     return { ok: true, text: (blob.bytes || Buffer.alloc(0)).toString('utf8') };
   }
   return fail('JOB_LOG_HTTP_ERROR', `HTTP ${r.status}`);
@@ -576,7 +576,7 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     if (!logs.ok) { row.decision = logs.code; row.detail = logs.detail; out.runs.push(row); continue; }
     const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text);
     row.logTransport = logs.transport;
-    row.logJobs = (logs.jobs || []).map(j => ({ job: j.job, status: j.status, conclusion: j.conclusion, bytes: j.bytes, code: j.code }));
+    row.logJobs = (logs.jobs || []).map(j => ({ job: j.job, status: j.status, conclusion: j.conclusion, bytes: j.bytes, code: j.code, detail: j.detail }));
     // A completed run's log is still the best available proof that the parser
     // works against real application bytes; it is never attachable, and the
     // decision says exactly that instead of implying a live session.
