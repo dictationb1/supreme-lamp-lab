@@ -187,7 +187,6 @@ jobs:
           ORIGIN_ATTEMPT: ${{ inputs.origin_attempt || '0' }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
-          # shellcheck disable=SC2016  # the node -e block is intentionally single-quoted JS
           set -euo pipefail
           node scripts/live-run.js discover \
             --origin-repo "$ORIGIN_REPO" \
@@ -202,7 +201,7 @@ jobs:
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then echo "::error title=discover failed::exit $rc"; exit "$rc"; fi
           if [ ! -f discover.json ]; then echo "::error title=discover wrote no evidence::discover.json missing"; exit 5; fi
           jq -c '{found:(if .ok then "yes" else "no" end), reason, detail, descriptorId, origin, queue}' discover.json | tee -a "$GITHUB_STEP_SUMMARY"
-          node -e '
+          cat > "$RUNNER_TEMP/pick.js" <<'JS'
             const fs=require("fs");
             const d=JSON.parse(fs.readFileSync("discover.json","utf8"));
             const lines=[];
@@ -222,7 +221,8 @@ jobs:
               w("descriptor_json", JSON.stringify(d.descriptor));
             }
             fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n")+"\n");
-          '
+          JS
+          node "$RUNNER_TEMP/pick.js"
 
   claim:
     name: claim + verify origin
