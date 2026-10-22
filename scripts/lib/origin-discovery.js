@@ -152,67 +152,59 @@ function logShape(bytes) {
   }
 }
 
-function parseOriginLog(bytes, { now = Date.now() } = {}) {
-  let entries;
-  try {
-    entries = extractZip(bytes, { maxEntries: MAX_LOG_ENTRIES, maxEntryBytes: MAX_LOG_ENTRY_BYTES });
-  } catch (e) {
-    return fail('LOG_ARCHIVE_INVALID', e.message);
-  }
-  const readinessLines = [];
-  const bannerLines = [];
-  let matchedKey = null;
-  let matchedUrl = null;
-  let scannedBytes = 0;
-  for (const e of entries) {
-    const name = String(e.name || '');
-    if (!/\.txt$/i.test(name) && !/\.log$/i.test(name)) continue;
-    const text = e.data.toString('utf8');
-    scannedBytes += text.length;
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line) continue;
-      if (/Dashboard API responded with valid readiness JSON/i.test(line) ||
-          /-\s*Dashboard API Ready:\s*True/i.test(line)) {
-        if (readinessLines.length < 10) readinessLines.push(line.slice(0, 200));
-      }
-      // Keepalive banner:  `ps (7331) .........: http://100.x.y.z:7331/?key=...`
-      // Serve banner:     `Dashboard (serve) ..: https://host.ts.net/?key=...`
-      if (/ps \(7331\)|Dashboard \(serve\)/i.test(line)) {
-        const m = line.match(/(https?:\/\/[^\s)]+)/);
-        if (m) {
-          const url = m[1].replace(/[.,;]+$/, '');
-          let u = null;
-          try { u = new URL(url); } catch (e) { u = null; }
-          if (u && u.searchParams.get('key')) {
-            // The LAST occurrence wins: a restarted server re-prints the banner,
-            // and the newest line is the one that belongs to the live instance.
-            matchedKey = u.searchParams.get('key');
-            matchedUrl = `${u.protocol}//${u.host}${u.pathname}`.replace(/\?$/, '');
-            bannerLines.push(line.replace(/key=[^&\s]+/g, 'key=***').slice(0, 200));
-          }
-        }
-      }
+/**
+ * Scan arbitrary log text for the application's readiness marker and its
+ * dashboard banner. Shared by the zip reader (run archive) and the plain-text
+ * per-job log reader, so the two transports can never disagree about what a
+ * banner is.
+ */
+function scanLogText(text, acc) {
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/Dashboard API responded with valid readiness JSON/i.test(line) ||
+        /-\s*Dashboard API Ready:\s*True/i.test(line)) {
+      if (acc.readinessLines.length < 10) acc.readinessLines.push(line.slice(0, 200));
+    }
+    // Keepalive banner:  `ps (7331) .........: http://100.x.y.z:7331/?key=...`
+    // Serve banner:     `Dashboard (serve) ..: https://host.ts.net/?key=...`
+    if (/ps \(7331\)|Dashboard \(serve\)/i.test(line)) {
+      const m = line.match(/(https?:\/\/[^\s)]+)/);
+      if (!m) continue;
+      const url = m[1].replace(/[.,;]+$/, '');
+      let u = null;
+      try { u = new URL(url); } catch (e) { u = null; }
+      if (!u || !u.searchParams.get('key')) continue;
+      // The LAST occurrence wins: a restarted server re-prints the banner, and
+      // the newest line is the one that belongs to the live instance.
+      acc.key = u.searchParams.get('key');
+      acc.url = `${u.protocol}//${u.host}${u.pathname}`.replace(/\?$/, '');
+      acc.bannerLines.push(line.replace(/key=[^&\s]+/g, 'key=***').slice(0, 200));
+      if (acc.bannerLines.length > 20) acc.bannerLines.shift();
     }
   }
-  const endpoint = matchedUrl ? new URL(matchedUrl) : null;
+  return acc;
+}
+
+function finishParsed(acc, scannedBytes) {
+  const endpoint = acc.url ? new URL(acc.url) : null;
   const host = endpoint ? endpoint.hostname.replace(/^\[|\]$/g, '') : '';
   const isCgnat = CGNAT_V4.test(host);
   const isFqdn = /\.ts\.net\.?$/i.test(host);
   const evidence = {
-    entries: entries.length,
+    entries: acc.entries,
     scannedBytes,
-    readinessLines,
-    ready: readinessLines.length > 0,
-    bannerLines: bannerLines.slice(-5),
-    endpoint: matchedUrl,
+    readinessLines: acc.readinessLines,
+    ready: acc.readinessLines.length > 0,
+    bannerLines: acc.bannerLines.slice(-5),
+    endpoint: acc.url,
     endpointHost: host || null,
     endpointKind: isCgnat ? 'tailnet-ipv4' : (isFqdn ? 'tailnet-fqdn' : (host ? 'other' : 'none')),
-    keyPresent: Boolean(matchedKey),
-    keyFingerprint: matchedKey ? crypto.createHash('sha256').update(matchedKey, 'utf8').digest('hex') : null,
-    keyMaskedLength: matchedKey ? String(matchedKey).length : 0
+    keyPresent: Boolean(acc.key),
+    keyFingerprint: acc.key ? crypto.createHash('sha256').update(acc.key, 'utf8').digest('hex') : null,
+    keyMaskedLength: acc.key ? String(acc.key).length : 0
   };
-  if (!matchedKey || !matchedUrl) {
+  if (!acc.key || !acc.url) {
     return { ...fail('ORIGIN_LOG_NO_ENDPOINT', 'the origin log carries no dashboard URL with a current-run key yet (the server has not reached its readiness banner in this attempt)'), evidence };
   }
   if (!isCgnat) {
@@ -224,8 +216,115 @@ function parseOriginLog(bytes, { now = Date.now() } = {}) {
   return {
     ok: true,
     evidence,
-    secret: { dashboardToken: matchedKey },
+    secret: { dashboardToken: acc.key },
     endpoint: { url: `${endpoint.protocol}//${endpoint.host}`, host, port: Number(endpoint.port || 80) }
+  };
+}
+
+/** Parse a PLAIN-TEXT job log (the shape `/actions/jobs/{id}/logs` returns). */
+function parseOriginLogText(text, { now = Date.now() } = {}) {
+  const acc = scanLogText(text, { readinessLines: [], bannerLines: [], key: null, url: null, entries: 1 });
+  return finishParsed(acc, String(text).length);
+}
+
+/**
+ * Parse a run-archive ZIP. Kept because the run-level archive is the only
+ * transport for a FINISHED run (the per-job endpoint also works there, but a
+ * completed job is often truncated to the archive).
+ */
+function parseOriginLog(bytes, { now = Date.now() } = {}) {
+  let entries;
+  try {
+    entries = extractZip(bytes, { maxEntries: MAX_LOG_ENTRIES, maxEntryBytes: MAX_LOG_ENTRY_BYTES });
+  } catch (e) {
+    return fail('LOG_ARCHIVE_INVALID', e.message);
+  }
+  const acc = { readinessLines: [], bannerLines: [], key: null, url: null, entries: entries.length };
+  let scannedBytes = 0;
+  for (const e of entries) {
+    const name = String(e.name || '');
+    if (!/\.txt$/i.test(name) && !/\.log$/i.test(name)) continue;
+    const text = e.data.toString('utf8');
+    scannedBytes += text.length;
+    scanLogText(text, acc);
+  }
+  return finishParsed(acc, scannedBytes);
+}
+
+/**
+ * The run's jobs. Per-job logs are the ONLY transport that works while the run
+ * is still going: measured on 2026-10-22, `GET /actions/runs/{id}/logs` answers
+ * 404 for an in-progress run, while `GET /actions/jobs/{jobId}/logs` answers 302
+ * with the live text. Discovery therefore reads the job logs of the attempt it
+ * is attaching to, and only falls back to the archive for a finished run.
+ */
+async function listRunJobs({ originRepo, runId, timeoutMs = 20000 } = {}) {
+  const t = token();
+  const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'supreme-lamp-lab-origin-discovery' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const r = await request(`${apiBase()}/repos/${originRepo}/actions/runs/${runId}/jobs?per_page=100&filter=all`, { timeoutMs, headers });
+  if (r.transport !== 'ok') return fail('JOBS_TRANSPORT_ERROR', r.errorChain || summarize(r));
+  if (r.status !== 200 || !r.json || !Array.isArray(r.json.jobs)) return fail('JOBS_HTTP_ERROR', `HTTP ${r.status}`);
+  return { ok: true, jobs: r.json.jobs };
+}
+
+async function downloadJobLogText({ originRepo, jobId, timeoutMs = 60000 } = {}) {
+  const t = token();
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'supreme-lamp-lab-origin-discovery' };
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const r = await request(`${apiBase()}/repos/${originRepo}/actions/jobs/${jobId}/logs`, { timeoutMs, headers });
+  if (r.transport !== 'ok') return fail('JOB_LOG_TRANSPORT_ERROR', r.errorChain || summarize(r));
+  if (r.status === 200) return { ok: true, text: r.text || '' };
+  if (r.status === 404 || r.status === 403 || r.status === 410) return fail('JOB_LOG_UNAVAILABLE', `HTTP ${r.status}`);
+  if (r.status >= 300 && r.status < 400 && r.headers && r.headers.location) {
+    const blob = await fetchSignedBlob(r.headers.location, { timeoutMs });
+    if (!blob.ok) return blob;
+    return { ok: true, text: (blob.bytes || Buffer.alloc(0)).toString('utf8') };
+  }
+  return fail('JOB_LOG_HTTP_ERROR', `HTTP ${r.status}`);
+}
+
+/**
+ * Fetch everything readable about one attempt: per-job logs first (works while
+ * running), the archive as a fallback. Returns plain text plus a transport note
+ * so the report can say WHICH evidence it read.
+ */
+async function downloadOriginLogs({ originRepo, runId, jobNameRe = /\brdp\b/i, maxJobs = 6 } = {}) {
+  const jobs = await listRunJobs({ originRepo, runId });
+  if (!jobs.ok) {
+    // No job list (old run, permission shape change): fall through to the
+    // archive rather than declaring the origin unreadable.
+    const archive = await downloadRunLog({ originRepo, runId });
+    if (!archive.ok) return fail(archive.code, archive.detail, { jobs: [{ code: jobs.code }] });
+    return { ok: true, text: '', transport: 'run-archive', jobs: [], archiveParsed: parseOriginLog(archive.bytes) };
+  }
+  const wanted = [];
+  for (const j of jobs.jobs) {
+    if (jobNameRe.test(String(j.name || ''))) wanted.push(j);
+  }
+  // If the workflow has no job matching the name, read every job of the run and
+  // let the banner decide (a renamed job must not silently break discovery).
+  const chosen = (wanted.length ? wanted : jobs.jobs).slice(0, maxJobs);
+  const texts = [];
+  const notes = [];
+  for (const j of chosen) {
+    const r = await downloadJobLogText({ originRepo, jobId: j.id });
+    if (!r.ok) { notes.push({ job: j.name, id: j.id, code: r.code }); continue; }
+    notes.push({ job: j.name, id: j.id, bytes: r.text.length, status: j.status, conclusion: j.conclusion });
+    texts.push(r.text);
+  }
+  if (texts.length) {
+    return { ok: true, text: texts.join('\n'), transport: 'per-job', jobs: notes };
+  }
+  const archive = await downloadRunLog({ originRepo, runId });
+  if (!archive.ok) return fail(archive.code, archive.detail, { jobs: notes });
+  const parsed = parseOriginLog(archive.bytes);
+  return {
+    ok: true,
+    text: '',
+    transport: 'run-archive',
+    jobs: notes,
+    archiveParsed: parsed
   };
 }
 
@@ -370,12 +469,12 @@ async function discoverOrigin({
       rejected.push({ runId: id, attempt, code: 'ORIGIN_RUN_MISMATCH', detail: problems.join('; ') });
       continue;
     }
-    const log = await downloadRunLog({ originRepo, runId: id });
-    if (!log.ok) {
-      rejected.push({ runId: id, attempt, code: log.code, detail: log.detail });
+    const logs = await downloadOriginLogs({ originRepo, runId: id });
+    if (!logs.ok) {
+      rejected.push({ runId: id, attempt, code: logs.code, detail: logs.detail });
       continue;
     }
-    const parsed = parseOriginLog(log.bytes, { now });
+    const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text, { now });
     if (!parsed.ok) {
       rejected.push({ runId: id, attempt, code: parsed.code, detail: parsed.detail, evidence: parsed.evidence });
       continue;
@@ -418,6 +517,8 @@ async function discoverOrigin({
       },
       evidence: {
         ...parsed.evidence,
+        logTransport: logs.transport,
+        logJobs: logs.jobs,
         // A public origin log is a public credential. Record the fact, not the
         // value, so the report can name the product defect precisely.
         originLogPubliclyReadable: true,
@@ -463,9 +564,11 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
       event: run.event, headSha: String(run.head_sha || '').slice(0, 12), startedAt: run.run_started_at || run.created_at
     };
     if (!allowCompleted && String(run.status) !== 'in_progress') { row.decision = 'SKIPPED_NOT_IN_PROGRESS'; out.runs.push(row); continue; }
-    const log = await downloadRunLog({ originRepo, runId: run.id });
-    if (!log.ok) { row.decision = log.code; row.detail = log.detail; out.runs.push(row); continue; }
-    const parsed = parseOriginLog(log.bytes);
+    const logs = await downloadOriginLogs({ originRepo, runId: run.id });
+    if (!logs.ok) { row.decision = logs.code; row.detail = logs.detail; out.runs.push(row); continue; }
+    const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text);
+    row.logTransport = logs.transport;
+    row.logJobs = (logs.jobs || []).map(j => ({ job: j.job, status: j.status, conclusion: j.conclusion, bytes: j.bytes, code: j.code }));
     // A completed run's log is still the best available proof that the parser
     // works against real application bytes; it is never attachable, and the
     // decision says exactly that instead of implying a live session.
@@ -474,7 +577,9 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
       : parsed.code;
     row.attachableNow = parsed.ok && String(run.status) === 'in_progress';
     row.detail = parsed.ok ? null : String(parsed.detail).slice(0, 200);
-    if (!parsed.ok) row.shape = logShape(log.bytes);
+    row.sample = logs.transport === 'run-archive'
+      ? logShape(Buffer.from(''))
+      : String(logs.text || '').slice(0, 400).replace(/key=[^&\s"']+/g, 'key=***').replace(/\u0000/g, '<NUL>');
     row.log = parsed.evidence ? {
       entries: parsed.evidence.entries,
       ready: parsed.evidence.ready,
@@ -500,6 +605,11 @@ module.exports = {
   discoverOrigin,
   probeOrigin,
   parseOriginLog,
+  parseOriginLogText,
+  scanLogText,
+  listRunJobs,
+  downloadJobLogText,
+  downloadOriginLogs,
   logShape,
   downloadRunLog,
   fetchSignedBlob,

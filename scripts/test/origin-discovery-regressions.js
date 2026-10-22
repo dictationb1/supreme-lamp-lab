@@ -82,7 +82,7 @@ module.exports = async function registerOriginDiscoveryTests(H) {
   // ------------------------------------------------------- fake GitHub + app API
   function startServers() {
     return new Promise((resolve) => {
-      const state = { runs: {}, blobs: {}, config: null, version: null, logStatus: 302 };
+      const state = { runs: {}, blobs: {}, jobLogs: {}, jobMode: true, config: null, version: null, logStatus: 302 };
       const srv = http.createServer((req, res) => {
         const u = new URL(req.url, 'http://127.0.0.1');
         const p = u.pathname;
@@ -99,6 +99,33 @@ module.exports = async function registerOriginDiscoveryTests(H) {
           const run = state.runs[mRun[2]];
           if (!run) return json({ message: 'Not Found' }, 404);
           return json(run);
+        }
+        const mJobs = p.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/jobs$/);
+        if (mJobs) {
+          if (!state.jobMode) return json({ message: 'Not Found' }, 404);
+          const id = mJobs[2];
+          const jobs = (state.jobLogs[id] ? Object.keys(state.jobLogs[id]) : []).map((name, i) => ({
+            id: Number(id) * 10 + i, name, status: 'in_progress', conclusion: null
+          }));
+          return json({ total_count: jobs.length, jobs });
+        }
+        const mJobLogs = p.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/jobs\/(\d+)\/logs$/);
+        if (mJobLogs) {
+          const jobId = Number(mJobLogs[2]);
+          const runId = String(Math.floor(jobId / 10));
+          const name = Object.keys(state.jobLogs[runId] || {})[jobId % 10];
+          if (!name) { res.writeHead(404); return res.end('no job log'); }
+          res.writeHead(302, { location: `http://127.0.0.1:${srv.address().port}/jobblob/${jobId}` });
+          return res.end();
+        }
+        const mJobBlob = p.match(/^\/jobblob\/(\d+)$/);
+        if (mJobBlob) {
+          const jobId = Number(mJobBlob[1]);
+          const runId = String(Math.floor(jobId / 10));
+          const name = Object.keys(state.jobLogs[runId] || {})[jobId % 10];
+          if (!name) { res.writeHead(404); return res.end(); }
+          res.writeHead(200, { 'content-type': 'text/plain' });
+          return res.end(state.jobLogs[runId][name]);
         }
         const mLogs = p.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/logs$/);
         if (mLogs) {
@@ -227,6 +254,8 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       for (const r of [newRun, oldRun, doneRun]) state.runs[r.id] = r;
       state.blobs[2001] = logZip({ key: 'k-old-' + crypto.randomBytes(4).toString('hex') });
       state.blobs[2002] = logZip({ key: 'k-new-' + crypto.randomBytes(4).toString('hex') });
+      state.jobLogs[2001] = { rdp: 'x ' + READY_LINE + '\n' + bannerFor('100.101.102.103', 'k-old-joblog') };
+      state.jobLogs[2002] = { rdp: 'x ' + READY_LINE + '\n' + bannerFor('100.101.102.103', 'k-new-joblog') };
 
       const res = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp' });
       assert.strictEqual(res.ok, true, res.detail || '');
@@ -249,6 +278,39 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       assert.strictEqual(wrongAttempt.code, 'NO_LIVE_ORIGIN');
       const foreign = await discovery.discoverOrigin({ originRepo: 'someone/else' });
       assert.strictEqual(foreign.code, 'ORIGIN_REPO_NOT_ALLOWED');
+    });
+
+    await test('origin discovery: it reads PER-JOB logs (the only transport that exists while a run is live)', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {};
+      const run = runObj({ id: 4501, startedMsAgo: 60 * 1000 });
+      state.runs[4501] = run;
+      state.jobLogs[4501] = {
+        'Verify Dependencies & Authorize Launch': 'nothing useful here',
+        rdp: 'step output\n' + READY_LINE + '\n' + bannerFor('100.101.102.104', 'k-joblog-live')
+      };
+      // no run archive at all: a run-level /logs call would 404
+      state.blobs = {};
+      const res = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp' });
+      assert.strictEqual(res.ok, true, res.detail || '');
+      assert.strictEqual(res.evidence.logTransport, 'per-job');
+      assert.strictEqual(res.descriptor.authorizedEndpoint, 'http://100.101.102.104:7331');
+      assert.strictEqual(res.secret.dashboardToken, 'k-joblog-live');
+      assert.ok(!JSON.stringify(res.evidence).includes('k-joblog-live'), 'still no key in the evidence');
+      // the job list names the rdp job first; the non-rdp job is not even read
+      assert.ok(res.evidence.logJobs.some(j => /rdp/i.test(j.job)));
+    });
+
+    await test('origin discovery: the run archive is still a fallback when the job API is unavailable', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.jobMode = false;
+      const run = runObj({ id: 4601, startedMsAgo: 60 * 1000 });
+      state.runs[4601] = run;
+      state.blobs[4601] = logZip({ ip: '100.101.102.105', key: 'k-archive-fallback' });
+      try {
+        const res = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp' });
+        assert.strictEqual(res.ok, true, res.detail || '');
+        assert.strictEqual(res.evidence.logTransport, 'run-archive');
+        assert.strictEqual(res.secret.dashboardToken, 'k-archive-fallback');
+      } finally { state.jobMode = true; }
     });
 
     await test('origin discovery: a stale attempt is refused after GitHub reports a newer attempt', async () => {
