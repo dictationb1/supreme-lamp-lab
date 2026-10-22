@@ -849,6 +849,8 @@ async function cmdProbe(a) {
     ok: Boolean(res.ok),
     code: res.code,
     detail: redact(String(res.detail || '')).slice(0, 300),
+    listed: (res.probe || {}).listed || null,
+    pathsSeen: (res.probe || {}).pathsSeen || null,
     probe: (res.probe || {}).runs || []
   };
   if (a.discoverOut) fs.writeFileSync(a.discoverOut, JSON.stringify(out, null, 2), { mode: 0o600 });
@@ -856,7 +858,8 @@ async function cmdProbe(a) {
   // Annotations are the only evidence channel guaranteed to be readable when
   // the job log blob is inaccessible (this environment cannot reach
   // *.blob.core.windows.net). Keep them sanitized and few.
-  annotate.notice('origin-probe', `${out.code}: ${out.detail}`);
+  annotate.notice('origin-probe', `${out.code}: ${out.detail}` + (out.listed ? ` | listed=${out.listed.total} matching=${out.listed.matchingWorkflow} workflow=${out.listed.workflow}` : ''));
+  if (out.pathsSeen) annotate.notice('origin-probe paths', out.pathsSeen.join(' , '));
   for (const r of (out.probe || []).slice(0, 6)) {
     const log = r.log || {};
     annotate.notice(`origin ${r.runId}/${r.attempt} ${r.decision}`,

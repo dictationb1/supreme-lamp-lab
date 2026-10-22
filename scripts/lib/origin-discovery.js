@@ -426,9 +426,18 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     if (!r.ok || !r.json || !r.json.id) return fail('ORIGIN_RUN_LOOKUP_FAILED', summarize(r), { probe: out });
     runs = [r.json];
   } else {
-    const r = await apiGet(`/repos/${originRepo}/actions/runs?per_page=30`);
+    // The application dispatch lane is `workflow_dispatch`; filtering by event
+    // keeps a busy scheduled workflow (its replay publisher runs every ~30 min)
+    // from crowding a 30-item page out of the diagnostic.
+    const r = await apiGet(`/repos/${originRepo}/actions/runs?event=workflow_dispatch&per_page=100`);
     if (!r.ok || !r.json || !Array.isArray(r.json.workflow_runs)) return fail('ORIGIN_LIST_FAILED', summarize(r), { probe: out });
-    runs = r.json.workflow_runs.filter(x => String(x.path || '') === originWorkflow).slice(0, 5);
+    const all = r.json.workflow_runs;
+    const forWorkflow = all.filter(x => String(x.path || '') === originWorkflow);
+    out.listed = { total: all.length, matchingWorkflow: forWorkflow.length, workflow: originWorkflow };
+    runs = forWorkflow.slice(0, 5);
+    if (!runs.length) {
+      out.pathsSeen = Array.from(new Set(all.map(x => String(x.path || '?')))).slice(0, 8);
+    }
   }
   for (const run of runs) {
     const row = {
