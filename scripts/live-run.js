@@ -864,6 +864,8 @@ async function cmdProbe(a) {
   if (out.pathsSeen) annotate.notice('origin-probe paths', out.pathsSeen.join(' , '));
   for (const r of (out.probe || []).slice(0, 2)) {
     if (r.shape) annotate.notice(`origin ${r.runId} log shape`, JSON.stringify(r.shape).slice(0, 900));
+    if (r.logTransport) annotate.notice(`origin ${r.runId} transport`, `${r.logTransport} jobs=${JSON.stringify(r.logJobs || []).slice(0, 300)}`);
+    if (r.sample) annotate.notice(`origin ${r.runId} sample`, String(r.sample).replace(/\n/g, ' / ').slice(0, 600));
   }
   for (const r of (out.probe || []).slice(0, 6)) {
     const log = r.log || {};
