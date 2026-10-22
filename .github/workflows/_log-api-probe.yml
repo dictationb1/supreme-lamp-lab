@@ -1,24 +1,59 @@
-name: log-api probe (temporary)
+# TEMPORARY transport harness (read-only, 8 minutes). It answers ONE question
+# that the sandbox cannot: while a job is still RUNNING, is its log readable
+# through the per-job API by another job in the same run? Discovery depends on
+# exactly that. This is a transport measurement, NOT application evidence.
+name: _log-api-probe
 on:
   push:
-    paths:
-      - '.github/workflows/_log-api-probe.yml'
+    paths: ['.github/workflows/_log-api-probe.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: log-api-probe
+  cancel-in-progress: true
 jobs:
-  long:
+  sleeper:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 12
     steps:
-      - name: early marker
+      - name: emit markers while alive
         run: |
-          echo "SLAB_LOG_PROBE_EARLY $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      - name: upload early artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: probe-early
-          path: README.md
-          retention-days: 1
-      - name: sleep so the run stays in_progress
+          S="TRANSPORT-SENTINEL-${GITHUB_RUN_ID}"
+          for i in $(seq 1 9); do
+            echo "tick $i $S ps (7331) .........: http://100.101.102.103:7331/?key=NOT-A-REAL-KEY"
+            sleep 55
+          done
+  reader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: read the RUNNING job log through the per-job API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "SLAB_LOG_PROBE_SLEEP_START $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          sleep 600
-          echo "SLAB_LOG_PROBE_LATE $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node -e '
+          const d = require("./scripts/lib/origin-discovery");
+          (async () => {
+            const repo = process.env.GITHUB_REPOSITORY, runId = process.env.GITHUB_RUN_ID, sentinel = "TRANSPORT-SENTINEL-" + runId;
+            for (let i = 0; i < 6; i++) {
+              const jobs = await d.listRunJobs({ originRepo: repo, runId });
+              const j = jobs.ok && jobs.jobs.find(x => /^sleeper$/.test(x.name));
+              if (!j) { console.log(`attempt ${i}: sleeper not listed`); await new Promise(r => setTimeout(r, 45000)); continue; }
+              const r = await d.downloadJobLogText({ originRepo: repo, jobId: j.id, timeoutMs: 60000 });
+              if (!r.ok) console.log(`attempt ${i}: job ${j.id} status=${j.status} code=${r.code} detail=${String(r.detail).slice(0,180)}`);
+              else {
+                const n = (r.text.match(new RegExp(sentinel, "g")) || []).length;
+                const a = d.analyseJobLogText(r.text);
+                console.log(`attempt ${i}: job ${j.id} status=${j.status} bytes=${a.bytes} sentinel=${n} banner=${a.banner} readiness=${a.readiness}`);
+                if (n > 0) { console.log("RESULT: IN_PROGRESS_JOB_LOG_READABLE"); process.exit(0); }
+              }
+              await new Promise(r => setTimeout(r, 45000));
+            }
+            console.log("RESULT: NOT_READABLE_IN_PROGRESS");
+          })().catch(e => { console.log("ERROR " + (e && e.message)); process.exit(1); });
+          '
+      - name: publish the verdict as an annotation
+        if: always()
+        run: echo "verdict in the reader step log (see the RESULT line)"
