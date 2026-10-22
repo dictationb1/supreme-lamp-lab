@@ -747,6 +747,8 @@ function sanitizeDiscovery(disc) {
       endpointKind: disc.evidence.endpointKind,
       endpointHost: disc.evidence.endpointHost,
       keyPresent: disc.evidence.keyPresent,
+      entries: disc.evidence.entries,
+      scannedBytes: disc.evidence.scannedBytes,
       keyFingerprint16: String(disc.evidence.keyFingerprint || '').slice(0, 16),
       keyMaskedLength: disc.evidence.keyMaskedLength,
       readinessLine: (disc.evidence.readinessLines || [])[0] || null,
@@ -860,6 +862,9 @@ async function cmdProbe(a) {
   // *.blob.core.windows.net). Keep them sanitized and few.
   annotate.notice('origin-probe', `${out.code}: ${out.detail}` + (out.listed ? ` | listed=${out.listed.total} matching=${out.listed.matchingWorkflow} workflow=${out.listed.workflow}` : ''));
   if (out.pathsSeen) annotate.notice('origin-probe paths', out.pathsSeen.join(' , '));
+  for (const r of (out.probe || []).slice(0, 2)) {
+    if (r.shape) annotate.notice(`origin ${r.runId} log shape`, JSON.stringify(r.shape).slice(0, 900));
+  }
   for (const r of (out.probe || []).slice(0, 6)) {
     const log = r.log || {};
     annotate.notice(`origin ${r.runId}/${r.attempt} ${r.decision}`,

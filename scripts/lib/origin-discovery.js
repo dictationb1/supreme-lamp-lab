@@ -134,6 +134,24 @@ async function downloadRunLog({ originRepo, runId, timeoutMs = 60000 } = {}) {
  * Everything returned is sanitized EXCEPT `secret.token`, which the caller must
  * register with the redactor immediately and must never persist.
  */
+function logShape(bytes) {
+  // Diagnostic helper for the probe only: names + a sanitized sample, so an
+  // unparseable log can be classified (encoding, truncation, wrong archive)
+  // from an annotation instead of guessed at.
+  try {
+    const entries = extractZip(bytes, { maxEntries: MAX_LOG_ENTRIES, maxEntryBytes: MAX_LOG_ENTRY_BYTES });
+    const named = entries.map(e => ({ name: e.name, bytes: e.data.length }));
+    const biggest = entries.slice().sort((a, b) => b.data.length - a.data.length)[0];
+    let sample = '';
+    if (biggest) {
+      sample = biggest.data.slice(0, 600).toString('utf8').replace(/key=[^&\s"']+/g, 'key=***');
+    }
+    return { entries: named.slice(0, 6), entryCount: entries.length, sample: sample.replace(/\u0000/g, '<NUL>') };
+  } catch (e) {
+    return { error: String(e.message || e).slice(0, 200) };
+  }
+}
+
 function parseOriginLog(bytes, { now = Date.now() } = {}) {
   let entries;
   try {
@@ -456,6 +474,7 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
       : parsed.code;
     row.attachableNow = parsed.ok && String(run.status) === 'in_progress';
     row.detail = parsed.ok ? null : String(parsed.detail).slice(0, 200);
+    if (!parsed.ok) row.shape = logShape(log.bytes);
     row.log = parsed.evidence ? {
       entries: parsed.evidence.entries,
       ready: parsed.evidence.ready,
@@ -481,6 +500,7 @@ module.exports = {
   discoverOrigin,
   probeOrigin,
   parseOriginLog,
+  logShape,
   downloadRunLog,
   fetchSignedBlob,
   buildDescriptor,
