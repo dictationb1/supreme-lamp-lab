@@ -428,7 +428,7 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
   } else {
     const r = await apiGet(`/repos/${originRepo}/actions/runs?per_page=30`);
     if (!r.ok || !r.json || !Array.isArray(r.json.workflow_runs)) return fail('ORIGIN_LIST_FAILED', summarize(r), { probe: out });
-    runs = r.json.workflow_runs.filter(x => String(x.path || '') === originWorkflow).slice(0, 10);
+    runs = r.json.workflow_runs.filter(x => String(x.path || '') === originWorkflow).slice(0, 5);
   }
   for (const run of runs) {
     const row = {
@@ -439,7 +439,13 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     const log = await downloadRunLog({ originRepo, runId: run.id });
     if (!log.ok) { row.decision = log.code; row.detail = log.detail; out.runs.push(row); continue; }
     const parsed = parseOriginLog(log.bytes);
-    row.decision = parsed.ok ? 'WOULD_ATTACH' : parsed.code;
+    // A completed run's log is still the best available proof that the parser
+    // works against real application bytes; it is never attachable, and the
+    // decision says exactly that instead of implying a live session.
+    row.decision = parsed.ok
+      ? (String(run.status) === 'in_progress' ? 'WOULD_ATTACH' : 'WOULD_ATTACH_NOT_NOW')
+      : parsed.code;
+    row.attachableNow = parsed.ok && String(run.status) === 'in_progress';
     row.detail = parsed.ok ? null : String(parsed.detail).slice(0, 200);
     row.log = parsed.evidence ? {
       entries: parsed.evidence.entries,
@@ -452,7 +458,7 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     } : null;
     out.runs.push(row);
   }
-  const attachable = out.runs.filter(r => r.decision === 'WOULD_ATTACH');
+  const attachable = out.runs.filter(r => r.decision === 'WOULD_ATTACH' && r.status === 'in_progress');
   return {
     ok: attachable.length > 0,
     code: attachable.length ? 'PROBE_WOULD_ATTACH' : 'PROBE_NO_ATTACHABLE_RUN',
