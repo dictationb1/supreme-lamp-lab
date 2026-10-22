@@ -100,6 +100,7 @@
 | යෙදුම් main | `daf13685d051abf8dea304a2ade82522ae8733ba` |
 | යෙදුම් PR | **නොමැත** — ලිවීමට අවසර නැත (403) |
 | ප්‍රධාන commits | `b6431b2` (publisher+snippet+docs+cleanup), `aaa30ac` (check-run discovery), `8824636` (live-signal lib+harness), `3a2babd`, `7aec38a` (transport measurements) |
+| CI (PR) | `static` job එකේ `actionlint` දෝෂයක් තිබුණි (SC2016: single-quoted `node -e`). එය quoted heredoc එකකට වෙනස් කර, `_actionlint-report` ධාවනයේදී **`actionlint exit=0, findings=0`** ලෙස තහවුරු කරන ලදී (ධාවනය 39817024937); එම තාවකාලික workflow එක ඉවත් කර ඇත. සම්පූර්ණ PR ධාවනය නැවත පරීක්ෂා කරමින් පවතී |
 | Deployment | කිසිවක් deploy කර නැත; lab main වෙනස් වී නැත |
 
 ---
