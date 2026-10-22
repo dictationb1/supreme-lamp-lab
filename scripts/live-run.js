@@ -852,6 +852,7 @@ async function cmdProbe(a) {
     code: res.code,
     detail: redact(String(res.detail || '')).slice(0, 300),
     listed: (res.probe || {}).listed || null,
+    listDebug: (res.probe || {}).listDebug || null,
     pathsSeen: (res.probe || {}).pathsSeen || null,
     probe: (res.probe || {}).runs || []
   };
@@ -862,6 +863,7 @@ async function cmdProbe(a) {
   // *.blob.core.windows.net). Keep them sanitized and few.
   annotate.notice('origin-probe', `${out.code}: ${out.detail}` + (out.listed ? ` | listed=${out.listed.total} matching=${out.listed.matchingWorkflow} workflow=${out.listed.workflow}` : ''));
   if (out.pathsSeen) annotate.notice('origin-probe paths', out.pathsSeen.join(' , '));
+  if (out.listDebug) annotate.notice('origin-probe list', JSON.stringify(out.listDebug).slice(0, 500));
   for (const r of (out.probe || []).slice(0, 2)) {
     if (r.shape) annotate.notice(`origin ${r.runId} log shape`, JSON.stringify(r.shape).slice(0, 900));
     if (r.logTransport) annotate.notice(`origin ${r.runId} transport`, `${r.logTransport} jobs=${JSON.stringify(r.logJobs || []).slice(0, 300)}`);

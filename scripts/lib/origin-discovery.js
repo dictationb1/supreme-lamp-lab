@@ -548,7 +548,16 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     // The application dispatch lane is `workflow_dispatch`; filtering by event
     // keeps a busy scheduled workflow (its replay publisher runs every ~30 min)
     // from crowding a 30-item page out of the diagnostic.
-    const r = await apiGet(`/repos/${originRepo}/actions/runs?event=workflow_dispatch&per_page=100`);
+    let r = await apiGet(`/repos/${originRepo}/actions/runs?event=workflow_dispatch&per_page=100`);
+    out.listDebug = { status: r.status, transport: r.transport, hasArray: !!(r.json && Array.isArray(r.json.workflow_runs)), count: r.json && Array.isArray(r.json.workflow_runs) ? r.json.workflow_runs.length : null, sample: String(r.text || '').slice(0, 160).replace(/\s+/g, ' ') };
+    if (r.ok && r.json && Array.isArray(r.json.workflow_runs) && r.json.workflow_runs.length === 0) {
+      // Some token/installation shapes return an empty page for the filtered
+      // query. Retry unfiltered once and filter client-side, recording that the
+      // fallback was used.
+      const r2 = await apiGet(`/repos/${originRepo}/actions/runs?per_page=100`);
+      out.listDebug.fallback = { status: r2.status, count: r2.json && Array.isArray(r2.json.workflow_runs) ? r2.json.workflow_runs.length : null };
+      if (r2.ok && r2.json && Array.isArray(r2.json.workflow_runs)) r = r2;
+    }
     if (!r.ok || !r.json || !Array.isArray(r.json.workflow_runs)) return fail('ORIGIN_LIST_FAILED', summarize(r), { probe: out });
     const all = r.json.workflow_runs;
     const forWorkflow = all.filter(x => String(x.path || '') === originWorkflow);
