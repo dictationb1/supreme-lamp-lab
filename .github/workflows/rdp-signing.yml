@@ -1,0 +1,170 @@
+name: RDP file signing + trust (client VM bootstrap)
+
+# ---------------------------------------------------------------------------
+# THE SUPPORTED PATH OUT OF THE PER-CONNECTION SECURITY REVIEW
+#
+# Reproduced (lab run 39819073772, job `client`, runner WIN-NFU1JG4VESE,
+# session 1): opening the lab's .rdp raised
+#   "Remote Desktop Connection security warning"  Publisher: "Unknown publisher"
+# with both "Don't ask me again" boxes unchecked, so native RDP was attended,
+# not unattended. Accepting the first-launch consent does not help.
+#
+# Microsoft's supported control (Microsoft Learn, "RDP file security in Group
+# Policy") is to SIGN each final .rdp with a dedicated certificate and pin that
+# certificate's thumbprint in
+#   Computer Configuration > Administrative Templates > Windows Components >
+#   Remote Desktop Services > Remote Desktop Connection Client >
+#   "Specify thumbprints of certificates representing trusted .rdp publishers".
+#
+# This workflow runs scripts/ps/Initialize-RdpFileSigning.ps1 on the DEDICATED
+# client VM:
+#   * Status is read-only and always runs (safe on every PR);
+#   * Bootstrap (identity + single-thumbprint pin) runs only when explicitly
+#     requested: the `rdp-signing-bootstrap` label on a same-repository PR, or
+#     dispatch input apply=true;
+#   * Probe signs a throwaway .rdp and opens it with the real mstsc.exe, then
+#     checks (with the lab's own dialog enumerator) that no security review
+#     appears. That is the proof that the trust pin actually works.
+#
+# It never disables the protection (no RedirectionWarningDialogVersion), never
+# blocks unsigned files, never trusts "all publishers", and never touches
+# NLA/TLS/CredSSP. Rollback is `-Mode Rollback` (documented in RUNBOOK.md).
+# ---------------------------------------------------------------------------
+
+run-name: rdp-signing ${{ github.event_name }} ${{ inputs.mode || '' }}
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'status = read-only; bootstrap = create the identity + trust pin (admin); probe = prove a signed .rdp opens with no security review; rollback = remove what bootstrap created'
+        required: false
+        default: status
+        type: choice
+        options: [status, bootstrap, probe, rollback]
+
+concurrency:
+  group: rdp-signing-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  signing:
+    name: client VM signing/trust
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       (contains(github.event.pull_request.labels.*.name, 'rdp-signing-bootstrap') ||
+        contains(github.event.pull_request.labels.*.name, 'rdp-signing-probe')))
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner identity (read, never assumed)
+        shell: pwsh
+        run: |
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=Signing runner::$env:COMPUTERNAME\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)"
+
+      - name: "Status (read-only: ADMX layout, policy, identities)"
+        id: status
+        shell: pwsh
+        run: |
+          # The ADMX on THIS build decides where the thumbprint list lives; the
+          # script reads it instead of assuming a layout.
+          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Status 2>&1
+          $out | Out-String | Write-Host
+          # The identity lives in C:\ProgramData\slab-rdp-signing so it survives
+          # between runs (a runner.temp path would be wiped and the identity
+          # would silently disappear, which is exactly the kind of "configured"
+          # claim that must never be made from a transient file).
+          "status_json=$($out | Select-Object -Last 1)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Bootstrap (identity + single-thumbprint trust pin)
+        id: bootstrap
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.mode == 'bootstrap') ||
+          (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'rdp-signing-bootstrap'))
+        shell: pwsh
+        run: |
+          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Bootstrap 2>&1
+          $out | Out-String | Write-Host
+          $json = $out | Select-Object -Last 1
+          "bootstrap_json=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $parsed = $null
+          try { $parsed = $json | ConvertFrom-Json } catch { $parsed = $null }
+          if (-not $parsed -or -not $parsed.ok) {
+            Write-Host "::error title=rdp signing bootstrap::$($parsed.code) $($parsed.detail)"
+            exit 1
+          }
+          $id = $parsed.identity
+          Write-Host "::notice title=rdp signing identity::thumbprint=$($id.thumbprint) subject=`"$($id.subject)`" notAfter=$($id.notAfter) policy=$($id.policyValue)"
+          {
+            '### RDP file signing identity (public identifiers only)'
+            ''
+            '| field | value |'
+            '| --- | --- |'
+            "| thumbprint | ``$($id.thumbprint)`` |"
+            "| subject | $($id.subject) |"
+            "| notAfter | $($id.notAfter) |"
+            "| policy value | ``$($id.policyValue)`` |"
+            "| registry key | ``$($id.policyKey)`` |"
+            "| rollback | ``$($id.rollback)`` |"
+          } | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: "Probe (a signed .rdp must open with no security review)"
+        id: probe
+        if: >-
+          always() &&
+          (github.event_name == 'workflow_dispatch' && (inputs.mode == 'probe' || inputs.mode == 'bootstrap')) ||
+          (github.event_name == 'pull_request' &&
+           (contains(github.event.pull_request.labels.*.name, 'rdp-signing-bootstrap') ||
+            contains(github.event.pull_request.labels.*.name, 'rdp-signing-probe')))
+        shell: pwsh
+        run: |
+          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Probe -ProbeSeconds 14 2>&1
+          $out | Out-String | Write-Host
+          $json = $out | Select-Object -Last 1
+          "probe_json=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $parsed = $null
+          try { $parsed = $json | ConvertFrom-Json } catch { $parsed = $null }
+          if (-not $parsed) { Write-Host '::error title=rdp signing probe::unparseable output'; exit 1 }
+          if ($parsed.ok) {
+            Write-Host "::notice title=rdp signing probe::PASS - a signed .rdp opened with no security-review dialog (signature $($parsed.probe.signatureStatus))"
+          } else {
+            Write-Host "::error title=rdp signing probe::FAIL $($parsed.code) $($parsed.detail)"
+            exit 1
+          }
+
+      - name: Rollback (only when explicitly asked)
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rollback'
+        shell: pwsh
+        run: |
+          $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Rollback 2>&1
+          $out | Out-String | Write-Host
+          $json = $out | Select-Object -Last 1
+          $parsed = $null
+          try { $parsed = $json | ConvertFrom-Json } catch { $parsed = $null }
+          if (-not $parsed -or -not $parsed.ok) { Write-Host "::error title=rollback::$($parsed.code) $($parsed.detail)"; exit 1 }
+          Write-Host "::notice title=rollback::policy + certificate removed: $($parsed.actions -join '; ')"
+
+      - name: Upload sanitized signing evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rdp-signing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            C:/ProgramData/slab-rdp-signing/*.json
+            C:/ProgramData/slab-rdp-signing/*.cer
+          if-no-files-found: warn
+          retention-days: 14

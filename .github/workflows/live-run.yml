@@ -170,7 +170,19 @@ jobs:
           LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          node scripts/live-run.js signal-status --origin-repo dictationb1/supreme-lamp --json-out key-status.json
+          # Exit 5 = the secret is not configured for this event: that IS a
+          # candidate-gate failure (the encrypted transport cannot work).
+          # Exit 4 = configured, but the application has published no live
+          # signal to round-trip against: an honest "not proven yet", not a
+          # failure, because it depends on an application run being in progress.
+          rc=0
+          node scripts/live-run.js signal-status --origin-repo dictationb1/supreme-lamp --json-out key-status.json || rc=$?
+          case "$rc" in
+            0) echo "::notice title=signal key::configured AND round-trip proven" ;;
+            4) echo "::warning title=signal key::configured (fingerprint in the summary) but no live application signal exists right now, so the encrypted round-trip is NOT proven" ;;
+            5) echo "::error title=signal key::LAB_SIGNAL_PRIVATE_KEY is not configured for this event; the encrypted transport cannot work"; exit 1 ;;
+            *) echo "::error title=signal key::exit $rc"; exit "$rc" ;;
+          esac
       - name: Real discovery decision for the application repository (read-only)
         id: disc
         env:
@@ -198,6 +210,35 @@ jobs:
               console.log(`${name}: concurrency keys ${c.keys.join(",")}`);
             }
           '
+      - name: actionlint the workflow files (pinned, findings as annotations)
+        id: lint
+        run: |
+          set -uo pipefail
+          # The static job lints too; here the point is that a pre-merge run of
+          # THIS file reports its own findings where they can be read, because a
+          # Windows runner's step log is not always retrievable from an
+          # automation environment (measured: blob 404).
+          v=1.7.12
+          work=$(mktemp -d)
+          base="https://github.com/rhysd/actionlint/releases/download/v$v"
+          curl -fsSL --retry 3 -o "$work/al.tgz" "$base/actionlint_${v}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$work/sums.txt" "$base/actionlint_${v}_checksums.txt"
+          want=$(awk -v f="actionlint_${v}_linux_amd64.tar.gz" '$2 == f { print $1 }' "$work/sums.txt")
+          echo "$want  $work/al.tgz" | sha256sum -c -
+          tar -xzf "$work/al.tgz" -C "$work" actionlint
+          rc=0
+          out=$("$work/actionlint" 2>&1) || rc=$?
+          if [ -s "$work/none" ]; then :; fi
+          if [ "$rc" -eq 0 ]; then
+            echo "::notice title=actionlint::0 findings"
+          else
+            printf '%s\n' "$out" | head -20 | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=actionlint::${line}"
+            done
+            echo "::error title=actionlint::findings above ($rc); full output is in this step's log"
+            exit 1
+          fi
+
       - name: Candidate verdict (explicit, never implied)
         if: always()
         run: |

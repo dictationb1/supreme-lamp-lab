@@ -1827,6 +1827,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== supported RDP-file signing / trust path =====
+  {
+    const register = require('./test/rdp-signing-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');

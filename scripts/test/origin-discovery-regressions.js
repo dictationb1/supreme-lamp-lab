@@ -647,16 +647,26 @@ module.exports = async function registerOriginDiscoveryTests(H) {
         const slice = b.slice(0, 600);
         assert.ok(!/LAB_SIGNAL_PRIVATE_KEY|\$\{\{\s*secrets\./.test(slice), 'no secret may appear in an artifact upload block');
       }
-      // 4. never echoed into a step summary or an annotation
+      // 4. never echoed into a step summary or an annotation. Naming the secret
+      //    is fine (an operator needs to know which setting is missing); its
+      //    VALUE or a `${{ secrets.… }}` expansion is what must never appear.
       for (const line of wfLF.split('\n')) {
         if (/GITHUB_STEP_SUMMARY|::notice|::warning|::error/.test(line)) {
-          assert.ok(!/SIGNAL_PRIVATE_KEY/.test(line), `a summary/annotation line must not name the secret: ${line.trim()}`);
+          assert.ok(!/\$\{\{\s*secrets\./.test(line), `a summary/annotation line must never expand a secret: ${line.trim()}`);
+          assert.ok(!/-----BEGIN|PRIVATE KEY-----/.test(line), `no key material may be echoed: ${line.trim()}`);
         }
       }
-      // 5. every NON-COMMENT occurrence of the secret is a `${{ secrets.… }}` binding
-      const bindings = wfLF.split('\n').filter(l => /LAB_SIGNAL_PRIVATE_KEY/.test(l) && !/^\s*#/.test(l));
+      // 5. every NON-COMMENT binding of the secret is exactly `${{ secrets.… }}`;
+      //    other mentions (an error message naming the missing setting) may not
+      //    expand any secret at all.
+      const occurrences = wfLF.split('\n').filter(l => /LAB_SIGNAL_PRIVATE_KEY/.test(l) && !/^\s*#/.test(l));
+      const bindings = occurrences.filter(l => /^\s*LAB_SIGNAL_PRIVATE_KEY:/.test(l));
       assert.ok(bindings.length >= 3, `the key is bound to every step that discovers an origin (saw ${bindings.length})`);
       for (const l of bindings) assert.match(l.trim(), /^LAB_SIGNAL_PRIVATE_KEY: \$\{\{ secrets\.LAB_SIGNAL_PRIVATE_KEY \}\}$/, l.trim());
+      for (const l of occurrences) {
+        if (/^\s*LAB_SIGNAL_PRIVATE_KEY:/.test(l)) continue;
+        assert.ok(!/\$\{\{\s*secrets\./.test(l), `only the binding form may reference secrets: ${l.trim()}`);
+      }
     });
 
     await test('live-run workflow: a pre-merge candidate path exists and is restricted to same-repository branches', async () => {

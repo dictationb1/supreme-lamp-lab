@@ -414,6 +414,37 @@ async function checkRdp(caps, args, outDir, readinessBody) {
     `credential=${cred.out} rdpFile=${rdpFileInfo.bytes}B/${rdpFileInfo.directives} directives (utf8, read-back ok)`);
   annotate.notice('rdp attempt setup', `${cred.out}; rdpFile ${rdpFileInfo.bytes}B/${rdpFileInfo.directives} directives utf8 read-back-ok; baseline ${baselineIso}`);
 
+  // ---------------------------------------------------------- RDP FILE SIGNING
+  // The per-connection security review (Publisher: Unknown publisher) is keyed
+  // to the file's signing identity, so the launch is only unattended when the
+  // final .rdp is signed by the dedicated lab identity and that thumbprint is
+  // pinned on this VM. When an identity is configured, signing is REQUIRED:
+  // a failure is a named FAIL, never an unsigned launch presented as clean.
+  // When none is configured the fact is recorded, because the resulting review
+  // dialog makes the run attended - not a PASS.
+  const rdpSigning = require('./lib/rdp-signing');
+  const signingIdent = rdpSigning.resolveSigningIdentity();
+  let signing = rdpSigning.describePosture(signingIdent);
+  if (signingIdent.configured) {
+    const signed = rdpSigning.signRdpFile(handle.rdpFile, { thumbprint: signingIdent.thumbprint });
+    signing = { ...signing, ...signed, signed: signed.ok };
+    annotate.notice('rdp file signing',
+      signed.ok
+        ? `signed ${path.basename(handle.rdpFile)} with ${signed.thumbprint} (${signed.status || 'Valid'}, ${signed.hashAlg || 'sha256'})`
+        : `${signed.code}: ${signed.detail}`);
+    log(`rdp file signing: ${signed.code}`);
+    if (!signed.ok) {
+      caps.set(name, STATUS.FAIL, `RDP_FILE_SIGNING_FAILED: ${signed.code}${signed.detail ? ': ' + signed.detail : ''}`,
+        { tcp3389: tcp, credential: cred.out, rdpFile: { ...rdpFileInfo, signing } });
+      return handle;
+    }
+  } else {
+    annotate.notice('rdp file signing',
+      'NOT CONFIGURED on this client (no recorded identity, no RDP_SIGN_THUMBPRINT): the per-connection RDP-file security review is expected, this launch is NOT unattended, and no PASS may be claimed from it');
+    log('rdp file signing: RDP_FILE_SIGNING_NOT_CONFIGURED');
+  }
+  handle.signing = signing;
+
   // Observer health BEFORE the attempt: if the backend process cannot read
   // the Security log, checked stays 0 and no logon can ever be observed -
   // better to learn that here than to infer it from a timeout afterwards.
