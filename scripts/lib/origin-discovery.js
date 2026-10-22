@@ -309,7 +309,7 @@ async function downloadOriginLogs({ originRepo, runId, jobNameRe = /\brdp\b/i, m
   const notes = [];
   for (const j of chosen) {
     const r = await downloadJobLogText({ originRepo, jobId: j.id });
-    if (!r.ok) { notes.push({ job: j.name, id: j.id, code: r.code }); continue; }
+    if (!r.ok) { notes.push({ job: j.name, id: j.id, code: r.code, detail: String(r.detail || '').slice(0, 120) }); continue; }
     notes.push({ job: j.name, id: j.id, bytes: r.text.length, status: j.status, conclusion: j.conclusion });
     texts.push(r.text);
   }
@@ -553,7 +553,15 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
     const all = r.json.workflow_runs;
     const forWorkflow = all.filter(x => String(x.path || '') === originWorkflow);
     out.listed = { total: all.length, matchingWorkflow: forWorkflow.length, workflow: originWorkflow };
-    runs = forWorkflow.slice(0, 5);
+    // Sample the runs that can teach us the most about the parser: anything
+    // live first, then the most recent SUCCESSFUL dispatch (its rdp job log is
+    // retained), then the newest others.
+    const byPriority = forWorkflow.slice().sort((a, b) => {
+      const rank = r => (String(r.status) === 'in_progress' ? 0 : (String(r.conclusion) === 'success' ? 1 : 2));
+      const d = rank(a) - rank(b);
+      return d !== 0 ? d : Date.parse(b.created_at) - Date.parse(a.created_at);
+    });
+    runs = byPriority.slice(0, 5);
     if (!runs.length) {
       out.pathsSeen = Array.from(new Set(all.map(x => String(x.path || '?')))).slice(0, 8);
     }
