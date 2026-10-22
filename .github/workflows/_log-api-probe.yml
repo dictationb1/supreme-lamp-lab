@@ -33,7 +33,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          node -e '
+          set -o pipefail
+          OUT=$(node -e '
           const d = require("./scripts/lib/origin-discovery");
           (async () => {
             const repo = process.env.GITHUB_REPOSITORY, runId = process.env.GITHUB_RUN_ID, sentinel = "TRANSPORT-SENTINEL-" + runId;
@@ -53,7 +54,10 @@ jobs:
             }
             console.log("RESULT: NOT_READABLE_IN_PROGRESS");
           })().catch(e => { console.log("ERROR " + (e && e.message)); process.exit(1); });
-          '
-      - name: publish the verdict as an annotation
-        if: always()
-        run: echo "verdict in the reader step log (see the RESULT line)"
+          ' 2>&1)
+          echo "$OUT"
+          line=$(printf '%s\n' "$OUT" | head -1 | cut -c1-400)
+          [ -n "$line" ] && echo "::notice title=live-log-transport::${line}"
+          res=$(printf '%s\n' "$OUT" | grep -m1 '^RESULT:')
+          [ -n "$res" ] && echo "::notice title=live-log-verdict::${res}"
+          printf '%s\n' "$OUT" | grep -E '^(attempt|RESULT|ERROR)' | head -8 | while read -r l; do echo "::notice title=live-log-trace::${l}"; done
