@@ -1,0 +1,24 @@
+name: log-api probe (temporary)
+on:
+  push:
+    paths:
+      - '.github/workflows/_log-api-probe.yml'
+jobs:
+  long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: early marker
+        run: |
+          echo "SLAB_LOG_PROBE_EARLY $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: upload early artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: probe-early
+          path: README.md
+          retention-days: 1
+      - name: sleep so the run stays in_progress
+        run: |
+          echo "SLAB_LOG_PROBE_SLEEP_START $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 600
+          echo "SLAB_LOG_PROBE_LATE $(date -u +%Y-%m-%dT%H:%M:%SZ)"
