@@ -1,63 +1,62 @@
-# TEMPORARY transport harness (read-only, 8 minutes). It answers ONE question
-# that the sandbox cannot: while a job is still RUNNING, is its log readable
-# through the per-job API by another job in the same run? Discovery depends on
-# exactly that. This is a transport measurement, NOT application evidence.
+# TEMPORARY live-transport harness. Question: can an ORIGIN run publish a
+# non-secret live signal that the lab can read WHILE the run is still alive?
+# Job logs cannot (measured: blob 404 for queued/running jobs). A check-run
+# output is updated by the app's own GITHUB_TOKEN and is publicly readable.
+# This measures the transport only; the value is a sentinel, not a credential.
 name: _log-api-probe
 on:
   push:
     paths: ['.github/workflows/_log-api-probe.yml']
 permissions:
   contents: read
-  actions: read
+  checks: write
 concurrency:
   group: log-api-probe
   cancel-in-progress: true
 jobs:
-  sleeper:
+  publisher:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
-      - name: emit markers while alive
+      - name: create the signal and keep updating it while "live"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          S="TRANSPORT-SENTINEL-${GITHUB_RUN_ID}"
-          for i in $(seq 1 9); do
-            echo "tick $i $S ps (7331) .........: http://100.101.102.103:7331/?key=NOT-A-REAL-KEY"
-            sleep 55
+          set -euo pipefail
+          id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name="mission-control-live-signal" -f head_sha="$GITHUB_SHA" \
+            -f status=in_progress -f started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -f 'output[title]=live' -f 'output[summary]=booting' --jq .id)
+          echo "check-run=$id"
+          for i in $(seq 1 6); do
+            sleep 30
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/check-runs/$id" \
+              -f status=in_progress \
+              -f 'output[title]=live' \
+              -f "output[summary]=SENTINEL-${GITHUB_RUN_ID} tick ${i} endpoint=http://100.101.102.103:7331/ id=$(printf 'a%.0s' $(seq 1 48))" >/dev/null
+            echo "tick $i published"
           done
   reader:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - name: read the RUNNING job log through the per-job API
+      - name: read the signal while the publisher is still running
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -o pipefail
-          OUT=$(node -e '
-          const d = require("./scripts/lib/origin-discovery");
-          (async () => {
-            const repo = process.env.GITHUB_REPOSITORY, runId = process.env.GITHUB_RUN_ID, sentinel = "TRANSPORT-SENTINEL-" + runId;
-            for (let i = 0; i < 6; i++) {
-              const jobs = await d.listRunJobs({ originRepo: repo, runId });
-              const j = jobs.ok && jobs.jobs.find(x => /^sleeper$/.test(x.name));
-              if (!j) { console.log(`attempt ${i}: sleeper not listed`); await new Promise(r => setTimeout(r, 45000)); continue; }
-              const r = await d.downloadJobLogText({ originRepo: repo, jobId: j.id, timeoutMs: 60000 });
-              if (!r.ok) console.log(`attempt ${i}: job ${j.id} status=${j.status} code=${r.code} detail=${String(r.detail).slice(0,180)}`);
-              else {
-                const n = (r.text.match(new RegExp(sentinel, "g")) || []).length;
-                const a = d.analyseJobLogText(r.text);
-                console.log(`attempt ${i}: job ${j.id} status=${j.status} bytes=${a.bytes} sentinel=${n} banner=${a.banner} readiness=${a.readiness}`);
-                if (n > 0) { console.log("RESULT: IN_PROGRESS_JOB_LOG_READABLE"); process.exit(0); }
-              }
-              await new Promise(r => setTimeout(r, 45000));
-            }
-            console.log("RESULT: NOT_READABLE_IN_PROGRESS");
-          })().catch(e => { console.log("ERROR " + (e && e.message)); process.exit(1); });
-          ' 2>&1)
-          echo "$OUT"
-          line=$(printf '%s\n' "$OUT" | head -1 | cut -c1-400)
-          [ -n "$line" ] && echo "::notice title=live-log-transport::${line}"
-          res=$(printf '%s\n' "$OUT" | grep -m1 '^RESULT:')
-          [ -n "$res" ] && echo "::notice title=live-log-verdict::${res}"
-          printf '%s\n' "$OUT" | grep -E '^(attempt|RESULT|ERROR)' | head -8 | while read -r l; do echo "::notice title=live-log-trace::${l}"; done
+          start=$(date +%s)
+          seq_found=0
+          for i in $(seq 0 15); do
+            body=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name=="mission-control-live-signal")][0] | {status: .status, summary: (.output.summary // ""), id: .id}' 2>&1) || body="ERR $body"
+            echo "attempt $i $body"
+            if printf '%s' "$body" | grep -q "SENTINEL-${GITHUB_RUN_ID}"; then
+              seq_found=1
+              echo "LATENCY_SECONDS=$(( $(date +%s) - start ))"
+              break
+            fi
+            sleep 12
+          done
+          if [ "$seq_found" = 1 ]; then echo "::notice title=live-signal::READABLE_LIVE sentinel visible in check-run output (attempt $i)"; else echo "::notice title=live-signal::NOT_READABLE"; fi
+          echo "::notice title=live-signal-status::$(printf '%s' "$body" | head -c 300)"
