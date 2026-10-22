@@ -404,6 +404,32 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       assert.strictEqual(changed.code, 'IDENTITY_SESSION_CHANGED');
     });
 
+    await test('analyseJobLogText: finds the keepalive banner and masks the one-time key', async () => {
+      const text = [
+        '2026-10-22T00:00:00Z ##[group]Run server',
+        'Starting dashboard',
+        'Dashboard API responded with valid readiness JSON',
+        '     ps (7331) .........: http://100.101.102.103:7331/?key=SECRETKEY123   (tailnet only)',
+        'Token ghp_abcdefghijklmnopqrstuvwxyz0123 leaked'
+      ].join('\n');
+      const a = discovery.analyseJobLogText(text);
+      assert.strictEqual(a.banner, true);
+      assert.strictEqual(a.readiness, true);
+      assert.strictEqual(a.bannerHasKey, true);
+      assert.ok(a.markers.includes('ps-banner'));
+      const joined = a.tail.join('\n');
+      assert.ok(!joined.includes('SECRETKEY123'), 'the key must never appear in a published tail');
+      assert.ok(!joined.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'), 'tokens must be masked');
+      assert.ok(joined.includes('key=***'));
+    });
+
+    await test('analyseJobLogText: a log that never reached readiness reports banner=false', async () => {
+      const a = discovery.analyseJobLogText('checkout\ninstalling tailscale\nerror: tailscale up failed');
+      assert.strictEqual(a.banner, false);
+      assert.strictEqual(a.readiness, false);
+      assert.ok(a.markers.includes('error'));
+    });
+
     // ------------------------------------------------------------- workflows
     await test('live-run workflow: it discovers automatically, is valid YAML, and never accepts an unvalidated payload', async () => {
       const wf = fs.readFileSync(path.join(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml'), 'utf8');

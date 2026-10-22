@@ -816,6 +816,22 @@ async function cmdDiscover(a) {
     expires_at: out.ok ? out.descriptor.expiresAt : '',
     descriptor_json: out.ok ? JSON.stringify(out.descriptor) : ''
   });
+  if (process.env.PROBE_RDP_LOG === '1' && a.originRunId) {
+    const jobs = await discovery.listRunJobs({ originRepo: a.originRepo || 'dictationb1/supreme-lamp', runId: a.originRunId });
+    const target = jobs.ok ? (jobs.jobs.find(j => /^rdp$/i.test(String(j.name))) || jobs.jobs.find(j => /\brdp\b/i.test(String(j.name)))) : null;
+    if (!target) {
+      annotate.notice('rdp job log', `not found (${jobs.ok ? 'jobs=' + jobs.jobs.length : jobs.code})`);
+    } else {
+      const r = await discovery.downloadJobLogText({ originRepo: a.originRepo || 'dictationb1/supreme-lamp', jobId: target.id, timeoutMs: 90000 });
+      if (!r.ok) annotate.notice('rdp job log', `${target.name} ${r.code}: ${String(r.detail).slice(0, 200)}`);
+      else {
+        const an = discovery.analyseJobLogText(r.text);
+        out.rdpLog = { job: target.name, status: target.status, conclusion: target.conclusion, ...an };
+        annotate.notice('rdp job log', `${target.name} ${target.status}/${target.conclusion} bytes=${an.bytes} lines=${an.lineCount} readiness=${an.readiness} banner=${an.banner} key=${an.bannerHasKey} markers=${an.markers.join(',')}`);
+        for (const l of an.tail) annotate.notice('rdp job tail', l);
+      }
+    }
+  }
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) {
     const lines = [];
@@ -867,7 +883,7 @@ async function cmdProbe(a) {
   for (const r of (out.probe || []).slice(0, 2)) {
     if (r.shape) annotate.notice(`origin ${r.runId} log shape`, JSON.stringify(r.shape).slice(0, 900));
     if (r.logTransport) annotate.notice(`origin ${r.runId} transport`, `${r.logTransport} jobs=${JSON.stringify(r.logJobs || []).slice(0, 300)}`);
-    if (r.sample) annotate.notice(`origin ${r.runId} sample`, String(r.sample).replace(/\n/g, ' / ').slice(0, 600));
+    if (r.sample) annotate.notice(`origin ${r.runId} sample`, JSON.stringify(r.sample).replace(/\\/g, '/').slice(0, 600));
   }
   for (const r of (out.probe || []).slice(0, 6)) {
     const log = r.log || {};
@@ -880,6 +896,22 @@ async function cmdProbe(a) {
     out.jobTransportProbe = t;
     if (t.ok) for (const j of t.jobs.slice(0, 8)) annotate.notice(`job log ${j.job}`, `${j.status}/${j.conclusion} readable=${j.readable} bytes=${j.bytes} code=${j.code}${j.detail ? ' detail=' + j.detail : ''}`);
     else annotate.notice('job transport probe', `${t.code}: ${t.detail}`);
+  }
+  if (process.env.PROBE_RDP_LOG === '1' && a.originRunId) {
+    const jobs = await discovery.listRunJobs({ originRepo: a.originRepo || 'dictationb1/supreme-lamp', runId: a.originRunId });
+    const target = jobs.ok ? (jobs.jobs.find(j => /^rdp$/i.test(String(j.name))) || jobs.jobs.find(j => /\brdp\b/i.test(String(j.name)))) : null;
+    if (!target) {
+      annotate.notice('rdp job log', `not found (${jobs.ok ? 'jobs=' + jobs.jobs.length : jobs.code})`);
+    } else {
+      const r = await discovery.downloadJobLogText({ originRepo: a.originRepo || 'dictationb1/supreme-lamp', jobId: target.id, timeoutMs: 90000 });
+      if (!r.ok) annotate.notice('rdp job log', `${target.name} ${r.code}: ${String(r.detail).slice(0, 200)}`);
+      else {
+        const an = discovery.analyseJobLogText(r.text);
+        out.rdpLog = { job: target.name, status: target.status, conclusion: target.conclusion, ...an };
+        annotate.notice('rdp job log', `${target.name} ${target.status}/${target.conclusion} bytes=${an.bytes} lines=${an.lineCount} readiness=${an.readiness} banner=${an.banner} key=${an.bannerHasKey} markers=${an.markers.join(',')}`);
+        for (const l of an.tail) annotate.notice('rdp job tail', l);
+      }
+    }
   }
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) {

@@ -641,11 +641,56 @@ async function probeJobLogTransports({ originRepo, runId } = {}) {
   return { ok: true, runId, jobs: rows };
 }
 
+/**
+ * Sanitized phase analysis of ONE job log. Used only by probes: it answers
+ * "did the application's RDP job actually reach the keepalive banner in this
+ * attempt?" without publishing the log (which carries a one-time key).
+ */
+function analyseJobLogText(text, { tailLines = 12 } = {}) {
+  const t = String(text || '');
+  const lines = t.split(/\r?\n/);
+  const scrub = (line) => String(line)
+    .replace(/\bhttps?:\/\/[^\s"'<>]+/g, (u) => {
+      try { const x = new URL(u); if (x.searchParams.get('key')) { x.searchParams.set('key', '***'); return x.toString(); } } catch (e) {}
+      return u;
+    })
+    .replace(/(gh[pousr]_[A-Za-z0-9]{16,})/g, '***')
+    .replace(/(tskey-[A-Za-z0-9-]{8,})/g, '***')
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '***')
+    .replace(/(key=)[^&\s]+/gi, '$1***');
+  const markers = [
+    ['checkout', /\bcheckout\b/i],
+    ['tailscale', /tailscale/i],
+    ['server-staged', /staged|payload|ghrdp-server/i],
+    ['server-start', /starting|launching|spawn/i],
+    ['readiness', /Dashboard API responded with valid readiness JSON|Dashboard API Ready:\s*True/i],
+    ['serve-banner', /Dashboard \(serve\)/i],
+    ['ps-banner', /ps \(7331\)/i],
+    ['summary', /GITHUB_STEP_SUMMARY|##\[group\]|Publish Summary/i],
+    ['error', /\berror\b|exception|failed/i]
+  ];
+  const seen = [];
+  for (const [name, re] of markers) if (re.test(t)) seen.push(name);
+  const banner = /ps \(7331\)|Dashboard \(serve\)/i.test(t);
+  const readiness = /Dashboard API responded with valid readiness JSON|Dashboard API Ready:\s*True/i.test(t);
+  const withKey = /ps \(7331\)|Dashboard \(serve\)/i.test(t) && /[?&]key=/.test(t);
+  return {
+    bytes: Buffer.byteLength(t, 'utf8'),
+    lineCount: lines.length,
+    banner,
+    readiness,
+    bannerHasKey: withKey,
+    markers: seen,
+    tail: lines.filter(l => l.trim()).slice(-tailLines).map(l => scrub(l).slice(0, 180))
+  };
+}
+
 module.exports = {
   ORIGIN_WORKFLOW_DEFAULT,
   discoverOrigin,
   probeOrigin,
   probeJobLogTransports,
+  analyseJobLogText,
   parseOriginLog,
   parseOriginLogText,
   scanLogText,
