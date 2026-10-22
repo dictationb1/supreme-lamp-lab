@@ -81,7 +81,7 @@
 
 1. **App-originated සජීවී ධාවනයක් නොමැත.** `gh workflow run` → 403; app ධාවන සියල්ල cancelled හෝ `rdp` skipped. → descriptor එකක් සැබෑ ධාවනයකින් කිසිදා ගොඩනැගී නැත.
 2. **App patch එක merge වී නැත** (app ලිවීම් 403). Signal එක publish නොවේ නම් discovery log fallback එකට වැටේ — එය සජීවී ධාවනයක් දැකිය නොහැක.
-3. **Windows client VM එක කිසිදා steer වී නැත**: RDP සහ Web Desktop, ticket redemption, LogonType-10 සාක්ෂි, 20-විශේෂාංග PASS — සියල්ල `NOT_RUN`.
+3. **Windows client VM එක කිසිදා steer වී නැත**: RDP සහ Web Desktop, ticket redemption, LogonType-10 සාක්ෂි, 20-විශේෂාංග PASS — සියල්ල `NOT_RUN`. අවසන් PR ධාවනයේ (39817290315) ලැබ්-සැපයූ backend එකක් සමඟ පවා RDP auto-login `RDP_FILE_SECURITY_REVIEW_BLOCKING` නිසා FAIL විය; එය consent පූර්ව කොන්දේසියක් ලෙස වෙන් කර ඇත.
 4. **දෙවන ස්වාධීන ධාවනය** (fresh credentials) — `NOT_RUN`.
 5. **Cancellation/expiry/duplicate-event** හැසිරවීම code එකේ ඇත; සජීවී ධාවනයකින් සත්‍යාපනය කර නැත.
 6. **`$Matches` patch එක**: වර්තමාන app main (`daf13685`) මතට cleanly apply වේ; real-PowerShell reproduction මෙම host එකේ skip විය (pwsh නැත). එබැවින් "නිවැරදි කරන ලදී" ලෙස නොකියවේ — **tested patch එකක් ලෙස පමණක්** භාර දෙයි.
@@ -100,7 +100,9 @@
 | යෙදුම් main | `daf13685d051abf8dea304a2ade82522ae8733ba` |
 | යෙදුම් PR | **නොමැත** — ලිවීමට අවසර නැත (403) |
 | ප්‍රධාන commits | `b6431b2` (publisher+snippet+docs+cleanup), `aaa30ac` (check-run discovery), `8824636` (live-signal lib+harness), `3a2babd`, `7aec38a` (transport measurements) |
-| CI (PR) | `static` job එකේ `actionlint` දෝෂයක් තිබුණි (SC2016: single-quoted `node -e`). එය quoted heredoc එකකට වෙනස් කර, `_actionlint-report` ධාවනයේදී **`actionlint exit=0, findings=0`** ලෙස තහවුරු කරන ලදී (ධාවනය 39817024937); එම තාවකාලික workflow එක ඉවත් කර ඇත. සම්පූර්ණ PR ධාවනය නැවත පරීක්ෂා කරමින් පවතී |
+| CI (PR #21, head `e218ce9`, ධාවනය 39817290315) | `static` **PASS** (regression 155, actionlint 0 findings, PowerShell parse), `server` **PASS**, `client` **FAIL** (`rdp_auto_login=FAIL :: RDP_FILE_SECURITY_REVIEW_BLOCKING`, `web_desktop=BLOCKED`), `report` FAIL (verdict NOT_VERIFIED) |
+| එම client ධාවනයේ සාක්ෂි | `dashboard_client=PASS` (`978a8375ee77…` build, 1366×820), `backend_readiness_remote=PASS` (pid 8496, port 7331) — නමුත් මෙය **ලැබ්-සැපයූ backend** එකක්; app-originated සජීවී ධාවනයක් නොවේ |
+| RDP බාධකය (නැවුම් සාක්ෂි) | `mstsc(2628)` "Remote Desktop Connection security warning" — publisher "Unknown publisher" සමඟ RDP-file security review; "Don't ask me again" කොටු දෙකම **unchecked**. මෙය consent/setup පූර්ව කොන්දේසියකි; සම්පූර්ණ auto-login සත්‍යාපනයක් නොවේ |
 | Deployment | කිසිවක් deploy කර නැත; lab main වෙනස් වී නැත |
 
 ---
