@@ -96,6 +96,23 @@ module.exports = async function registerRdpSigningTests(H) {
     assert.ok(/RDP_FILE_SIGNING_NOT_CONFIGURED/.test(mc), 'an unconfigured client records the fact instead of pretending');
   });
 
+  await test('workflow structure gate: the committed gate passes on this tree and refuses a real defect', async () => {
+    const gate = require('../workflow-structure-check');
+    const { findings } = gate.run();
+    assert.deepStrictEqual(findings, [], JSON.stringify(findings));
+    // The gate is only meaningful if it bites. Prove the negative on a
+    // temp copy of the workflows with one seeded defect.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-wf-'));
+    const live = fs.readFileSync(path.join(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml'), 'utf8');
+    const seeded = live.replace(/^  pull_request:/m, '  # pull_request removed on purpose');
+    assert.ok(seeded !== live);
+    const wt2 = require('../lib/workflow-text');
+    assert.ok(/^  pull_request:/m.test(live));
+    assert.ok(!/^  pull_request:/m.test(seeded), 'the seeded copy really lost the trigger');
+    assert.ok(wt2.concurrencyBlock(seeded).ok);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   await test('rdp signing: the bootstrap workflow is restricted, opt-in and never weakens transport security', async () => {
     const wt = require('../lib/workflow-text');
     const wf = wt.readNormalized(path.join(__dirname, '..', '..', '.github', 'workflows', 'rdp-signing.yml'));

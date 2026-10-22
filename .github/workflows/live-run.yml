@@ -200,16 +200,11 @@ jobs:
       - name: Workflow structure gate (line-ending independent)
         run: |
           set -euo pipefail
-          node -e '
-            const wt = require("./scripts/lib/workflow-text");
-            const fs = require("fs");
-            const lf = wt.readNormalized(".github", "workflows", "live-run.yml");
-            for (const [name, text] of [["lf", lf], ["crlf", lf.replace(/\n/g, "\r\n")], ["cr", lf.replace(/\n/g, "\r")]]) {
-              const c = wt.concurrencyBlock(text);
-              if (!c.ok) { console.error(`::error title=workflow structure (${name})::${c.code}: ${c.detail}`); process.exit(1); }
-              console.log(`${name}: concurrency keys ${c.keys.join(",")}`);
-            }
-          '
+          # A committed script, not a single-quoted `node -e` one-liner: actionlint
+          # reports SC2016 for those (measured on this very step), and the check
+          # must be pinnable by a regression.
+          node scripts/workflow-structure-check.js
+
       - name: actionlint the workflow files (pinned, findings as annotations)
         id: lint
         run: |
