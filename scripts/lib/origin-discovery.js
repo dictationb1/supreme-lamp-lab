@@ -447,9 +447,23 @@ async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() 
 }
 
 /** Signal first (works while the run is alive), logs second (finished runs). */
-async function resolveOriginSource(run, { originRepo, privateKeyPem, now = Date.now() } = {}) {
+async function resolveOriginSource(run, { originRepo, privateKeyPem, now = Date.now(), allowLogFallback = true } = {}) {
   const signal = await readRunSignal({ originRepo, run, privateKeyPem, now });
   if (signal.ok) return signal;
+  // `allowLogFallback: false` (CLI `--origin-transport signal`) makes a signal
+  // failure a NAMED refusal instead of a silent downgrade to the plaintext log.
+  if (!allowLogFallback) {
+    return {
+      ok: false,
+      code: signal.code,
+      detail: signal.detail,
+      transport: 'check-run',
+      signalCode: signal.code,
+      signalDetail: signal.detail,
+      checkRun: signal.checkRun || null,
+      refusedFallback: 'the plaintext-log fallback is disabled for this run'
+    };
+  }
   const logs = await downloadOriginLogs({ originRepo, runId: run.id });
   if (!logs.ok) return { ok: false, code: logs.code, detail: logs.detail, signalCode: signal.code, signalDetail: signal.detail };
   const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text, { now });
@@ -473,7 +487,12 @@ async function discoverOrigin({
   explicitAttempt = 0,
   labRevision = 'unknown',
   maxCandidates = 6,
-  now = Date.now()
+  now = Date.now(),
+  // Transport policy. `requireSignal` (or `allowLogFallback: false`) removes the
+  // plaintext-log fallback so the encrypted MC-SIGNAL path cannot regress
+  // unnoticed; the default keeps the fallback and REPORTS it as a fallback.
+  requireSignal = false,
+  allowLogFallback = true
 } = {}) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(originRepo || ''))) {
     return fail('ORIGIN_REPO_INVALID', JSON.stringify(originRepo));
@@ -527,7 +546,8 @@ async function discoverOrigin({
       continue;
     }
     const source = await resolveOriginSource(run, {
-      originRepo, privateKeyPem: process.env.LAB_SIGNAL_PRIVATE_KEY || '', now
+      originRepo, privateKeyPem: process.env.LAB_SIGNAL_PRIVATE_KEY || '', now,
+      allowLogFallback: allowLogFallback !== false && requireSignal !== true
     });
     if (!source.ok) {
       rejected.push({
@@ -575,7 +595,10 @@ async function discoverOrigin({
       evidence: {
         ...(source.evidence || {}),
         transport: source.transport,
-        logTransport: source.transport,
+        // `check-run` is the encrypted MC-SIGNAL transport. The older label
+        // `logTransport` is kept for report compatibility but is only ever the
+        // run log's own transport ('per-job' | 'run-archive'), never the signal.
+        logTransport: source.transport === 'check-run' ? null : source.transport,
         logJobs: source.logJobs || null,
         checkRun: source.checkRun || null,
         signalLive: source.live === true,

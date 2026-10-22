@@ -552,17 +552,53 @@ module.exports = async function registerOriginDiscoveryTests(H) {
     });
 
     // ------------------------------------------------------------- workflows
+    // REPRODUCED WINDOWS DEFECT (lab run 39819073772, job `client`):
+    //   "AssertionError: concurrency block present" at this file line ~560.
+    // The workflow DID contain the block; the Windows checkout had CRLF and the
+    // assertion matched only `concurrency:\n`. The structural check now runs on
+    // normalized text, and the same assertions are executed against LF, CRLF,
+    // CR and BOM+CRLF renderings of the REAL file, plus genuine negatives.
+    const wt = require('../lib/workflow-text');
+    const wfPath = path.join(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
+    const wfLF = wt.readNormalized(wfPath);
+
+    await test('live-run workflow: the concurrency block is read identically from LF, CRLF, CR and BOM checkouts', async () => {
+      const variants = {
+        lf: wfLF,
+        crlf: wfLF.replace(/\n/g, '\r\n'),
+        cr: wfLF.replace(/\n/g, '\r'),
+        'bom-crlf': '\ufeff' + wfLF.replace(/\n/g, '\r\n')
+      };
+      for (const [name, text] of Object.entries(variants)) {
+        const conc = wt.concurrencyBlock(text);
+        assert.strictEqual(conc.ok, true, `${name}: ${conc.code} ${conc.detail || ''}`);
+        // keys GitHub accepts are exactly these two; anything else fails the run
+        assert.deepStrictEqual(conc.keys.sort(), ['cancel-in-progress', 'group'], `${name}: keys`);
+      }
+      // the file on disk (whatever EOL this checkout produced) is the same file
+      const onDisk = wt.readNormalized(wfPath);
+      assert.deepStrictEqual(wt.concurrencyBlock(onDisk).keys.sort(), ['cancel-in-progress', 'group']);
+      assert.ok(!wfLF.includes('\r'), 'the reader normalizes before any structural match');
+    });
+
+    await test('live-run workflow: a missing, scalar or unknown-key concurrency block is refused (the assertion still bites)', async () => {
+      assert.strictEqual(wt.concurrencyBlock('on:\n  push:\n').code, 'CONCURRENCY_MISSING');
+      assert.strictEqual(wt.concurrencyBlock('concurrency: live-run-queue\n').code, 'CONCURRENCY_NOT_A_MAP');
+      // this is the defect the assertion exists for: GitHub rejects the whole
+      // workflow file when an unknown key appears under concurrency:
+      const unknown = wt.concurrencyBlock('concurrency:\r\n  group: q\r\n  queue: max\r\n');
+      assert.strictEqual(unknown.ok, false);
+      assert.strictEqual(unknown.code, 'CONCURRENCY_UNKNOWN_KEY');
+      assert.deepStrictEqual(unknown.keys, ['group', 'queue']);
+      assert.strictEqual(wt.concurrencyBlock('concurrency: \n').code, 'CONCURRENCY_EMPTY');
+    });
+
     await test('live-run workflow: it discovers automatically, is valid YAML, and never accepts an unvalidated payload', async () => {
-      const wf = fs.readFileSync(path.join(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml'), 'utf8');
-      // valid concurrency keys only (GitHub rejects unknown keys with a failed
-      // "workflow file" run and zero jobs - measured)
-      const conc = wf.match(/^concurrency:\n((?:[ \t]+.*\n)+)/m);
-      assert.ok(conc, 'concurrency block present');
-      const keys = conc[1].split('\n').map(l => (l.match(/^\s+([a-z-]+):/) || [])[1]).filter(Boolean);
-      assert.deepStrictEqual(keys.sort(), ['cancel-in-progress', 'group']);
-      // the automatic path exists and is wired to the zero-change transport
+      const wf = wfLF;
+      // the automatic path exists and is wired to the signal-first transport
       assert.ok(/^  discover:/m.test(wf), 'a discovery job must exist');
-      assert.ok(/--origin-transport', 'public-log'|--origin-transport public-log/.test(wf), 'the client must use the public-log transport in live mode');
+      assert.ok(/--origin-transport', 'auto'|--origin-transport auto/.test(wf), 'the client must use the signal-first (auto) transport in live mode');
+      assert.ok(!/--origin-transport', 'public-log'|--origin-transport public-log/.test(wf), 'the stale public-log label must not be what the client asks for');
       assert.ok(/--descriptor-id/.test(wf), 'the client must pin the descriptor the queue published');
       assert.ok(/node scripts\/live-run\.js discover/.test(wf));
       assert.ok(!/^on:[\s\S]{0,400}?^  workflow_run:/m.test(wf), 'no workflow_run trigger');
@@ -571,6 +607,139 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       // prohibition, never as a value producer
       assert.ok(!/dashToken|dashboardToken/.test(wf.split('jobs:')[0]), 'no secret in the trigger/output front matter');
     });
+
+    // ------------------------------------------------- SIGNAL KEY WIRING (B)
+    // REPRODUCED DEFECT (lab run 39819073772): LAB_SIGNAL_PRIVATE_KEY reached the
+    // discover/claim steps but NOT the Windows LIVE VERIFICATION step, which
+    // calls `scripts/live-run.js live` and re-discovers the origin in-process.
+    // The reader takes the key from process.env.LAB_SIGNAL_PRIVATE_KEY, so every
+    // live verification silently fell back to the plaintext run log.
+    const LIVE_STEP = 'LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)';
+
+    await test('live-run workflow: the Windows verification step receives LAB_SIGNAL_PRIVATE_KEY (and keeps GH_TOKEN + ARTIFACT_DIR)', async () => {
+      const block = wt.stepBlock(wfLF, LIVE_STEP);
+      assert.ok(block, `the step ${JSON.stringify(LIVE_STEP)} must exist in live-run.yml`);
+      assert.strictEqual(wt.envValue(block, 'LAB_SIGNAL_PRIVATE_KEY'), '${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}',
+        'the live step must bind the secret explicitly (env, never an argument)');
+      assert.strictEqual(wt.envValue(block, 'GH_TOKEN'), '${{ github.token }}');
+      assert.ok(/ARTIFACT_DIR:\s*\$\{\{ runner\.temp \}\}/.test(block), 'ARTIFACT_DIR must be preserved');
+      assert.ok(/scripts', 'live-run\.js', 'live'/.test(block) || /scripts\/live-run\.js', 'live'/.test(block), 'the step still runs the live command');
+      // the same binding exists on the discover step that publishes the queue
+      const discStep = wt.stepBlock(wfLF, 'Discover the originating run (publish one queue entry per run+attempt)');
+      assert.ok(discStep, 'the discover step must exist');
+      assert.strictEqual(wt.envValue(discStep, 'LAB_SIGNAL_PRIVATE_KEY'), '${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}');
+      // ... and on the read-only candidate gate, so config presence is proven pre-merge
+      const keyStep = wt.stepBlock(wfLF, 'Signal key status (presence, algorithm, fingerprint - never the value)');
+      assert.ok(keyStep, 'the candidate key-status step must exist');
+      assert.strictEqual(wt.envValue(keyStep, 'LAB_SIGNAL_PRIVATE_KEY'), '${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}');
+    });
+
+    await test('live-run workflow: the private key never becomes an output, an artifact path, an argument or a summary line', async () => {
+      // 1. not a job output
+      const outputsSection = wfLF.split(/^jobs:/m)[1] || '';
+      const outLines = outputsSection.split('\n').filter(l => /^\s{6}[a-z_]+:/.test(l) && !/^\s{8}/.test(l));
+      assert.ok(!outLines.some(l => /SIGNAL_PRIVATE|PRIVATE_KEY/.test(l)), 'the key must not be a job output');
+      // 2. never a CLI argument (arguments are visible in the process table and in the log line)
+      assert.ok(!/--private-key|--signal-key/.test(wfLF), 'the key must never be passed as an argument');
+      // 3. never an uploaded path / artifact name
+      const uploadBlocks = wfLF.split('actions/upload-artifact');
+      for (const b of uploadBlocks.slice(1)) {
+        const slice = b.slice(0, 600);
+        assert.ok(!/LAB_SIGNAL_PRIVATE_KEY|\$\{\{\s*secrets\./.test(slice), 'no secret may appear in an artifact upload block');
+      }
+      // 4. never echoed into a step summary or an annotation
+      for (const line of wfLF.split('\n')) {
+        if (/GITHUB_STEP_SUMMARY|::notice|::warning|::error/.test(line)) {
+          assert.ok(!/SIGNAL_PRIVATE_KEY/.test(line), `a summary/annotation line must not name the secret: ${line.trim()}`);
+        }
+      }
+      // 5. every NON-COMMENT occurrence of the secret is a `${{ secrets.… }}` binding
+      const bindings = wfLF.split('\n').filter(l => /LAB_SIGNAL_PRIVATE_KEY/.test(l) && !/^\s*#/.test(l));
+      assert.ok(bindings.length >= 3, `the key is bound to every step that discovers an origin (saw ${bindings.length})`);
+      for (const l of bindings) assert.match(l.trim(), /^LAB_SIGNAL_PRIVATE_KEY: \$\{\{ secrets\.LAB_SIGNAL_PRIVATE_KEY \}\}$/, l.trim());
+    });
+
+    await test('live-run workflow: a pre-merge candidate path exists and is restricted to same-repository branches', async () => {
+      assert.ok(/^  pull_request:/m.test(wfLF), 'the candidate path must be triggerable before merge');
+      assert.ok(/types: \[opened, synchronize, reopened, labeled\]/.test(wfLF), 'labelling must be an event type (live-verify)');
+      assert.ok(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/.test(wfLF),
+        'a fork PR must never reach the secret or the self-hosted desktop');
+      assert.ok(/contains\(github\.event\.pull_request\.labels\.\*\.name, 'live-verify'\)/.test(wfLF),
+        'the full pipeline on a PR is opt-in by label');
+      assert.ok(/^  candidate:/m.test(wfLF), 'the read-only candidate gate job must exist');
+      // the candidate gate never publishes into the live queue
+      const candBlock = wt.stepBlock(wfLF, 'Real discovery decision for the application repository (read-only)');
+      assert.ok(candBlock, 'candidate discovery step must exist');
+      const candRun = candBlock.split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
+      assert.ok(!/--publish/.test(candRun), 'a PR candidate must never publish a queue entry');
+      assert.ok(!/workflow_run/.test(wfLF.split('on:')[1].split('permissions:')[0]), 'no workflow_run trigger was introduced');
+    });
+
+    // --------------------------------------------- missing-key failure paths (B)
+    await test('live signal: a missing private key is a NAMED refusal, and `signal` transport never downgrades to the plaintext log', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.checkRuns = null;
+      const run = runObj({ id: 7301 });
+      state.runs[7301] = run;
+      state.blobs[7301] = logZip();
+      state.jobLogs[7301] = { rdp: 'x ' + READY_LINE + '\n' + bannerFor('100.101.102.103', 'k-fallback') };
+      state.checkRuns = [{ id: 77, name: signalLib.SIGNAL_NAME, status: 'in_progress', started_at: new Date().toISOString(), output: { summary: signalFor(run) } }];
+      delete process.env.LAB_SIGNAL_PRIVATE_KEY;
+
+      // signal-only: refused, with the exact code, and nothing is attached
+      const strict = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7301, allowLogFallback: false });
+      assert.strictEqual(strict.ok, false);
+      assert.strictEqual(strict.code, 'NO_LIVE_ORIGIN');
+      const rej = strict.evidence.rejected.find(r => r.runId === 7301);
+      assert.strictEqual(rej.code, 'SIGNAL_NO_PRIVATE_KEY', JSON.stringify(rej));
+
+      // default (auto): the log fallback is used AND reported as a fallback
+      const fallback = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7301 });
+      assert.strictEqual(fallback.ok, true, fallback.detail || '');
+      assert.notStrictEqual(fallback.evidence.transport, 'check-run');
+      assert.strictEqual(fallback.evidence.signalLive, false);
+      assert.strictEqual(fallback.evidence.signalFallback, 'SIGNAL_NO_PRIVATE_KEY');
+      assert.strictEqual(fallback.evidence.originLogPubliclyReadable, true, 'the report must admit the credential came from a public log');
+    });
+
+    await test('live signal: with the key present the same run attaches over the encrypted check-run transport', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.checkRuns = null;
+      const run = runObj({ id: 7302 });
+      state.runs[7302] = run;
+      state.blobs[7302] = logZip();
+      state.jobLogs[7302] = { rdp: 'x ' + READY_LINE + '\n' + bannerFor('100.101.102.103', 'k-should-not-be-used') };
+      const key = 'k-' + crypto.randomBytes(8).toString('hex');
+      state.checkRuns = [{ id: 78, name: signalLib.SIGNAL_NAME, status: 'in_progress', started_at: new Date().toISOString(), output: { summary: signalFor(run, { key }) } }];
+      process.env.LAB_SIGNAL_PRIVATE_KEY = PRIV_PEM;
+      const res = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7302, allowLogFallback: false });
+      delete process.env.LAB_SIGNAL_PRIVATE_KEY;
+      assert.strictEqual(res.ok, true, res.detail || JSON.stringify(res.evidence && res.evidence.rejected));
+      assert.strictEqual(res.evidence.transport, 'check-run');
+      assert.strictEqual(res.evidence.signalLive, true);
+      assert.strictEqual(res.evidence.signalFallback, null);
+      assert.strictEqual(res.evidence.originLogPubliclyReadable, false, 'a signal run never claims the credential was in the log');
+      assert.strictEqual(res.evidence.checkRun.id, 78);
+      assert.strictEqual(res.secret.dashboardToken, key, 'the decrypted key is returned in memory only');
+      assert.ok(!JSON.stringify(res.evidence).includes(key), 'the key never enters the evidence object');
+      assert.ok(!JSON.stringify(res.descriptor).includes(key), 'the key never enters the descriptor');
+    });
+
+    await test('live signal: an absent signal is refused under `signal` transport even when the log is perfectly readable', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.checkRuns = null;
+      const run = runObj({ id: 7303 });
+      state.runs[7303] = run;
+      state.blobs[7303] = logZip();
+      state.jobLogs[7303] = { rdp: 'x ' + READY_LINE + '\n' + bannerFor('100.101.102.103', 'k-only-in-log') };
+      process.env.LAB_SIGNAL_PRIVATE_KEY = PRIV_PEM;
+      const strict = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7303, allowLogFallback: false });
+      const loose = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7303 });
+      delete process.env.LAB_SIGNAL_PRIVATE_KEY;
+      assert.strictEqual(strict.ok, false);
+      assert.match(JSON.stringify(strict.evidence.rejected), /SIGNAL_ABSENT|SIGNAL_LIST_EMPTY/);
+      assert.strictEqual(loose.ok, true);
+      assert.strictEqual(loose.evidence.transport === 'check-run', false);
+      assert.match(String(loose.evidence.signalFallback), /SIGNAL_ABSENT|SIGNAL_LIST_EMPTY/);
+    });
+
   } finally {
     srv.close();
     delete process.env.GITHUB_API_URL;

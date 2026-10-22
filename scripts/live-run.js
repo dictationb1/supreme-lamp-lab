@@ -65,13 +65,17 @@ function parseArgs(argv) {
     profileDir: '', outDir: '', ackPollMs: 20000, expectRunning: true,
     envelopeArtifactRepo: '', envelopeArtifactRunId: 0, envelopeArtifactName: '', recordOut: '',
     // Origin transport: how the CURRENT RUN's authorization reaches this client.
+    //   auto        - MC-SIGNAL first (check-run output, RSA-OAEP ciphertext),
+    //                 the origin's own run log only as a REPORTED fallback
+    //   signal      - MC-SIGNAL only; a signal failure is reported and NOT
+    //                 silently downgraded to the plaintext run log
+    //   log         - the origin's own run log only (plaintext credential; used
+    //                 to prove the fallback still works, never the default)
     //   record      - the application published a descriptor+envelope artifact
-    //                 (the supported upgrade once the app patch lands)
-    //   public-log  - discovery from the origin's own public run evidence
-    //                 (works with the unpatched application)
-    //   auto        - record when one exists for the named run, else public-log
+    //   public-log  - DEPRECATED alias of `auto` from the earlier design when
+    //                 log scraping was believed to be the primary transport
     originTransport: 'auto', descriptorId: '', descriptorIdentity: '', originWorkflow: discovery.ORIGIN_WORKFLOW_DEFAULT,
-    discoverOut: '', publish: false, seedSha: ''
+    discoverOut: '', jsonOut: '', publish: false, seedSha: ''
   };
   for (let i = 3; i < argv.length; i++) {
     const k = argv[i];
@@ -118,9 +122,22 @@ function parseArgs(argv) {
     else if (k === '--descriptor-identity') a.descriptorIdentity = v();
     else if (k === '--origin-workflow') a.originWorkflow = v();
     else if (k === '--discover-out') a.discoverOut = v();
+    else if (k === '--json-out') a.jsonOut = v();
     else if (k === '--publish') a.publish = true;
     else if (k === '--seed-sha') a.seedSha = v();
     else { const e = new Error(`unknown flag ${k}`); e.code = 'USAGE'; throw e; }
+  }
+  // Canonicalize the transport value once, so no later code path can disagree
+  // about what "public-log" meant. The old name described a transport that is
+  // no longer primary; keeping it as an alias avoids breaking an operator's
+  // saved command line, but the report always names the transport actually used.
+  const aliases = { 'public-log': 'auto', 'origin-public-log': 'auto', 'live-signal': 'signal', 'check-run': 'signal' };
+  if (aliases[a.originTransport]) a.originTransportRequested = a.originTransport;
+  if (aliases[a.originTransport]) a.originTransport = aliases[a.originTransport];
+  if (!['auto', 'signal', 'log', 'record'].includes(a.originTransport)) {
+    const e = new Error(`unknown --origin-transport ${JSON.stringify(a.originTransport)} (auto | signal | log | record)`);
+    e.code = 'USAGE';
+    throw e;
   }
   return a;
 }
@@ -312,7 +329,7 @@ async function cmdLive(a) {
     // 1. locate + validate the record -----------------------------------
     setStage('AWAITING_READINESS');
     let rec = null;
-    if (a.originTransport !== 'public-log' && a.correlationId && a.originRunId && a.originRepo) {
+    if ((a.originTransport === 'record' || a.originTransport === 'auto') && a.correlationId && a.originRunId && a.originRepo) {
       rec = await store.readRecord({ repo: a.labRepo, originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt });
     } else if (a.envelopeInline && fs.existsSync(a.envelopeInline)) {
       // CI self-validation / local harness: the descriptor sits next to the envelope.
@@ -353,19 +370,29 @@ async function cmdLive(a) {
     // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
     // only names a candidate, and every field is re-derived from the log of the
     // exact attempt before a descriptor exists.
-    if (!rec && (a.originTransport === 'public-log' || a.originTransport === 'auto')) {
+    if (!rec && a.originTransport !== 'record') {
       setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
       const disc = await discovery.discoverOrigin({
         originRepo: a.originRepo || 'dictationb1/supreme-lamp',
         originWorkflow: a.originWorkflow,
         explicitRunId: a.originRunId || 0,
         explicitAttempt: a.originAttempt || 0,
+        // `signal` refuses the plaintext-log fallback, so a transport regression
+        // shows up as a named refusal instead of a quiet downgrade.
+        requireSignal: a.originTransport === 'signal',
+        allowLogFallback: a.originTransport !== 'signal',
         labRevision: a.labRevision || envOr('GITHUB_SHA', 'unknown')
       });
       report.discovery = {
         code: disc.code,
         detail: redact(String(disc.detail || '')).slice(0, 300),
+        transportRequested: a.originTransport,
+        transportRequestedRaw: a.originTransportRequested || a.originTransport,
         evidence: disc.evidence ? {
+          transport: disc.evidence.transport || null,
+          checkRun: disc.evidence.checkRun || null,
+          signalLive: disc.evidence.signalLive === true,
+          signalFallback: disc.evidence.signalFallback || null,
           ready: disc.evidence.ready,
           endpointKind: disc.evidence.endpointKind,
           endpointHost: disc.evidence.endpointHost,
@@ -403,16 +430,30 @@ async function cmdLive(a) {
         originAttempt: disc.descriptor.originAttempt,
         dashTokenFingerprint: disc.descriptor.dashTokenFingerprint,
         dashboardToken: disc.secret.dashboardToken,
-        transport: 'origin-public-log'
+        transport: disc.evidence.transport === 'check-run' ? 'origin-live-signal' : `origin-${disc.evidence.transport || 'unknown'}`
       }), { mode: 0o600 });
       a.envelopeInline = envPath;
       rec = { path: 'public-log', record: { descriptor: disc.descriptor, state: 'DISCOVERED_BY_LAB' } };
+      // REPORT THE TRANSPORT ACTUALLY USED. The earlier build hard-coded
+      // 'origin-public-log' even when the credential came from the encrypted
+      // MC-SIGNAL check-run, which made an encrypted run indistinguishable from
+      // a plaintext-log run in the evidence.
+      const usedSignal = disc.evidence.transport === 'check-run';
       report.transport = {
-        kind: 'origin-public-log',
+        kind: usedSignal ? 'origin-live-signal' : `origin-${disc.evidence.transport || 'unknown'}`,
+        mechanism: usedSignal
+          ? 'MC-SIGNAL v1 in the mission-control-live-signal check-run output, RSA-OAEP-256 ciphertext decrypted in memory'
+          : 'the origin run\'s own Actions log (readiness banner + current-run key, PLAINTEXT in that public log)',
+        credentialAtRest: usedSignal ? 'encrypted (ciphertext only in a public check-run)' : 'plaintext (public run log)',
         repository: disc.origin.repo,
         runId: disc.origin.runId,
         attempt: disc.origin.attempt,
-        evidence: 'the origin run\'s own Actions log (readiness banner + current-run key), bound to GitHub run metadata for that exact id+attempt'
+        checkRunId: usedSignal && disc.evidence.checkRun ? disc.evidence.checkRun.id : null,
+        checkRunLive: usedSignal ? disc.evidence.checkRun && disc.evidence.checkRun.status === 'in_progress' : null,
+        signalFallback: usedSignal ? null : (disc.evidence.signalFallback || null),
+        evidence: usedSignal
+          ? 'the origin run published its own run/attempt/sha-bound encrypted signal; GitHub run metadata is what bound that signal to the exact id+attempt'
+          : 'the origin run\'s own Actions log, bound to GitHub run metadata for that exact id+attempt'
       };
       report.timestamps.discoveredAt = new Date().toISOString();
     }
@@ -869,6 +910,127 @@ function cmdSignalKeygen() {
   return process.exit(EXIT.OK);
 }
 
+/**
+ * SANITIZED KEY / ROUND-TRIP STATUS.
+ *
+ * Answers, without ever printing a key: is the lab private key configured, does
+ * it parse, what is its public fingerprint, and (when the application has
+ * published one) does the app's `enc.keyId` match it and does the ciphertext
+ * decrypt? The fingerprint IS public (it is `enc.keyId` in every envelope), so
+ * comparing fingerprints proves the two halves belong together without either
+ * half leaving its own repository.
+ *
+ * Exit 0 only when the key is present AND (if a signal exists) it decrypted.
+ * Exit 4 = configured but no signal to round-trip yet (an honest "not proven").
+ * Exit 5 = not configured.
+ */
+async function cmdSignalStatus(a) {
+  const crypto = require('crypto');
+  const signalLib = require('./lib/live-signal');
+  const pem = process.env.LAB_SIGNAL_PRIVATE_KEY || '';
+  const out = {
+    operation: 'signal-status',
+    generatedAt: new Date().toISOString(),
+    privateKeyPresent: Boolean(pem.trim()),
+    privateKeyParses: false,
+    algorithm: null,
+    modulusBits: null,
+    privateKeyFingerprint32: null,
+    publicKeyVariable: 'LAB_SIGNAL_PUBKEY (application repository)',
+    privateKeySecret: 'LAB_SIGNAL_PRIVATE_KEY (lab repository)',
+    roundTrip: null,
+    originRepo: a.originRepo || 'dictationb1/supreme-lamp'
+  };
+  let code = EXIT.OK;
+  if (!out.privateKeyPresent) {
+    out.code = 'LAB_SIGNAL_PRIVATE_KEY_MISSING';
+    out.detail = 'the lab repository secret LAB_SIGNAL_PRIVATE_KEY is not set for this event; the encrypted MC-SIGNAL transport cannot work and discovery would fall back to the plaintext run log';
+    code = EXIT.NO_EVIDENCE;
+  } else {
+    try {
+      const priv = crypto.createPrivateKey(pem);
+      const pubPem = crypto.createPublicKey(priv).export({ type: 'spki', format: 'pem' }).toString();
+      out.privateKeyParses = true;
+      out.algorithm = priv.asymmetricKeyType || 'unknown';
+      out.modulusBits = priv.asymmetricKeyDetails ? priv.asymmetricKeyDetails.modulusLength : null;
+      out.privateKeyFingerprint32 = signalLib.keyFingerprint(pubPem);
+      out.code = 'LAB_SIGNAL_KEY_PRESENT';
+      // Round-trip against the real application evidence, if any exists.
+      const disc = await discovery.discoverOrigin({
+        originRepo: a.originRepo || 'dictationb1/supreme-lamp',
+        originWorkflow: a.originWorkflow,
+        explicitRunId: a.originRunId || 0,
+        explicitAttempt: a.originAttempt || 0
+      });
+      const ev = (disc.evidence || {});
+      if (disc.ok && ev.transport === 'check-run') {
+        out.roundTrip = {
+          proven: true,
+          transport: 'check-run (MC-SIGNAL v1)',
+          checkRunId: ev.checkRun ? ev.checkRun.id : null,
+          checkRunLive: ev.checkRun ? ev.checkRun.status === 'in_progress' : null,
+          keyIdMatched: true,
+          decrypted: true,
+          origin: { runId: disc.origin.runId, attempt: disc.origin.attempt, appSha: disc.origin.appSha },
+          note: 'the application signal was validated against GitHub run metadata and decrypted with this private key; the plaintext key was never printed or written'
+        };
+        out.code = 'LAB_SIGNAL_ROUND_TRIP_OK';
+      } else {
+        const rejected = (ev.rejected || []).map(r => ({ runId: r.runId, attempt: r.attempt, code: r.code, signal: r.signal ? r.signal.code : null }));
+        out.roundTrip = {
+          proven: false,
+          reason: disc.code,
+          detail: String(disc.detail || '').slice(0, 300),
+          // SIGNAL_ABSENT / SIGNAL_LIST_EMPTY / SIGNAL_NO_PRIVATE_KEY etc. are
+          // reported as they are. "No signal" means the application never
+          // published one - usually because the publisher patch is not merged.
+          rejected
+        };
+        out.code = 'LAB_SIGNAL_NO_LIVE_EVIDENCE';
+        code = EXIT.BLOCKED;
+      }
+    } catch (e) {
+      out.privateKeyParses = false;
+      out.code = 'LAB_SIGNAL_PRIVATE_KEY_UNPARSEABLE';
+      out.detail = `the configured LAB_SIGNAL_PRIVATE_KEY does not parse as a private key (${String(e.message || e).slice(0, 120)})`;
+      code = EXIT.NO_EVIDENCE;
+    }
+  }
+  const jsonOut = a.jsonOut || '';
+  const safe = redactObject(out);
+  if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify(safe, null, 2), { mode: 0o600 });
+  console.log(`===== signal-status result (exit ${code}) =====`);
+  console.log(JSON.stringify(safe, null, 2));
+  writeGithubOutput({
+    private_key_present: out.privateKeyPresent ? 'yes' : 'no',
+    key_fingerprint32: out.privateKeyFingerprint32 || '',
+    round_trip: out.roundTrip && out.roundTrip.proven ? 'proven' : 'not-proven',
+    reason: out.code
+  });
+  annotate.notice(
+    'signal key status',
+    out.privateKeyPresent
+      ? `LAB_SIGNAL_PRIVATE_KEY present (${out.algorithm}, ${out.modulusBits} bit, fingerprint ${String(out.privateKeyFingerprint32 || '').slice(0, 16)}...); round-trip: ${out.roundTrip && out.roundTrip.proven ? 'PROVEN' : 'not proven (' + (out.roundTrip ? out.roundTrip.reason : 'n/a') + ')'}`
+      : 'LAB_SIGNAL_PRIVATE_KEY is NOT configured for this event - the encrypted transport cannot work'
+  );
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    fs.appendFileSync(summary, [
+      '### Lab signal key status (no key material)',
+      '',
+      '| field | value |',
+      '| --- | --- |',
+      `| LAB_SIGNAL_PRIVATE_KEY present | ${out.privateKeyPresent} |`,
+      `| parses | ${out.privateKeyParses} |`,
+      `| algorithm / size | ${out.algorithm || '-'} / ${out.modulusBits || '-'} |`,
+      `| public fingerprint (== app enc.keyId) | \`${out.privateKeyFingerprint32 || '-'}\` |`,
+      `| encrypted round-trip | ${out.roundTrip && out.roundTrip.proven ? 'PROVEN' : 'not proven'} (${out.roundTrip ? out.roundTrip.reason : 'n/a'}) |`,
+      ''
+    ].join('\n'));
+  }
+  return process.exit(code);
+}
+
 async function cmdSignal(a) {
   const privateKeyPem = process.env.LAB_SIGNAL_PRIVATE_KEY || '';
   const repo = a.originRepo || 'dictationb1/supreme-lamp';
@@ -1283,15 +1445,16 @@ async function main() {
     case 'probe': return cmdProbe(a);
     case 'signal-keygen': return cmdSignalKeygen();
     case 'signal': return cmdSignal(a);
+    case 'signal-status': return cmdSignalStatus(a);
     case 'ack': return cmdAck(a);
     case 'poll-records': return cmdPoll(a);
     case 'ack-state': return cmdAckState(a);
     default:
-      console.error(`unknown command ${JSON.stringify(a.cmd)} (expected origin-signal | live | discover | probe | ack | ack-state | poll-records)`);
+      console.error(`unknown command ${JSON.stringify(a.cmd)} (expected origin-signal | live | discover | probe | signal | signal-keygen | signal-status | ack | ack-state | poll-records)`);
       return process.exit(EXIT.USAGE);
   }
 }
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };
+module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };

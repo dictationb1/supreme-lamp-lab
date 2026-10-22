@@ -4,14 +4,17 @@ name: Live-Run Integration (Mission Control -> client VM)
 # The AUTOMATIC half of the integration. Nothing here is started by a human:
 #
 #   application run (supreme-lamp main.yml, mode=rdp) reaches readiness while its
-#   ephemeral server is alive and prints, in its OWN run log, the readiness
-#   marker and the dashboard URL for that run.
+#   ephemeral server is alive and publishes `MC-SIGNAL v1` into the output of the
+#   check run named `mission-control-live-signal` (the credential inside it is
+#   RSA-OAEP-256 ciphertext under the lab public key). The application-side
+#   publisher is patches/app-live-signal-publisher.js.
 #        |
 #        v
 #   discover (ubuntu, every sweep) reads GitHub's run API for the application
-#   repository (public data; no cross-repo token, no app-repo write) and the
-#   exact run's own log; builds the versioned non-secret descriptor
-#   (`slab-live-run/1`) and publishes ONE queue entry per (run, attempt).
+#   repository (public data; no cross-repo token, no app-repo write) and then the
+#   signal of the exact run+attempt+sha, decrypts it in memory; builds the
+#   versioned non-secret descriptor (`slab-live-run/1`) and publishes ONE queue
+#   entry per (run, attempt).
 #        |
 #        v
 #   claim (ubuntu) picks the oldest attachable record, never "the newest
@@ -38,11 +41,29 @@ name: Live-Run Integration (Mission Control -> client VM)
 #   * An application GITHUB_TOKEN has no write/dispatch right on this private
 #     repository (measured 403), so nothing here requires one: the sweep is the
 #     guaranteed path and `repository_dispatch` is an optional wake-up.
+#   * EVENT-BASED WAKE-UP IS NOT AVAILABLE without a credential the application
+#     repository does not have: a check_run created in the application
+#     repository cannot trigger a workflow in THIS repository (GitHub only
+#     delivers events to the repository that owns them, and Actions-created
+#     check runs are additionally subject to the recursion guard). The wake-up
+#     would need an app-side `repository_dispatch` carrying a token that can
+#     write to this private repository; that token does not exist today
+#     (app-repo secret writes are refused). Measured fallback: the `*/10` cron,
+#     i.e. up to ~10 minutes from publication to a queued claim, plus runner
+#     pickup. docs/live-signal.md records the measurement; do not call it
+#     immediate.
 #   * `workflow_run` (run-completed) is deliberately NOT used: by then the
 #     ephemeral server is gone, which is exactly this file's reason to exist.
 #   * Discovery is per (run id, attempt) and requires the run to still be
 #     `in_progress`; a stale attempt, an expired record, a foreign repository or
 #     a non-tailnet endpoint is refused, never warned.
+#   * PRE-MERGE VALIDATION (this file must be testable before it lands on main):
+#     `pull_request` runs the read-only candidate gate from the PR head, for
+#     branches of THIS repository only (a fork PR never receives the secret and
+#     never touches the self-hosted desktop). Labelling the PR `live-verify`
+#     additionally unlocks the REAL pipeline (discover -> claim -> client VM) on
+#     the candidate revision. `schedule` still only exists on the default
+#     branch, which is why the cron cannot be the pre-merge path.
 # ---------------------------------------------------------------------------
 
 run-name: live-run ${{ github.event_name }}
@@ -55,6 +76,12 @@ on:
     # makes a sweep and a wake-up idempotent, so a missed dispatch cannot turn
     # into a missed verification.
     - cron: '*/10 * * * *'
+  pull_request:
+    # Candidate validation BEFORE merge. The workflow file, the scripts and the
+    # key wiring are all exercised on the PR head revision, which is the only
+    # way to test this file while the default branch cannot yet contain it.
+    # Same-repository branches only (see the job-level `if` guards).
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       correlation_id:
@@ -84,9 +111,9 @@ on:
         type: choice
         options: [live-origin, origin-selftest, origin-probe]
       keep_viewer_open_minutes:
-        description: 'How long the authorized viewer stays open after the report (0 = close at once)'
+        description: 'How long the authorized viewer stays open after the report (default 15; 0 = close at once; max 60)'
         required: false
-        default: '0'
+        default: '15'
         type: string
 
 # Queue policy (enforced in scripts/lib/record-store.js and pick-record.js; the
@@ -109,10 +136,85 @@ permissions:
   actions: read     # read the origin run's metadata and its own log
 
 jobs:
-  discover:
-    name: discover the live origin
+  # ---------------------------------------------------------------------------
+  # PRE-MERGE CANDIDATE GATE (pull_request only, same-repository branches).
+  # This job is read-only against the origin: it never publishes a queue entry,
+  # never claims a desktop and never touches the self-hosted runner. It answers
+  # the two questions that block every other check before merge:
+  #   1. is the lab signal key configured and usable (presence + algorithm +
+  #      fingerprint, never the value)?
+  #   2. what does the REAL discovery path decide right now about the real
+  #      application repository — signal absent, run not in progress, decrypted,
+  #      or refused, with the exact code?
+  # ---------------------------------------------------------------------------
+  candidate:
+    name: candidate gate (read-only, pre-merge)
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Signal key status (presence, algorithm, fingerprint - never the value)
+        id: key
+        env:
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/live-run.js signal-status --origin-repo dictationb1/supreme-lamp --json-out key-status.json
+      - name: Real discovery decision for the application repository (read-only)
+        id: disc
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # No --publish: a PR must never mutate the live queue.
+          rc=0
+          node scripts/live-run.js discover --origin-repo dictationb1/supreme-lamp \
+            --origin-run 0 --origin-attempt 0 --lab-revision "$GITHUB_SHA" \
+            --discover-out discover-candidate.json || rc=$?
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then echo "::error title=candidate discover::exit $rc"; exit "$rc"; fi
+          jq -c '{found:(if .ok then "yes" else "no" end), reason, detail, transport:(.evidence.transport // null), signal:(.evidence.signalCode // .evidence.signal // null), rejected:((.evidence.rejected // [])|map({runId,attempt,code})|.[0:5])}' discover-candidate.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Workflow structure gate (line-ending independent)
+        run: |
+          set -euo pipefail
+          node -e '
+            const wt = require("./scripts/lib/workflow-text");
+            const fs = require("fs");
+            const lf = wt.readNormalized(".github", "workflows", "live-run.yml");
+            for (const [name, text] of [["lf", lf], ["crlf", lf.replace(/\n/g, "\r\n")], ["cr", lf.replace(/\n/g, "\r")]]) {
+              const c = wt.concurrencyBlock(text);
+              if (!c.ok) { console.error(`::error title=workflow structure (${name})::${c.code}: ${c.detail}`); process.exit(1); }
+              console.log(`${name}: concurrency keys ${c.keys.join(",")}`);
+            }
+          '
+      - name: Candidate verdict (explicit, never implied)
+        if: always()
+        run: |
+          echo "::notice title=candidate gate::read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+
+  discover:
+    name: discover the live origin
+    # A fork PR never runs this (no secret, no desktop). A same-repo PR runs it
+    # only when the operator labels it `live-verify` - the explicit pre-merge
+    # acceptance path.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'live-verify'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
       found: ${{ steps.pick.outputs.found }}
@@ -350,7 +452,7 @@ jobs:
       DESCRIPTOR_ID: ${{ needs.discover.outputs.descriptor_id }}
       DESCRIPTOR_IDENTITY: ${{ needs.discover.outputs.descriptor_identity }}
       EXPECTED_LAB_REVISION: ${{ needs.claim.outputs.lab_sha }}
-      KEEP_VIEWER_MIN: ${{ inputs.keep_viewer_open_minutes }}
+      KEEP_VIEWER_MIN: ${{ inputs.keep_viewer_open_minutes || '15' }}
     defaults:
       run:
         shell: powershell
@@ -390,6 +492,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}\artifacts\live-${{ github.run_id }}-${{ github.run_attempt }}
+          # REQUIRED HERE, not only in the discover/claim jobs (reproduced defect:
+          # lab run 39819073772 shipped without it). `scripts/live-run.js live`
+          # re-discovers the origin IN THIS PROCESS so the credential never
+          # travels through a job output or an artifact; that re-discovery reads
+          # process.env.LAB_SIGNAL_PRIVATE_KEY. Without this line every live
+          # verification would end at SIGNAL_NO_PRIVATE_KEY and fall back to the
+          # plaintext run log - a silent weakening of the transport.
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
         run: |
           $ErrorActionPreference = 'Continue'
           # One process owns the whole handshake so a mid-flight failure still
@@ -406,10 +516,12 @@ jobs:
             '--native-handoff', 'handler'
           )
           if ($env:MODE -eq 'live-origin') {
-            # public-log: the credential is re-derived HERE from the exact
-            # attempt's own run log. It is never passed through a job output, an
-            # artifact, or an environment variable that outlives this process.
-            $argv += @('--origin-transport', 'public-log')
+            # `auto` = MC-SIGNAL first, the origin's own run log only as a
+            # reported fallback. The credential is re-derived HERE, in memory:
+            # decrypted from the run's check-run signal with the lab private key.
+            # It is never passed through a job output, an artifact, or an
+            # environment variable that outlives this process.
+            $argv += @('--origin-transport', 'auto')
             $argv += @('--origin-workflow', '.github/workflows/main.yml')
             if ($env:DESCRIPTOR_ID) { $argv += @('--descriptor-id', $env:DESCRIPTOR_ID) }
             if ($env:DESCRIPTOR_IDENTITY) { $argv += @('--descriptor-identity', $env:DESCRIPTOR_IDENTITY) }
@@ -421,17 +533,26 @@ jobs:
           if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
           exit 1
 
-      - name: Keep the authorized viewer open (bounded, opt-in)
-        if: always() && inputs.keep_viewer_open_minutes != '' && inputs.keep_viewer_open_minutes != '0'
+      - name: Keep the authorized viewer open (bounded, default useful)
+        if: always() && inputs.keep_viewer_open_minutes != '0'
         shell: pwsh
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
           # stopped by the postflight step. It is never an orphan left behind to
           # outlive the runner, and never a detached "keep it alive forever".
+          # DEFAULT 15 MINUTES: a keep length of 0 closed the authenticated UI
+          # before an operator could look at it, which contradicts the point of
+          # showing the real dashboard on the real desktop. 0 remains available
+          # (headless CI), and the cap is 60.
           $m = 0
           if ($env:KEEP_VIEWER_MIN -match '^\d{1,3}$') { $m = [int]$env:KEEP_VIEWER_MIN }
           if ($m -gt 60) { $m = 60 }
-          Write-Host "::notice title=viewer open::the authenticated dashboard stays visible for $m more minute(s); the run's report is already persisted"
+          $closesAt = (Get-Date).ToUniversalTime().AddMinutes($m).ToString('yyyy-MM-ddTHH:mm:ssZ')
+          Write-Host "::notice title=viewer open::the authenticated dashboard stays visible for $m more minute(s) (closes ~$closesAt UTC); the run's report is already persisted"
+          if ($env:GITHUB_STEP_SUMMARY) {
+            "| viewer | visible for $m min, closes ~$closesAt UTC, then postflight stops only processes this attempt owns |" |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
           Start-Sleep -Seconds ($m * 60)
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
