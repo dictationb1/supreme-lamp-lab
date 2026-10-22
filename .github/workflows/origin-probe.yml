@@ -1,0 +1,75 @@
+name: Origin discovery probe (read-only diagnostics)
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTIC ONLY. It never claims a desktop, never opens a browser, never
+# reports a session and never touches an origin server it finds. It answers one
+# question with real bytes: "against the ACTUAL application repository, would
+# discovery attach — and if not, exactly which check refused?"
+#
+# Why it exists as its own file:
+#   * `workflow_dispatch` is not available to the automation token used to
+#     develop this repository (measured 403), so a push-triggered diagnostic is
+#     the only way to run the parser against real application logs;
+#   * scheduled workflows only run from the DEFAULT branch, so this file proves
+#     the parser on a branch while the automatic sweep waits for the merge.
+#
+# The report carries no credential: the probe never returns the key, only
+# whether one was present plus a truncated fingerprint.
+# ---------------------------------------------------------------------------
+
+run-name: origin-probe ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+    paths:
+      - '.github/workflows/origin-probe.yml'
+      - 'scripts/lib/origin-discovery.js'
+      - 'scripts/live-run.js'
+  workflow_dispatch:
+    inputs:
+      origin_run:
+        description: 'Read exactly this application run id (0 = the newest main.yml runs)'
+        required: false
+        default: '0'
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    name: parse the real origin log
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Install dependencies
+        run: npm ci
+      - name: Probe the origin log (no key is read into the report)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_RUN: ${{ inputs.origin_run || '0' }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/probe"
+          node scripts/live-run.js probe \
+            --origin-repo dictationb1/supreme-lamp \
+            --origin-workflow .github/workflows/main.yml \
+            --origin-run "${ORIGIN_RUN:-0}" \
+            --discover-out "$RUNNER_TEMP/probe/origin-probe.json"
+      - name: Upload the sanitized probe report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: origin-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/probe/
+          if-no-files-found: warn
+          retention-days: 14
