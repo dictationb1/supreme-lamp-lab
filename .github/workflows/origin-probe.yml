@@ -26,6 +26,7 @@ on:
     paths:
       - '.github/workflows/origin-probe.yml'
       - 'scripts/lib/origin-discovery.js'
+      - 'scripts/lib/live-signal.js'
       - 'scripts/live-run.js'
   workflow_dispatch:
     inputs:

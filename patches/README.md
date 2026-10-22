@@ -152,3 +152,28 @@ No secret value ever appears in a log, a summary, a dispatch input or `status.js
 **What is NOT claimed**: no application run has been observed self-advertising,
 because these steps are not in the application repository. Any end-to-end statement
 before they are merged is out of scope for this patch bundle.
+
+---
+
+## 2. Live Mission Control signal publisher — **STATUS: PENDING (writes unavailable)**
+
+**Files**: `app-live-signal-publisher.js`, `app-live-signal-check-run.snippet.yml`
+(reproduce in the app repo as `scripts/live-signal-publisher.js` + one workflow
+step, `checks: write`, and the `LAB_SIGNAL_PUBKEY` repository variable).
+
+**Why it is required**: measured 2026-10-22 — the app's Actions log is *not*
+readable while the run is alive (run-level 404; per-job 302 → blob 404 for
+queued and running jobs, six attempts from inside a runner). A public check-run
+output *is* readable live (12 s). Without this publisher the lab cannot discover
+a live run at all, so the "zero application change" path is provably dead.
+
+**What it does**: publishes `MC-SIGNAL v1` (repo/run/attempt/appSha/endpoint in
+clear; the dashboard key only as RSA-OAEP-256 ciphertext under the lab public
+key) every 20 s for the life of the RDP job, follows key rotation, and never
+fails the job. It needs no PAT and prints no secret.
+
+**Proven here**: the publisher file is spawned in the regression suite against a
+fake GitHub API; the real reader validates and decrypts its publication and
+asserts the plaintext key never appears in the public text. The live transport
+was measured with the same reader in a throwaway workflow (run 39810624203).
+**Not proven**: the change has never been applied to the app repository.
