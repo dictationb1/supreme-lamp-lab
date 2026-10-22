@@ -853,6 +853,16 @@ async function cmdProbe(a) {
   };
   if (a.discoverOut) fs.writeFileSync(a.discoverOut, JSON.stringify(out, null, 2), { mode: 0o600 });
   writeGithubOutput({ found: out.ok ? 'yes' : 'no', reason: out.code, report_path: a.discoverOut || '' });
+  // Annotations are the only evidence channel guaranteed to be readable when
+  // the job log blob is inaccessible (this environment cannot reach
+  // *.blob.core.windows.net). Keep them sanitized and few.
+  annotate.notice('origin-probe', `${out.code}: ${out.detail}`);
+  for (const r of (out.probe || []).slice(0, 6)) {
+    const log = r.log || {};
+    annotate.notice(`origin ${r.runId}/${r.attempt} ${r.decision}`,
+      `status=${r.status} conclusion=${r.conclusion || '-'} ready=${log.ready} key=${log.keyPresent} host=${log.endpointHost || '-'} kind=${log.endpointKind || '-'}` +
+      (r.detail ? ` detail=${String(r.detail).slice(0, 120)}` : ''));
+  }
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) {
     const lines = [`### Origin log probe — \`${out.code}\``, ''];
