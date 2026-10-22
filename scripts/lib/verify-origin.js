@@ -103,10 +103,16 @@ async function verifyOriginRun(descriptor, { expectArtifact = null, allowNonRunn
     ? pass('RUN_REPO_MATCH', repoOf)
     : fail('RUN_REPO_MISMATCH', `run belongs to ${repoOf || 'unknown'}, descriptor says ${descriptor.originRepo}`));
 
-  const wfPath = String(run.path || '').split('/').pop();
-  add(wfPath === descriptor.originWorkflow
-    ? pass('RUN_WORKFLOW_MATCH', wfPath)
-    : fail('RUN_WORKFLOW_MISMATCH', `run workflow ${wfPath || 'unknown'} != ${descriptor.originWorkflow}`));
+  const wfFull = String(run.path || '');
+  const wfBase = wfFull.split('/').pop();
+  // A descriptor may name the file (`main.yml`) or the repository-relative path
+  // (`.github/workflows/main.yml`). Compare the shape it named, and never let a
+  // bare filename silently match a different workflow in another directory.
+  const wfWant = String(descriptor.originWorkflow || '');
+  const wfGot = wfWant.includes('/') ? wfFull : wfBase;
+  add(wfGot === wfWant
+    ? pass('RUN_WORKFLOW_MATCH', wfGot)
+    : fail('RUN_WORKFLOW_MISMATCH', `run workflow ${wfGot || 'unknown'} != ${wfWant}`));
 
   add(String(run.head_sha || '').toLowerCase() === descriptor.appSha
     ? pass('RUN_HEAD_SHA_MATCH', descriptor.appSha)

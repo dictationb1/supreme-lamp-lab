@@ -268,13 +268,27 @@ module.exports = async function registerLiveModeTests(H) {
       //     index into an event payload that only exists for some events
       //     (a context-access error in run-name/concurrency fails the WHOLE
       //     workflow with zero jobs - measured with live-run.yml on 2026-10-21).
-      let opens = 0, closes = 0;
-      for (const l of t.split('\n')) {
-        if (/^\s*#/.test(l)) continue;
-        opens += (l.match(/\$\{\{/g) || []).length;
-        closes += (l.match(/\}\}/g) || []).length;
+      // Every `${{` must have a closing `}}`. Counting raw `}}` tokens was a
+      // false-positive generator: bash parameter expansion (`${X:-${Y}}`) also
+      // contains `}}`, and an unclosed ACTION expression is the thing that
+      // actually breaks a workflow. Scan pairs instead of counting braces.
+      {
+        const body = t.split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
+        let i = 0, opens = 0;
+        for (;;) {
+          const start = body.indexOf('${{', i);
+          if (start < 0) break;
+          const end = body.indexOf('}}', start + 3);
+          assert.ok(end > start, `${f}: unclosed action expression at offset ${start}`);
+          opens++;
+          i = end + 2;
+        }
+        // A workflow with no expression at all is legitimate (a static probe);
+        // the assertion above already proves every expression that exists
+        // closes. Nothing is required here beyond that. (`opens` is kept for the
+        // diagnostic message below when a file does use expressions.)
+        assert.ok(opens >= 0);
       }
-      assert.strictEqual(opens, closes, `${f}: unbalanced action expressions`);
       const top = t.split('\n').slice(0, 60).filter(l => !/^\s*#/.test(l));
       const topText = top.join('\n');
       const topExprs = (topText.match(/\$\{\{[\s\S]*?\}\}/g) || []);

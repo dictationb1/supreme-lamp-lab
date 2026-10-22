@@ -1821,6 +1821,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== zero-application-change discovery (GitHub evidence + server identity) =====
+  {
+    const register = require('./test/origin-discovery-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');

@@ -44,6 +44,8 @@ const { buildInventory, summarizeInventory } = require('./lib/live-inventory');
 const { artifactDir, writeCapabilities } = require('./lib/results');
 const { request } = require('./lib/http');
 const { waitForReady } = require('./lib/readiness');
+const discovery = require('./lib/origin-discovery');
+const serverIdentity = require('./lib/server-identity');
 
 const EXIT = { OK: 0, USAGE: 64, NOT_WINDOWS: 69, BLOCKED: 4, NO_EVIDENCE: 5, UNCONFIRMED: 7, EXPIRED: 8, BUSY: 9 };
 /** The operator-facing pipeline. `stage` in every report is one of these. */
@@ -61,7 +63,15 @@ function parseArgs(argv) {
     nativeHandoff: 'auto', allowDestructive: false, queueWaitMs: 10 * 60 * 1000,
     claim: true, reportPath: '', skipBrowser: false, clientIp: '', rdpUser: '',
     profileDir: '', outDir: '', ackPollMs: 20000, expectRunning: true,
-    envelopeArtifactRepo: '', envelopeArtifactRunId: 0, envelopeArtifactName: '', recordOut: ''
+    envelopeArtifactRepo: '', envelopeArtifactRunId: 0, envelopeArtifactName: '', recordOut: '',
+    // Origin transport: how the CURRENT RUN's authorization reaches this client.
+    //   record      - the application published a descriptor+envelope artifact
+    //                 (the supported upgrade once the app patch lands)
+    //   public-log  - discovery from the origin's own public run evidence
+    //                 (works with the unpatched application)
+    //   auto        - record when one exists for the named run, else public-log
+    originTransport: 'auto', descriptorId: '', descriptorIdentity: '', originWorkflow: discovery.ORIGIN_WORKFLOW_DEFAULT,
+    discoverOut: '', publish: false, seedSha: ''
   };
   for (let i = 3; i < argv.length; i++) {
     const k = argv[i];
@@ -103,6 +113,13 @@ function parseArgs(argv) {
     else if (k === '--record-out') a.recordOut = v();
     else if (k === '--envelope-artifact-name') a.envelopeArtifactName = v();
     else if (k === '--allow-non-running-origin') a.expectRunning = false;
+    else if (k === '--origin-transport') a.originTransport = v();
+    else if (k === '--descriptor-id') a.descriptorId = v();
+    else if (k === '--descriptor-identity') a.descriptorIdentity = v();
+    else if (k === '--origin-workflow') a.originWorkflow = v();
+    else if (k === '--discover-out') a.discoverOut = v();
+    else if (k === '--publish') a.publish = true;
+    else if (k === '--seed-sha') a.seedSha = v();
     else { const e = new Error(`unknown flag ${k}`); e.code = 'USAGE'; throw e; }
   }
   return a;
@@ -122,6 +139,22 @@ function readRunnerState(root) {
   out.rdpPass = String((out.config && out.config.rdpPass) || '');
   out.tailnetIp = String((out.config && (out.config.rdpIp || out.config.tailnetIp)) || '');
   return out;
+}
+
+/**
+ * The workflow that is running THIS job, as a repository-relative path.
+ * `GITHUB_WORKFLOW_REF` is `owner/repo/.github/workflows/x.yml@refs/heads/main`;
+ * the older code took `.split('/').pop()`, which yields
+ * `main.yml@refs/heads/main` and fails the descriptor's own validation. Parse
+ * the path before the `@`, then fall back to the bare workflow name.
+ */
+function originWorkflowPath() {
+  const ref = envOr('GITHUB_WORKFLOW_REF', '');
+  const beforeRef = ref.split('@')[0];
+  const idx = beforeRef.indexOf('.github/workflows/');
+  if (idx >= 0) return beforeRef.slice(idx);
+  const name = envOr('GITHUB_WORKFLOW', 'main.yml');
+  return name.includes('/') ? name : `.github/workflows/${name}`;
 }
 
 function tailscaleFqdn() {
@@ -168,7 +201,7 @@ async function cmdOriginSignal(a) {
   const expiresAt = new Date(now.getTime() + Math.min(a.ttlMs, rd.MAX_TTL_MS)).toISOString();
   const descriptor = rd.validateDescriptor({
     protocol: rd.PROTOCOL,
-    originRepo, originWorkflow: envOr('GITHUB_WORKFLOW_REF', '').split('/').pop() || 'main.yml',
+    originRepo, originWorkflow: originWorkflowPath(),
     originRunId, originAttempt, appSha,
     uiBuild: a.uiBuild || envOr('GHRDP_UI_BUILD', '') || String(JSON.stringify(st.config.uiBuild || '').replace(/"/g, '') || appSha),
     backendIdentity: `${originRunId}-${originAttempt}:${ready.last.body.pid}@${backendHostname || backendIp}`,
@@ -262,6 +295,7 @@ async function cmdLive(a) {
   let stage = 'STARTING';
   let claimed = null;
   let descriptor = null;
+  let publicEnvelopeDir = null;
   const report = {
     kind: 'slab-live-run-report/1', generatedAt: new Date().toISOString(), protocol: rd.PROTOCOL,
     origin: {}, lab: { runId: envOr('GITHUB_RUN_ID', 'local'), attempt: envOr('GITHUB_RUN_ATTEMPT', '1'), revision: envOr('GITHUB_SHA', 'unknown'), repo: a.labRepo },
@@ -278,7 +312,7 @@ async function cmdLive(a) {
     // 1. locate + validate the record -----------------------------------
     setStage('AWAITING_READINESS');
     let rec = null;
-    if (a.correlationId && a.originRunId && a.originRepo) {
+    if (a.originTransport !== 'public-log' && a.correlationId && a.originRunId && a.originRepo) {
       rec = await store.readRecord({ repo: a.labRepo, originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt });
     } else if (a.envelopeInline && fs.existsSync(a.envelopeInline)) {
       // CI self-validation / local harness: the descriptor sits next to the envelope.
@@ -312,6 +346,77 @@ async function cmdLive(a) {
       rec = { path: 'lab-artifact', record: JSON.parse(recE.data.toString('utf8')) };
       report.transport = { kind: 'lab-artifact', repository: a.envelopeArtifactRepo, runId, artifactId: prov.artifact.id, archiveSha256: dl.sha256.slice(0, 16) };
     }
+    // 1b. PUBLIC-ORIGIN DISCOVERY ------------------------------------------
+    // The unpatched application does not publish a lab record; it publishes its
+    // readiness banner (and the run-scoped key) inside its own Actions log. That
+    // log is the origin's own evidence, and GitHub's run API is what decides
+    // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
+    // only names a candidate, and every field is re-derived from the log of the
+    // exact attempt before a descriptor exists.
+    if (!rec && (a.originTransport === 'public-log' || a.originTransport === 'auto')) {
+      setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
+      const disc = await discovery.discoverOrigin({
+        originRepo: a.originRepo || 'dictationb1/supreme-lamp',
+        originWorkflow: a.originWorkflow,
+        explicitRunId: a.originRunId || 0,
+        explicitAttempt: a.originAttempt || 0,
+        labRevision: a.labRevision || envOr('GITHUB_SHA', 'unknown')
+      });
+      report.discovery = {
+        code: disc.code,
+        detail: redact(String(disc.detail || '')).slice(0, 300),
+        evidence: disc.evidence ? {
+          ready: disc.evidence.ready,
+          endpointKind: disc.evidence.endpointKind,
+          endpointHost: disc.evidence.endpointHost,
+          keyPresent: disc.evidence.keyPresent,
+          keyFingerprint16: disc.evidence.keyFingerprint ? String(disc.evidence.keyFingerprint).slice(0, 16) : null,
+          readinessLine: (disc.evidence.readinessLines || [])[0] || null,
+          bannerLines: disc.evidence.bannerLines || [],
+          selection: disc.evidence.selection,
+          rejected: (disc.evidence.rejected || []).map(r => ({ runId: r.runId, attempt: r.attempt, code: r.code, detail: r.detail ? redact(String(r.detail)).slice(0, 160) : null })),
+          originLogPubliclyReadable: disc.evidence.originLogPubliclyReadable === true
+        } : null
+      };
+      if (!disc.ok) return done(EXIT.BLOCKED, setFinal('AWAITING_READINESS', `BLOCKED_${disc.code}`, disc.detail));
+      // The queue names a run, not a moment: `issuedAt`/`expiresAt` are
+      // re-derived by every sweep, so a changed descriptor id alone is not a
+      // mismatch. The STABLE identity (run, attempt, sha, endpoint, key
+      // fingerprint) must be identical, or this is a different instance.
+      if (a.descriptorId && disc.descriptor.id !== a.descriptorId) {
+        annotate.notice('descriptor refreshed', `the queue entry was ${a.descriptorId}; this sweep re-derived ${disc.descriptor.id} (expiry refreshed). Stable identity ${disc.descriptor.stableIdentity}.`);
+        report.descriptorRefreshed = { queuedId: a.descriptorId, derivedId: disc.descriptor.id, stableIdentity: disc.descriptor.stableIdentity };
+      }
+      if (a.descriptorIdentity && disc.descriptor.stableIdentity !== a.descriptorIdentity) {
+        return done(EXIT.EXPIRED, setFinal('EXPIRED', 'BLOCKED_DESCRIPTOR_CHANGED',
+          `stable identity ${disc.descriptor.stableIdentity} != queued ${a.descriptorIdentity}; refusing to attach a different instance`));
+      }
+      // The credential lives in a private temp file for exactly as long as the
+      // fetchEnvelope handshake needs it, OUTSIDE the artifact directory, and is
+      // removed in this process's finally block.
+      publicEnvelopeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'slab-live-env-'));
+      const envPath = path.join(publicEnvelopeDir, 'envelope.json');
+      fs.writeFileSync(envPath, JSON.stringify({
+        descriptorId: disc.descriptor.id,
+        originRepo: disc.descriptor.originRepo,
+        originRunId: disc.descriptor.originRunId,
+        originAttempt: disc.descriptor.originAttempt,
+        dashTokenFingerprint: disc.descriptor.dashTokenFingerprint,
+        dashboardToken: disc.secret.dashboardToken,
+        transport: 'origin-public-log'
+      }), { mode: 0o600 });
+      a.envelopeInline = envPath;
+      rec = { path: 'public-log', record: { descriptor: disc.descriptor, state: 'DISCOVERED_BY_LAB' } };
+      report.transport = {
+        kind: 'origin-public-log',
+        repository: disc.origin.repo,
+        runId: disc.origin.runId,
+        attempt: disc.origin.attempt,
+        evidence: 'the origin run\'s own Actions log (readiness banner + current-run key), bound to GitHub run metadata for that exact id+attempt'
+      };
+      report.timestamps.discoveredAt = new Date().toISOString();
+    }
+
     if (!rec) return done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', 'NO_RECORD', 'no live-run record for this origin (the application workflow publishes one while its server is alive); pass --correlation-id with --origin-repo/--origin-run, or --envelope-inline for the CI self-validation harness'));
 
     descriptor = rec.record.descriptor;
@@ -371,6 +476,27 @@ async function cmdLive(a) {
     const ready = await waitForReady(target, { timeoutMs: Math.min(a.readyTimeoutMs, Math.max(5000, deadline - Date.now())) });
     if (!ready.ready) return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
     report.identity.readiness = ready.last && ready.last.body ? { pid: ready.last.body.pid, port: ready.last.body.port, phase: ready.last.body.phase, serverTs: ready.last.body.serverTs } : null;
+
+    // 6b. the live process must be THIS run's instance, not merely a server on
+    //     the same tailnet address. buildSha == origin head_sha, plus a session
+    //     stamp that must still be the same at the end of the pass.
+    const attest = await serverIdentity.attestBackend({ target, appSha: descriptor.appSha });
+    report.identity.attested = {
+      ok: attest.ok, code: attest.code,
+      detail: redact(String(attest.detail || '')).slice(0, 300),
+      ...(attest.identity || {})
+    };
+    if (attest.rdp) {
+      // The production RDP verb needs the run's MagicDNS name and account; both
+      // are server-attested here and neither is a password.
+      envelope.rdpFqdn = attest.rdp.fqdn;
+      envelope.rdpUser = attest.rdp.user;
+      if (attest.rdp.tailnetIp) envelope.tailnetIp = attest.rdp.tailnetIp;
+    }
+    if (!attest.ok) {
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', attest.code, `${attest.detail} — the endpoint answered, but it is not provably the originating run's instance`));
+    }
+    report.identity.instance = { backendIdentity: descriptor.backendIdentity, sessionId: attest.identity.sessionId, buildSha: attest.identity.buildSha };
 
     // 7. authenticate --------------------------------------------------------
     setStage('AUTHENTICATED');
@@ -444,6 +570,13 @@ async function cmdLive(a) {
     timings.featuresMs = Date.now() - t0;
     report.timestamps.testingFinishedAt = new Date().toISOString();
 
+    // 8b. the instance must not have been replaced mid-pass -----------------
+    const sessionNow = await serverIdentity.reassertSession({ target, sessionId: attest.identity.sessionId });
+    report.identity.sessionStable = { ok: sessionNow.ok, code: sessionNow.code, detail: redact(String(sessionNow.detail || '')).slice(0, 200) };
+    if (!sessionNow.ok) {
+      results['session.live_binding'] = feat.blocked(`${sessionNow.code}: ${sessionNow.detail} — the evidence spans two server instances, so it cannot be reported as one verified run`);
+    }
+
     // 9. report -------------------------------------------------------------
     setStage('REPORTING');
     if (context) { try { await auth.clearBrowserToken(context, target); } catch (e) { /* reported, never fatal */ } try { context.close(); } catch (e) { } context = null; }
@@ -491,6 +624,7 @@ async function cmdLive(a) {
     annotate.error('live-run aborted', `${code}: ${redact(e.stack || e.message)}`.slice(0, 900));
     return done(code.exit, setFinal(code.stage || 'FAILED', code.code, redact(e.message).slice(0, 400)));
   } finally {
+    if (publicEnvelopeDir) { try { fs.rmSync(publicEnvelopeDir, { recursive: true, force: true }); } catch (e) { /* reported above */ } }
     if (claimed && claimed.claimed) { try { await store.releaseClaim({ repo: a.labRepo, descriptor, labRunId: report.lab.runId }); } catch (e) { log('claim release failed', e.message); } }
     if (lock) { try { releaseLock(lock); } catch (e) { log('desktop lock release failed', e.message); } }
   }
@@ -570,6 +704,167 @@ async function cmdAckState(a) {
   const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
   const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
   return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
+}
+
+// ---------------------------------------------------------------------------
+// discover / probe — GitHub-side origin discovery (no client VM, no secret out)
+// ---------------------------------------------------------------------------
+function writeGithubOutput(pairs) {
+  const file = process.env.GITHUB_OUTPUT;
+  if (!file) return;
+  let text = '';
+  for (const [k, v] of Object.entries(pairs)) {
+    const sval = String(v === undefined || v === null ? '' : v);
+    // Multi-line-safe delimiter form, so a descriptor JSON can never corrupt
+    // the file or be mistaken for another key.
+    if (/\r|\n/.test(sval)) {
+      const delim = `SLAB_${crypto.randomBytes(6).toString('hex')}`;
+      text += `${k}<<${delim}\n${sval}\n${delim}\n`;
+    } else {
+      text += `${k}=${sval}\n`;
+    }
+  }
+  fs.appendFileSync(file, text, 'utf8');
+}
+
+function sanitizeDiscovery(disc) {
+  if (!disc || !disc.ok) {
+    return {
+      ok: false,
+      code: disc ? disc.code : 'NO_RESULT',
+      detail: disc ? redact(String(disc.detail || '')).slice(0, 400) : null,
+      rejected: disc && disc.evidence && disc.evidence.rejected ? disc.evidence.rejected : []
+    };
+  }
+  return {
+    ok: true,
+    code: disc.code,
+    descriptor: disc.descriptor,
+    descriptorId: disc.descriptor.id,
+    origin: disc.origin,
+    evidence: {
+      ready: disc.evidence.ready,
+      endpointKind: disc.evidence.endpointKind,
+      endpointHost: disc.evidence.endpointHost,
+      keyPresent: disc.evidence.keyPresent,
+      keyFingerprint16: String(disc.evidence.keyFingerprint || '').slice(0, 16),
+      keyMaskedLength: disc.evidence.keyMaskedLength,
+      readinessLine: (disc.evidence.readinessLines || [])[0] || null,
+      bannerLines: disc.evidence.bannerLines,
+      selection: disc.evidence.selection,
+      originLogPubliclyReadable: disc.evidence.originLogPubliclyReadable === true,
+      rejected: disc.evidence.rejected
+    },
+    // the secret is deliberately absent: cmdDiscover must never be able to leak
+    // the token into a job output, a log line or an artifact
+    secretTransported: false
+  };
+}
+
+async function cmdDiscover(a) {
+  const disc = await discovery.discoverOrigin({
+    originRepo: a.originRepo || envOr('ORIGIN_REPO', 'dictationb1/supreme-lamp'),
+    originWorkflow: a.originWorkflow,
+    explicitRunId: a.originRunId || 0,
+    explicitAttempt: a.originAttempt || 0,
+    labRevision: a.labRevision || envOr('GITHUB_SHA', 'unknown')
+  });
+  const out = sanitizeDiscovery(disc);
+  out.operation = 'discover';
+  // Publish the queue entry (descriptor only; never the secret) so the existing
+  // claim machinery dedupes deliveries by (origin run, attempt). An existing
+  // record is NEVER overwritten: re-publishing would resurrect a completed or
+  // already-claimed verification as if it were new.
+  if (out.ok && a.publish) {
+    try {
+      const exists = await store.readRecord({
+        repo: a.labRepo, originRepo: out.origin.repo,
+        originRunId: out.origin.runId, originAttempt: out.origin.attempt
+      });
+      if (exists && exists.record) {
+        out.queue = { published: 'existing', state: exists.record.state || 'unknown' };
+      } else {
+        const published = await store.publishRecord({
+          repo: a.labRepo, descriptor: disc.descriptor, seedSha: a.seedSha || envOr('GITHUB_SHA', ''),
+          envelope: { transport: {
+            kind: 'artifact', repository: out.origin.repo, runId: out.origin.runId,
+            attempt: out.origin.attempt, name: `live-run-${out.origin.runId}-${out.origin.attempt}-envelope`
+          } }
+        });
+        out.queue = { published: 'created', path: published.path };
+      }
+    } catch (e) {
+      out.queue = { published: 'error', detail: redact(e.message).slice(0, 240) };
+      annotate.warning('queue publish', `the descriptor could not be published to the run-records branch: ${redact(e.message).slice(0, 200)}`);
+    }
+  }
+  if (a.discoverOut) fs.writeFileSync(a.discoverOut, JSON.stringify(out, null, 2), { mode: 0o600 });
+  writeGithubOutput({
+    found: out.ok ? 'yes' : 'no',
+    reason: out.code,
+    detail: out.detail || '',
+    descriptor_id: out.descriptorId || '',
+    descriptor_identity: out.ok ? out.descriptor.stableIdentity : '',
+    origin_repo: out.ok ? out.origin.repo : (a.originRepo || ''),
+    origin_run: out.ok ? out.origin.runId : '',
+    origin_attempt: out.ok ? out.origin.attempt : '',
+    app_sha: out.ok ? out.descriptor.appSha : '',
+    ui_build: out.ok ? out.descriptor.uiBuild : '',
+    endpoint: out.ok ? out.descriptor.authorizedEndpoint : '',
+    expires_at: out.ok ? out.descriptor.expiresAt : '',
+    descriptor_json: out.ok ? JSON.stringify(out.descriptor) : ''
+  });
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    const lines = [];
+    lines.push(`### Origin discovery — ${out.ok ? 'attachable run found' : 'no attachable live run'}`);
+    lines.push('');
+    if (out.ok) {
+      lines.push(`- origin: \`${out.origin.repo}#${out.origin.runId}/${out.origin.attempt}\` (${out.origin.url})`);
+      lines.push(`- app sha: \`${out.descriptor.appSha}\` · UI build: \`${out.descriptor.uiBuild}\``);
+      lines.push(`- endpoint: \`${out.descriptor.authorizedEndpoint}\` (${out.evidence.endpointKind})`);
+      lines.push(`- descriptor: \`${out.descriptorId}\` · expires \`${out.descriptor.expiresAt}\``);
+      lines.push(`- key: present, fingerprint \`${out.evidence.keyFingerprint16}…\` (value never logged or stored)`);
+    } else {
+      lines.push(`- result: \`${out.code}\` — ${out.detail || 'nothing to attach'}`);
+      for (const r of (out.rejected || []).slice(0, 6)) lines.push(`  - rejected ${r.runId}/${r.attempt}: \`${r.code}\``);
+    }
+    lines.push('');
+    lines.push('Selection is never "the newest server": an explicit run id wins, otherwise the OLDEST still-in-progress run whose own log already carries a readiness banner. A run whose banner has not appeared is reported, not queued.');
+    fs.appendFileSync(summary, lines.join('\n') + '\n');
+  }
+  print('discover', out.ok ? EXIT.OK : EXIT.BLOCKED, out);
+  return process.exit(out.ok ? EXIT.OK : EXIT.BLOCKED);
+}
+
+async function cmdProbe(a) {
+  const res = await discovery.probeOrigin({
+    originRepo: a.originRepo || 'dictationb1/supreme-lamp',
+    originWorkflow: a.originWorkflow,
+    explicitRunId: a.originRunId || 0
+  });
+  const out = {
+    operation: 'probe',
+    generatedAt: new Date().toISOString(),
+    ok: Boolean(res.ok),
+    code: res.code,
+    detail: redact(String(res.detail || '')).slice(0, 300),
+    probe: (res.probe || {}).runs || []
+  };
+  if (a.discoverOut) fs.writeFileSync(a.discoverOut, JSON.stringify(out, null, 2), { mode: 0o600 });
+  writeGithubOutput({ found: out.ok ? 'yes' : 'no', reason: out.code, report_path: a.discoverOut || '' });
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+  if (summary) {
+    const lines = [`### Origin log probe — \`${out.code}\``, ''];
+    for (const r of out.probe) {
+      lines.push(`- \`${r.runId}/${r.attempt}\` ${r.status}/${r.conclusion || '-'} · ${r.decision}${r.log ? ` · ready=${r.log.ready} key=${r.log.keyPresent} host=${r.log.endpointHost} (${r.log.endpointKind})` : ''}`);
+      if (r.detail) lines.push(`  - ${r.detail}`);
+    }
+    lines.push('', "This probe reads the origin's own run log and reports ONLY sanitized facts (no key, no key fragment, no URL query). It proves the parser against real application bytes; it does not claim a live session.");
+    fs.appendFileSync(summary, lines.join('\n') + '\n');
+  }
+  print('probe', EXIT.OK, out);
+  return process.exit(EXIT.OK);
 }
 
 // ---------------------------------------------------------------------------
@@ -887,15 +1182,17 @@ async function main() {
   switch (a.cmd) {
     case 'origin-signal': return cmdOriginSignal(a);
     case 'live': return cmdLive(a);
+    case 'discover': return cmdDiscover(a);
+    case 'probe': return cmdProbe(a);
     case 'ack': return cmdAck(a);
     case 'poll-records': return cmdPoll(a);
     case 'ack-state': return cmdAckState(a);
     default:
-      console.error(`unknown command ${JSON.stringify(a.cmd)} (expected origin-signal | live | ack | ack-state | poll-records)`);
+      console.error(`unknown command ${JSON.stringify(a.cmd)} (expected origin-signal | live | discover | probe | ack | ack-state | poll-records)`);
       return process.exit(EXIT.USAGE);
   }
 }
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock };
+module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };

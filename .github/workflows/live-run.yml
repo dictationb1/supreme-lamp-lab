@@ -1,51 +1,64 @@
 name: Live-Run Integration (Mission Control -> client VM)
 
 # ---------------------------------------------------------------------------
-# This is the AUTOMATIC half of the integration. It is entered by a signal from
-# the originating application run, not by a person:
+# The AUTOMATIC half of the integration. Nothing here is started by a human:
 #
-#   application run (supreme-lamp main.yml, mode=rdp)
-#     -> after Service Readiness Check, while its server is STILL ALIVE:
-#        node scripts/live-run.js origin-signal ...     (lab script, checked out
-#                                                        at the advertised revision)
-#     -> uploads `live-run-<run>-<attempt>` (descriptor + credential envelope,
-#        retention 1 day) and publishes the NON-SECRET descriptor record to this
-#        repository's `run-records` branch
-#     -> repository_dispatch `mission-control.live-run` (optional, just a wake-up)
-#
-#   this workflow
-#     -> repository_dispatch / schedule / manual  => claim + verify + run
-#     -> the lab NEVER trusts the event body: lib/verify-origin re-reads GitHub's
-#        own metadata for that exact run id + attempt, and the live backend must
-#        self-report the same app sha.
+#   application run (supreme-lamp main.yml, mode=rdp) reaches readiness while its
+#   ephemeral server is alive and prints, in its OWN run log, the readiness
+#   marker and the dashboard URL for that run.
+#        |
+#        v
+#   discover (ubuntu, every sweep) reads GitHub's run API for the application
+#   repository (public data; no cross-repo token, no app-repo write) and the
+#   exact run's own log; builds the versioned non-secret descriptor
+#   (`slab-live-run/1`) and publishes ONE queue entry per (run, attempt).
+#        |
+#        v
+#   claim (ubuntu) picks the oldest attachable record, never "the newest
+#   server"; the claim file is the lock that keeps two lab runs off one desktop.
+#        |
+#        v
+#   verify (self-hosted interactive Windows client) re-discovers the same run in
+#   process (so the credential never travels through a job output or artifact),
+#   proves the run is STILL in_progress with the same head sha and attempt,
+#   proves the live backend's buildSha/sessionId are that run's instance,
+#   proves authorization against the server's own gates (401 anonymous, 401
+#   forged, 200 + single-use ticket for the current-run key), drives the real UI
+#   in a headed browser, exercises the feature inventory, launches native RDP
+#   through the production ghrdp:// verb, and writes the report.
+#        |
+#        v
+#   report (ubuntu) puts the verdict, the origin link, the correlation id and
+#   the artifact names on the run summary and writes the ack state back.
 #
 # Trigger design notes (measured, not assumed):
-#   * A lab runner is NOT usable by app-repo jobs just because the labels match.
-#     So the client job lives HERE, in the lab repository, and the application
-#     only sends a descriptor.
-#   * An application `GITHUB_TOKEN` has no automatic write/dispatch rights on a
-#     private cross-repository target. Dispatch is therefore OPTIONAL; the
-#     scheduled sweep is the guaranteed path, and both funnel into the same
-#     claim machinery, so a wake-up and a sweep can never double-run one origin.
+#   * A lab runner is NOT usable by app-repo jobs just because the labels match,
+#     so the client job lives HERE and the application only has to keep
+#     publishing its own run evidence.
+#   * An application GITHUB_TOKEN has no write/dispatch right on this private
+#     repository (measured 403), so nothing here requires one: the sweep is the
+#     guaranteed path and `repository_dispatch` is an optional wake-up.
 #   * `workflow_run` (run-completed) is deliberately NOT used: by then the
-#     ephemeral server is gone, which is exactly the failure this file exists to
-#     avoid.
+#     ephemeral server is gone, which is exactly this file's reason to exist.
+#   * Discovery is per (run id, attempt) and requires the run to still be
+#     `in_progress`; a stale attempt, an expired record, a foreign repository or
+#     a non-tailnet endpoint is refused, never warned.
 # ---------------------------------------------------------------------------
 
-run-name: >-
-  ${{ format('live-run {0}', github.event_name) }}
+run-name: live-run ${{ github.event_name }}
+
 on:
   repository_dispatch:
     types: [mission-control.live-run]
   schedule:
-    # The guaranteed path when the origin has no dispatch permission on this
-    # repository. Records carry their own expiry, so a sweep can never pick up a
-    # stale run, and the claim file makes a sweep and a wake-up idempotent.
+    # The guaranteed path. Records carry their own expiry, and the claim file
+    # makes a sweep and a wake-up idempotent, so a missed dispatch cannot turn
+    # into a missed verification.
     - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
       correlation_id:
-        description: 'Claim exactly this correlation id (empty = take the oldest unclaimed record)'
+        description: 'Claim exactly this correlation id (empty = take the oldest attachable record)'
         required: false
         default: ''
         type: string
@@ -62,41 +75,156 @@ on:
       origin_attempt:
         description: 'Run attempt to claim (never "the latest")'
         required: false
-        default: '1'
+        default: ''
         type: string
       mode:
-        description: 'live-origin = attach to the originating run; origin-selftest = the lab CI harness (real app backend, lab-owned origin, clearly labelled)'
+        description: 'live-origin = attach to the originating run; origin-selftest = the lab CI harness (real app backend, lab-owned origin); origin-probe = read-only discovery diagnostics'
         required: false
         default: 'live-origin'
         type: choice
-        options: [live-origin, origin-selftest]
+        options: [live-origin, origin-selftest, origin-probe]
       keep_viewer_open_minutes:
         description: 'How long the authorized viewer stays open after the report (0 = close at once)'
         required: false
         default: '0'
         type: string
 
-# Queue policy (enforced in scripts/lib/record-store.js; the group here is only a
-# cheap dedupe of deliveries for the SAME originating run):
+# Queue policy (enforced in scripts/lib/record-store.js and pick-record.js; the
+# group below only dedupes deliveries of the SAME queue):
 #   - one desktop at a time: the `run-records` claim file is the real lock, and a
-#     waiting lab run never steals it (`QUEUED_BEHIND_LIVE_CLAIMANT`, exit 9);
-#   - dedupe by (origin run, attempt): a duplicate repository_dispatch resolves to
-#     the same record, sees the live claim, and stands down;
-#   - a queued request is NEVER re-attached to a different server, because the
-#     record key names the exact run id + attempt it belongs to;
+#     waiting lab run never steals it (QUEUED_BEHIND_LIVE_CLAIMANT, exit 9);
+#   - dedupe by (origin run, attempt): a duplicate delivery resolves to the same
+#     record, sees the live claim, and stands down;
+#   - a queued request is NEVER re-attached to a different server: the record key
+#     names the exact run id + attempt it belongs to, and the client re-derives
+#     the endpoint from THAT attempt's log;
 #   - no cancel-in-progress: killing a live verification mid-flight would destroy
 #     the evidence the operator is waiting for.
 concurrency:
   group: live-run-queue
-  parallel: false
   cancel-in-progress: false
+
 permissions:
-  contents: read
-  actions: read
+  contents: write   # publish / claim / ack records on the run-records branch
+  actions: read     # read the origin run's metadata and its own log
 
 jobs:
+  discover:
+    name: discover the live origin
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      found: ${{ steps.pick.outputs.found }}
+      reason: ${{ steps.pick.outputs.reason }}
+      detail: ${{ steps.pick.outputs.detail }}
+      descriptor_id: ${{ steps.pick.outputs.descriptor_id }}
+      descriptor_identity: ${{ steps.pick.outputs.descriptor_identity }}
+      origin_repo: ${{ steps.pick.outputs.origin_repo }}
+      origin_run: ${{ steps.pick.outputs.origin_run }}
+      origin_attempt: ${{ steps.pick.outputs.origin_attempt }}
+      app_sha: ${{ steps.pick.outputs.app_sha }}
+      ui_build: ${{ steps.pick.outputs.ui_build }}
+      endpoint: ${{ steps.pick.outputs.endpoint }}
+      expires_at: ${{ steps.pick.outputs.expires_at }}
+      descriptor_json: ${{ steps.pick.outputs.descriptor_json }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Resolve mode (dispatch input only; never an event-payload guess)
+        id: mode
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          mode="${INPUT_MODE:-live-origin}"
+          case "$mode" in
+            live-origin|origin-selftest|origin-probe) ;;
+            *) echo "::error title=bad mode::unknown mode '$mode'"; exit 64 ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode"
+      - name: Origin-selftest / probe short-circuit (no application run is named)
+        id: short
+        if: steps.mode.outputs.mode != 'live-origin'
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = "origin-probe" ]; then
+            node scripts/live-run.js probe \
+              --origin-repo "${{ inputs.origin_repo || 'dictationb1/supreme-lamp' }}" \
+              --origin-run "${{ inputs.origin_run || '0' }}" \
+              --discover-out probe.json
+            {
+              echo "found=no"
+              echo "reason=ORIGIN_PROBE_ONLY"
+              echo "detail=read-only diagnostics: this run never claims a desktop and never reports a session"
+            } >> "$GITHUB_OUTPUT"
+          else
+            # origin-selftest: the lab's own server job publishes the record; this
+            # job must not discover (and must not overwrite) it.
+            {
+              echo "found=yes"
+              echo "reason=ORIGIN_SELFTEST"
+              echo "detail=lab-owned origin for the CI self-validation harness"
+            } >> "$GITHUB_OUTPUT"
+          fi
+      - name: Discover the originating run (publish one queue entry per run+attempt)
+        id: pick
+        if: steps.mode.outputs.mode == 'live-origin'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORIGIN_REPO: ${{ inputs.origin_repo || 'dictationb1/supreme-lamp' }}
+          ORIGIN_RUN: ${{ inputs.origin_run || '0' }}
+          ORIGIN_ATTEMPT: ${{ inputs.origin_attempt || '0' }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node scripts/live-run.js discover \
+            --origin-repo "$ORIGIN_REPO" \
+            --origin-run "$ORIGIN_RUN" \
+            --origin-attempt "$ORIGIN_ATTEMPT" \
+            --lab-revision "$GITHUB_SHA" \
+            --publish --seed-sha "$GITHUB_SHA" \
+            --discover-out discover.json || rc=$?
+          # 4 = nothing attachable right now. That is a normal sweep outcome, not
+          # a failed run: the next sweep re-reads the origin.
+          rc=${rc:-0}
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then echo "::error title=discover failed::exit $rc"; exit "$rc"; fi
+          if [ ! -f discover.json ]; then echo "::error title=discover wrote no evidence::discover.json missing"; exit 5; fi
+          jq -c '{found:(if .ok then "yes" else "no" end), reason, detail, descriptorId, origin, queue}' discover.json | tee -a "$GITHUB_STEP_SUMMARY"
+          node -e '
+            const fs=require("fs");
+            const d=JSON.parse(fs.readFileSync("discover.json","utf8"));
+            const lines=[];
+            const w=(k,v)=>{ const s=String(v===undefined||v===null?"":v); if (!/[\r\n]/.test(s)) lines.push(`${k}=${s}`); else { lines.push(`${k}<<SLAB_EOF`); lines.push(s); lines.push("SLAB_EOF"); } };
+            w("found", d.ok ? "yes" : "no");
+            w("reason", d.code || "NO_RESULT");
+            w("detail", (d.detail || "").slice(0, 300));
+            if (d.ok) {
+              w("descriptor_id", d.descriptorId);
+              w("origin_repo", d.origin.repo);
+              w("origin_run", d.origin.runId);
+              w("origin_attempt", d.origin.attempt);
+              w("app_sha", d.descriptor.appSha);
+              w("ui_build", d.descriptor.uiBuild);
+              w("endpoint", d.descriptor.authorizedEndpoint);
+              w("expires_at", d.descriptor.expiresAt);
+              w("descriptor_json", JSON.stringify(d.descriptor));
+            }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n")+"\n");
+          '
+
   claim:
     name: claim + verify origin
+    needs: discover
+    if: needs.discover.outputs.found == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -127,25 +255,28 @@ jobs:
           DISPATCH_ORIGIN_REPO: ${{ github.event.client_payload.origin_repo }}
           DISPATCH_ORIGIN_RUN: ${{ github.event.client_payload.origin_run }}
           DISPATCH_ORIGIN_ATTEMPT: ${{ github.event.client_payload.origin_attempt }}
-          INPUT_CORRELATION: ${{ github.event.inputs.correlation_id }}
-          INPUT_ORIGIN_REPO: ${{ github.event.inputs.origin_repo }}
-          INPUT_ORIGIN_RUN: ${{ github.event.inputs.origin_run }}
-          INPUT_ORIGIN_ATTEMPT: ${{ github.event.inputs.origin_attempt }}
-          INPUT_MODE: ${{ github.event.inputs.mode }}
+          INPUT_CORRELATION: ${{ inputs.correlation_id }}
+          INPUT_ORIGIN_REPO: ${{ inputs.origin_repo }}
+          INPUT_ORIGIN_RUN: ${{ inputs.origin_run }}
+          INPUT_ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+          MODE: ${{ needs.discover.outputs.mode }}
+          SELFTEST_RUN: ${{ needs.discover.outputs.origin_run }}
         run: |
           set -euo pipefail
-          node scripts/live-run.js poll-records > records.txt || true
-          # Selection order (documented): an explicit correlation id wins; then an
-          # explicit (origin repo, run, attempt); otherwise the OLDEST
-          # still-unclaimed, unexpired record. Never the newest: a queue that
-          # jumps to the freshest entry starves older origin runs whose servers
-          # are alive right now.
-          PICK=$(node scripts/pick-record.js \
-            --correlation "${DISPATCH_CORRELATION:-${INPUT_CORRELATION:-}}" \
-            --origin "${DISPATCH_ORIGIN_REPO:-${INPUT_ORIGIN_REPO:-}}" \
-            --run "${DISPATCH_ORIGIN_RUN:-${INPUT_ORIGIN_RUN:-}}" \
-            --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" \
-            --records records.txt)
+          if [ "${MODE:-live-origin}" = "origin-selftest" ]; then
+            # The lab's own server job is the origin for this harness; its
+            # record was published by that job, so select it explicitly.
+            node scripts/live-run.js poll-records > records.txt || true
+            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.txt)
+          else
+            node scripts/live-run.js poll-records > records.txt || true
+            PICK=$(node scripts/pick-record.js \
+              --correlation "${DISPATCH_CORRELATION:-${INPUT_CORRELATION:-}}" \
+              --origin "${DISPATCH_ORIGIN_REPO:-${INPUT_ORIGIN_REPO:-}}" \
+              --run "${DISPATCH_ORIGIN_RUN:-${INPUT_ORIGIN_RUN:-}}" \
+              --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" \
+              --records records.txt)
+          fi
           echo "$PICK" | tee -a "$GITHUB_STEP_SUMMARY"
           {
             echo "proceed=$(echo "$PICK" | jq -r .proceed)"
@@ -159,8 +290,6 @@ jobs:
             echo "endpoint=$(echo "$PICK" | jq -r '.descriptor.authorizedEndpoint // ""')"
             echo "expires_at=$(echo "$PICK" | jq -r '.descriptor.expiresAt // ""')"
             echo "mode=$(echo "$PICK" | jq -r '.descriptor.mode // "live-origin"')"
-            # `poll-records` reports the queue depth; carry it as a number only, so
-            # a malformed value can never be interpolated into the next step.
             pending=$(jq -r '.pending // 0' records.txt 2>/dev/null || echo 0)
             case "$pending" in (*[!0-9]*|'') pending=0;; esac
             echo "pending=$pending"
@@ -172,7 +301,7 @@ jobs:
           PENDING: ${{ steps.pick.outputs.pending }}
         run: |
           # Only the last sweep of a burst needs to hand the baton: a 10-minute
-          # cron is the guarantee, this step just shortens the tail. It dispatches
+          # cron is the guarantee, this step shortens the tail. It dispatches
           # THIS repository, carries no secret, and is skipped for an empty queue.
           if [ "${PENDING:-0}" -gt 0 ] 2>/dev/null; then
             node scripts/dispatch-verification.js --workflow live-run.yml --ref "${{ github.ref_name }}" --no-follow \
@@ -180,24 +309,31 @@ jobs:
           else
             echo "queue empty (pending=${PENDING:-0}) - no wake-up dispatched"
           fi
-
       - name: Operator status
         if: always()
+        env:
+          PROCEED: ${{ steps.pick.outputs.proceed }}
+          REASON: ${{ steps.pick.outputs.reason }}
+          CORRELATION: ${{ steps.pick.outputs.correlation_id }}
+          ORIGIN_REPO: ${{ steps.pick.outputs.origin_repo }}
+          ORIGIN_RUN: ${{ steps.pick.outputs.origin_run }}
+          ORIGIN_ATTEMPT: ${{ steps.pick.outputs.origin_attempt }}
+          APP_SHA: ${{ steps.pick.outputs.app_sha }}
         run: |
-          if [ "${{ steps.pick.outputs.proceed }}" = "yes" ]; then
-            echo "::notice title=live-run claimed::${{ steps.pick.outputs.correlation_id }} origin=${{ steps.pick.outputs.origin_repo }}#${{ steps.pick.outputs.origin_run }}/${{ steps.pick.outputs.origin_attempt }} app=${{ steps.pick.outputs.app_sha }} stage=AWAITING_VM"
+          if [ "$PROCEED" = "yes" ]; then
+            echo "::notice title=live-run claimed::$CORRELATION origin=$ORIGIN_REPO#$ORIGIN_RUN/$ORIGIN_ATTEMPT app=$APP_SHA stage=CONNECTING_VM"
           else
-            echo "::notice title=live-run idle::${{ steps.pick.outputs.reason }} — no verification was attempted, so nothing is reported as passed"
+            echo "::notice title=live-run idle::$REASON — no verification was attempted, so nothing is reported as passed"
           fi
 
   verify:
     name: client VM (live Mission Control)
-    needs: claim
+    needs: [discover, claim]
     if: needs.claim.outputs.proceed == 'yes'
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
-      contents: read
+      contents: write
       actions: read
     env:
       ORIGIN_CORRELATION: ${{ needs.claim.outputs.correlation_id }}
@@ -208,22 +344,26 @@ jobs:
       UI_BUILD: ${{ needs.claim.outputs.ui_build }}
       ENDPOINT: ${{ needs.claim.outputs.endpoint }}
       MODE: ${{ needs.claim.outputs.mode }}
+      DESCRIPTOR_ID: ${{ needs.discover.outputs.descriptor_id }}
+      DESCRIPTOR_IDENTITY: ${{ needs.discover.outputs.descriptor_identity }}
       EXPECTED_LAB_REVISION: ${{ needs.claim.outputs.lab_sha }}
-      KEEP_VIEWER_MIN: ${{ github.event.inputs.keep_viewer_open_minutes }}
+      KEEP_VIEWER_MIN: ${{ inputs.keep_viewer_open_minutes }}
     defaults:
       run:
         shell: powershell
     steps:
       - name: Runner identity (account + interactive session, re-checked every run)
+        shell: pwsh
         run: |
+          $ErrorActionPreference = 'Continue'
           $s = (Get-Process -Id $PID).SessionId
           # The session id is READ, never assumed: it changes when the runner is
           # re-registered, and a hardcoded '1' would silently verify the wrong desk.
+          Write-Host "::notice title=Client runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)"
           if ($s -le 0) {
             Write-Host "::error title=NO INTERACTIVE DESKTOP::session=$s - a headed browser and native mstsc need the logged-in desktop (session > 0); the run is reported BLOCKED, not failed"
             exit 4
           }
-          Write-Host "::notice title=Client runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -241,32 +381,50 @@ jobs:
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
 
-      - name: LIVE VERIFICATION (claim -> origin verify -> auth -> UI -> features -> report)
+      - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}\artifacts\live-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
+          $ErrorActionPreference = 'Continue'
           # One process owns the whole handshake so a mid-flight failure still
           # leaves a report: it never "succeeds" by exiting early.
-          node scripts/live-run.js live `
-            --mode $env:MODE `
-            --origin-repo $env:ORIGIN_REPO --origin-run $env:ORIGIN_RUN --origin-attempt $env:ORIGIN_ATTEMPT `
-            --correlation-id $env:ORIGIN_CORRELATION `
-            --timeout-ms 1500000 --ready-timeout-ms 240000 `
-            --native-handoff handler
+          $argv = @(
+            'scripts/live-run.js', 'live',
+            '--mode', $env:MODE,
+            '--origin-repo', $env:ORIGIN_REPO,
+            '--origin-run', $env:ORIGIN_RUN,
+            '--origin-attempt', $env:ORIGIN_ATTEMPT,
+            '--correlation-id', $env:ORIGIN_CORRELATION,
+            '--timeout-ms', '1500000',
+            '--ready-timeout-ms', '240000',
+            '--native-handoff', 'handler'
+          )
+          if ($env:MODE -eq 'live-origin') {
+            # public-log: the credential is re-derived HERE from the exact
+            # attempt's own run log. It is never passed through a job output, an
+            # artifact, or an environment variable that outlives this process.
+            $argv += @('--origin-transport', 'public-log')
+            $argv += @('--origin-workflow', '.github/workflows/main.yml')
+            if ($env:DESCRIPTOR_ID) { $argv += @('--descriptor-id', $env:DESCRIPTOR_ID) }
+            if ($env:DESCRIPTOR_IDENTITY) { $argv += @('--descriptor-identity', $env:DESCRIPTOR_IDENTITY) }
+            if ($env:EXPECTED_LAB_REVISION) { $argv += @('--lab-revision', $env:EXPECTED_LAB_REVISION) }
+          }
+          & node @argv
           $code = $LASTEXITCODE
           "exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9) { exit 0 }
+          if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
           exit 1
 
       - name: Keep the authorized viewer open (bounded, opt-in)
-        if: always() && github.event.inputs.keep_viewer_open_minutes != '' && github.event.inputs.keep_viewer_open_minutes != '0'
+        if: always() && inputs.keep_viewer_open_minutes != '' && inputs.keep_viewer_open_minutes != '0'
+        shell: pwsh
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
           # stopped by the postflight step. It is never an orphan left behind to
           # outlive the runner, and never a detached "keep it alive forever".
-          # A non-numeric value closes immediately rather than guessing.
           $m = 0
           if ($env:KEEP_VIEWER_MIN -match '^\d{1,3}$') { $m = [int]$env:KEEP_VIEWER_MIN }
           if ($m -gt 60) { $m = 60 }
@@ -275,6 +433,7 @@ jobs:
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
         if: always()
+        shell: pwsh
         run: |
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
           exit $LASTEXITCODE
@@ -290,16 +449,12 @@ jobs:
 
   report:
     name: report + ack to the origin
-    needs: [claim, verify]
+    needs: [discover, claim, verify]
     if: always() && needs.claim.outputs.proceed == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
-      # `actions: read` is what lets this job read the ORIGIN run's artifact
-      # listing (the 1-day credential envelope) and what lets the origin read
-      # THIS run's evidence. It is the only cross-repository right used, and it
-      # is read-only: the lab never writes to the application repository.
+      contents: write
       actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -313,19 +468,39 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ORIGIN_URL: https://github.com/${{ needs.claim.outputs.origin_repo }}/actions/runs/${{ needs.claim.outputs.origin_run }}
           CORRELATION: ${{ needs.claim.outputs.correlation_id }}
+          ORIGIN_REPO: ${{ needs.claim.outputs.origin_repo }}
+          ORIGIN_RUN: ${{ needs.claim.outputs.origin_run }}
+          ORIGIN_ATTEMPT: ${{ needs.claim.outputs.origin_attempt }}
+          APP_SHA: ${{ needs.claim.outputs.app_sha }}
+          UI_BUILD: ${{ needs.claim.outputs.ui_build }}
+          ENDPOINT: ${{ needs.claim.outputs.endpoint }}
+          MODE: ${{ needs.claim.outputs.mode }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          DESCRIPTOR_ID: ${{ needs.discover.outputs.descriptor_id }}
         run: |
           set -euo pipefail
-          echo "## Live-run verification \`${CORRELATION}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- origin: [${{ needs.claim.outputs.origin_repo }}#${{ needs.claim.outputs.origin_run }}/${{ needs.claim.outputs.origin_attempt }}](${ORIGIN_URL})" >> "$GITHUB_STEP_SUMMARY"
-          echo "- app: \`${{ needs.claim.outputs.app_sha }}\` · UI build: \`${{ needs.claim.outputs.ui_build }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- mode: \`${{ needs.claim.outputs.mode }}\` (origin-selftest = lab-owned origin, real app backend; live-origin = the application run itself)" >> "$GITHUB_STEP_SUMMARY"
-          echo "- verify job: ${{ needs.verify.result }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Full sanitized evidence: the \`live-run-${CORRELATION}-*\` artifact (report JSON + Markdown + screenshots)." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Live-run verification \`$CORRELATION\`"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| origin run | [${ORIGIN_REPO}#${ORIGIN_RUN}/${ORIGIN_ATTEMPT}]($ORIGIN_URL) |"
+            echo "| app sha | \`$APP_SHA\` |"
+            echo "| UI build | \`$UI_BUILD\` |"
+            echo "| endpoint | \`$ENDPOINT\` |"
+            echo "| descriptor | \`$DESCRIPTOR_ID\` |"
+            echo "| mode | \`$MODE\` (live-origin = the application run itself; origin-selftest = lab-owned origin, real app backend) |"
+            echo "| verify job | \`$VERIFY_RESULT\` |"
+            echo "| human intervention | none required; a run that needs any is reported BLOCKED, never VERIFIED |"
+            echo ""
+            echo "Full sanitized evidence: the \`live-run-${CORRELATION}-*\` artifact (report JSON + Markdown + screenshots) from verify job \`$VERIFY_RESULT\`."
+            echo ""
+            echo "A \`BLOCKED\` verify job is a prerequisite failure (runner offline, VM without an interactive desktop, origin already gone, missing one-time enrollment), not a product regression. The sanitized report names the exact operation and code."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Write the ack back for the origin run to read
         env:
           GH_TOKEN: ${{ github.token }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
         run: |
           set -euo pipefail
           # The origin's own bounded wait reads this. It is a fact about THIS lab
@@ -335,4 +510,4 @@ jobs:
             --origin-run "${{ needs.claim.outputs.origin_run }}" \
             --origin-attempt "${{ needs.claim.outputs.origin_attempt }}" \
             --correlation-id "${{ needs.claim.outputs.correlation_id }}" \
-            --job-result "${{ needs.verify.result }}" || echo "::warning title=ack::the state write-back failed; the report in this run is still authoritative"
+            --job-result "$VERIFY_RESULT" || echo "::warning title=ack::the state write-back failed; the report in this run is still authoritative"

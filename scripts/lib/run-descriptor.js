@@ -138,7 +138,12 @@ function validateDescriptor(input, { now = Date.now(), allowExpired = false, exp
   }
 
   d.originWorkflow = str(input.originWorkflow);
-  if (!/^[\w .()-]{1,100}\.ya?ml$/.test(d.originWorkflow)) {
+  // Either a bare workflow file name (`main.yml`, what GITHUB_WORKFLOW gives the
+  // application job) or the repository-relative path GitHub reports as
+  // `run.path` (`.github/workflows/main.yml`). The trust anchor compares the
+  // full path when the descriptor has one and the basename otherwise, so a
+  // descriptor produced by either producer binds to the same run.
+  if (!/^(?:[\w.-]+\/)*[\w .()-]{1,100}\.ya?ml$/.test(d.originWorkflow)) {
     throw new DescriptorError('FIELD_INVALID', `originWorkflow=${JSON.stringify(d.originWorkflow)}`);
   }
 
