@@ -25,7 +25,7 @@ jobs:
           [ "$want" = "$got" ] || { echo "::error title=actionlint checksum::mismatch"; exit 1; }
           tar -xzf "$work/al.tgz" -C "$work" actionlint
           set +e
-          out=$("$work/actionlint" -color=never 2>&1)
+          out=$("$work/actionlint" -no-color 2>&1)
           rc=$?
           set -e
           n=$(printf '%s\n' "$out" | grep -c ':' || true)
