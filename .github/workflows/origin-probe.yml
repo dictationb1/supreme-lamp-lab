@@ -56,7 +56,7 @@ jobs:
       - name: Probe the origin log (no key is read into the report)
         env:
           GH_TOKEN: ${{ github.token }}
-          ORIGIN_RUN: ${{ inputs.origin_run || '39190219092' }}
+          ORIGIN_RUN: ${{ inputs.origin_run || '39005411068' }}
           PROBE_JOB_TRANSPORTS: '1'
           PROBE_RDP_LOG: '1'
         run: |
