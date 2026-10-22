@@ -1,0 +1,39 @@
+# TEMPORARY: surface actionlint's findings as annotations (the CI step log is
+# unreadable from the automation sandbox). Removed once the branch is clean.
+name: _actionlint-report
+on:
+  push:
+    paths: ['.github/workflows/_actionlint-report.yml']
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: run actionlint and annotate
+        run: |
+          set -uo pipefail
+          v=1.7.12
+          work="$RUNNER_TEMP/al"; mkdir -p "$work"
+          base="https://github.com/rhysd/actionlint/releases/download/v$v"
+          curl -fsSL --retry 3 -o "$work/al.tgz" "$base/actionlint_${v}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$work/sums.txt" "$base/actionlint_${v}_checksums.txt"
+          want=$(awk -v f="actionlint_${v}_linux_amd64.tar.gz" '$2 == f { print $1 }' "$work/sums.txt")
+          got=$(sha256sum "$work/al.tgz" | awk '{print $1}')
+          [ "$want" = "$got" ] || { echo "::error title=actionlint checksum::mismatch"; exit 1; }
+          tar -xzf "$work/al.tgz" -C "$work" actionlint
+          set +e
+          out=$("$work/actionlint" -color=never 2>&1)
+          rc=$?
+          set -e
+          n=$(printf '%s\n' "$out" | grep -c ':' || true)
+          echo "::notice title=actionlint::exit=$rc findings_lines=$n"
+          i=0
+          printf '%s\n' "$out" | grep -v '^$' | while read -r line; do
+            i=$((i+1))
+            [ "$i" -gt 8 ] && break
+            echo "::warning title=actionlint finding $i::$(printf '%s' "$line" | cut -c1-350)"
+          done
+          printf '%s\n' "$out" | head -40
