@@ -617,10 +617,35 @@ async function probeOrigin({ originRepo, originWorkflow = ORIGIN_WORKFLOW_DEFAUL
   };
 }
 
+/**
+ * Diagnostic: for every job of one run, report whether its log is retrievable
+ * (API status and blob status, no body kept). This distinguishes "logs for this
+ * repository are unreadable" from "this ONE job's log was dropped".
+ */
+async function probeJobLogTransports({ originRepo, runId } = {}) {
+  const jobs = await listRunJobs({ originRepo, runId });
+  if (!jobs.ok) return fail(jobs.code, jobs.detail);
+  const rows = [];
+  for (const j of jobs.jobs) {
+    const r = await downloadJobLogText({ originRepo, jobId: j.id });
+    rows.push({
+      job: String(j.name || '').slice(0, 40),
+      status: j.status,
+      conclusion: j.conclusion,
+      readable: r.ok,
+      bytes: r.ok ? r.text.length : null,
+      code: r.ok ? 'OK' : r.code,
+      detail: r.ok ? null : String(r.detail || '').slice(0, 160)
+    });
+  }
+  return { ok: true, runId, jobs: rows };
+}
+
 module.exports = {
   ORIGIN_WORKFLOW_DEFAULT,
   discoverOrigin,
   probeOrigin,
+  probeJobLogTransports,
   parseOriginLog,
   parseOriginLogText,
   scanLogText,

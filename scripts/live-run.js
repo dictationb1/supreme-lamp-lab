@@ -875,6 +875,12 @@ async function cmdProbe(a) {
       `status=${r.status} conclusion=${r.conclusion || '-'} ready=${log.ready} key=${log.keyPresent} host=${log.endpointHost || '-'} kind=${log.endpointKind || '-'}` +
       (r.detail ? ` detail=${String(r.detail).slice(0, 120)}` : ''));
   }
+  if (process.env.PROBE_JOB_TRANSPORTS === '1' && a.originRunId) {
+    const t = await discovery.probeJobLogTransports({ originRepo: a.originRepo || 'dictationb1/supreme-lamp', runId: a.originRunId });
+    out.jobTransportProbe = t;
+    if (t.ok) for (const j of t.jobs.slice(0, 8)) annotate.notice(`job log ${j.job}`, `${j.status}/${j.conclusion} readable=${j.readable} bytes=${j.bytes} code=${j.code}${j.detail ? ' detail=' + j.detail : ''}`);
+    else annotate.notice('job transport probe', `${t.code}: ${t.detail}`);
+  }
   const summary = process.env.GITHUB_STEP_SUMMARY;
   if (summary) {
     const lines = [`### Origin log probe — \`${out.code}\``, ''];

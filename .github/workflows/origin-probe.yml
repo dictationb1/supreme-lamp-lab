@@ -56,7 +56,8 @@ jobs:
       - name: Probe the origin log (no key is read into the report)
         env:
           GH_TOKEN: ${{ github.token }}
-          ORIGIN_RUN: ${{ inputs.origin_run || '0' }}
+          ORIGIN_RUN: ${{ inputs.origin_run || '39190219092' }}
+          PROBE_JOB_TRANSPORTS: '1'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/probe"
