@@ -44,6 +44,7 @@ const { request, summarize } = require('./http');
 const { extractZip } = require('./verify-origin');
 const { registerSecret } = require('./redact');
 const rd = require('./run-descriptor');
+const ls = require('./live-signal');
 
 const ORIGIN_WORKFLOW_DEFAULT = '.github/workflows/main.yml';
 const MAX_LOG_BYTES = 64 * 1024 * 1024;
@@ -409,6 +410,62 @@ function buildDescriptor({ originRepo, originWorkflow, run, endpoint, fingerprin
  * A run whose log has no banner yet is NOT an error that stops the sweep: it is
  * reported as `not_yet_ready` and the next sweep re-reads it. Nothing queues it.
  */
+/**
+ * Read the ORIGIN run's live signal from a public check-run output.
+ * The identity checked here comes from the RUN API (run id, attempt, head
+ * sha), never from the signal itself; the key is decrypted in memory only.
+ */
+async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() } = {}) {
+  const headSha = run && run.head_sha;
+  if (!headSha) return fail('SIGNAL_NO_HEAD_SHA', 'the run carries no head sha');
+  const r = await apiGet(`/repos/${originRepo}/commits/${headSha}/check-runs?per_page=100`);
+  if (r.status === 404) return fail('SIGNAL_LIST_EMPTY', `no check runs for ${headSha.slice(0, 12)}`);
+  if (!r.ok || !r.json || !Array.isArray(r.json.check_runs)) return fail('SIGNAL_LIST_FAILED', summarize(r));
+  const pick = ls.pickCheckRun(r.json.check_runs);
+  if (!pick) return fail('SIGNAL_ABSENT', 'the origin run publishes no mission-control-live-signal check run');
+  const resolved = ls.resolveSignal(pick.output && pick.output.summary, {
+    repo: originRepo, runId: run.id, attempt: run.run_attempt || 1, appSha: headSha, now
+  }, privateKeyPem);
+  if (!resolved.ok) return { ...resolved, checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null } };
+  const rawEndpoint = String(resolved.envelope.endpoint);
+  const u = new URL(rawEndpoint);
+  const endpoint = {
+    url: `${u.protocol}//${u.host}${u.pathname}`.replace(/\/$/, ''),
+    host: u.hostname.replace(/^\[|\]$/g, ''),
+    port: Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+  };
+  return {
+    ok: true,
+    transport: 'check-run',
+    endpoint,
+    key: resolved.key,
+    fingerprint: crypto.createHash('sha256').update(resolved.key, 'utf8').digest('hex'),
+    checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null },
+    envelope: resolved.envelope,
+    live: pick.status === 'in_progress'
+  };
+}
+
+/** Signal first (works while the run is alive), logs second (finished runs). */
+async function resolveOriginSource(run, { originRepo, privateKeyPem, now = Date.now() } = {}) {
+  const signal = await readRunSignal({ originRepo, run, privateKeyPem, now });
+  if (signal.ok) return signal;
+  const logs = await downloadOriginLogs({ originRepo, runId: run.id });
+  if (!logs.ok) return { ok: false, code: logs.code, detail: logs.detail, signalCode: signal.code, signalDetail: signal.detail };
+  const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text, { now });
+  if (!parsed.ok) return { ok: false, code: parsed.code, detail: parsed.detail, evidence: parsed.evidence, signalCode: signal.code, signalDetail: signal.detail };
+  return {
+    ok: true,
+    transport: logs.transport,
+    endpoint: parsed.endpoint,
+    key: parsed.secret.dashboardToken,
+    fingerprint: parsed.evidence.keyFingerprint,
+    evidence: parsed.evidence,
+    logJobs: logs.jobs || null,
+    signalCode: signal.code
+  };
+}
+
 async function discoverOrigin({
   originRepo,
   originWorkflow = ORIGIN_WORKFLOW_DEFAULT,
@@ -469,21 +526,21 @@ async function discoverOrigin({
       rejected.push({ runId: id, attempt, code: 'ORIGIN_RUN_MISMATCH', detail: problems.join('; ') });
       continue;
     }
-    const logs = await downloadOriginLogs({ originRepo, runId: id });
-    if (!logs.ok) {
-      rejected.push({ runId: id, attempt, code: logs.code, detail: logs.detail });
+    const source = await resolveOriginSource(run, {
+      originRepo, privateKeyPem: process.env.LAB_SIGNAL_PRIVATE_KEY || '', now
+    });
+    if (!source.ok) {
+      rejected.push({
+        runId: id, attempt, code: source.code, detail: source.detail, evidence: source.evidence,
+        signal: source.signalCode ? { code: source.signalCode, detail: String(source.signalDetail || '').slice(0, 160) } : undefined
+      });
       continue;
     }
-    const parsed = logs.transport === 'run-archive' ? logs.archiveParsed : parseOriginLogText(logs.text, { now });
-    if (!parsed.ok) {
-      rejected.push({ runId: id, attempt, code: parsed.code, detail: parsed.detail, evidence: parsed.evidence });
-      continue;
-    }
-    registerSecret(parsed.secret.dashboardToken, 'ORIGIN_DASH_TOKEN');
+    registerSecret(source.key, 'ORIGIN_DASH_TOKEN');
     const desc = buildDescriptor({
       originRepo, originWorkflow, run,
-      endpoint: parsed.endpoint,
-      fingerprint: parsed.evidence.keyFingerprint,
+      endpoint: source.endpoint,
+      fingerprint: source.fingerprint,
       labRevision, now
     });
     if (!desc.ok) {
@@ -503,7 +560,7 @@ async function discoverOrigin({
       ok: true,
       code: 'ORIGIN_DISCOVERED',
       descriptor: desc.descriptor,
-      secret: parsed.secret,
+      secret: { dashboardToken: source.key },
       origin: {
         repo: originRepo,
         workflow: originWorkflow,
@@ -516,13 +573,18 @@ async function discoverOrigin({
         url: `https://github.com/${originRepo}/actions/runs/${id}`
       },
       evidence: {
-        ...parsed.evidence,
-        logTransport: logs.transport,
-        logJobs: logs.jobs,
+        ...(source.evidence || {}),
+        transport: source.transport,
+        logTransport: source.transport,
+        logJobs: source.logJobs || null,
+        checkRun: source.checkRun || null,
+        signalLive: source.live === true,
+        endpoint: source.endpoint,
         // A public origin log is a public credential. Record the fact, not the
         // value, so the report can name the product defect precisely.
-        originLogPubliclyReadable: true,
-        selection: explicitRunId ? 'explicit-run-id' : 'oldest-in-progress-with-live-banner',
+        originLogPubliclyReadable: source.transport !== 'check-run',
+        signalFallback: source.signalCode || null,
+        selection: explicitRunId ? 'explicit-run-id' : 'oldest-in-progress-with-live-signal',
         rejected
       }
     };
@@ -691,6 +753,8 @@ module.exports = {
   probeOrigin,
   probeJobLogTransports,
   analyseJobLogText,
+  readRunSignal,
+  resolveOriginSource,
   parseOriginLog,
   parseOriginLogText,
   scanLogText,

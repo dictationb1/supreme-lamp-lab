@@ -82,7 +82,7 @@ module.exports = async function registerOriginDiscoveryTests(H) {
   // ------------------------------------------------------- fake GitHub + app API
   function startServers() {
     return new Promise((resolve) => {
-      const state = { runs: {}, blobs: {}, jobLogs: {}, jobMode: true, config: null, version: null, logStatus: 302 };
+      const state = { runs: {}, blobs: {}, jobLogs: {}, jobMode: true, config: null, version: null, logStatus: 302, checkRuns: null };
       const srv = http.createServer((req, res) => {
         const u = new URL(req.url, 'http://127.0.0.1');
         const p = u.pathname;
@@ -99,6 +99,11 @@ module.exports = async function registerOriginDiscoveryTests(H) {
           const run = state.runs[mRun[2]];
           if (!run) return json({ message: 'Not Found' }, 404);
           return json(run);
+        }
+        const mChecks = p.match(/^\/repos\/([^/]+\/[^/]+)\/commits\/([0-9a-f]{7,40})\/check-runs$/);
+        if (mChecks) {
+          if (!state.checkRuns) return json({ message: 'Not Found' }, 404);
+          return json({ total_count: state.checkRuns.length, check_runs: state.checkRuns });
         }
         const mJobs = p.match(/^\/repos\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)\/jobs$/);
         if (mJobs) {
@@ -260,7 +265,7 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       const res = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp' });
       assert.strictEqual(res.ok, true, res.detail || '');
       assert.strictEqual(res.descriptor.originRunId, 2001, 'FIFO by run start, never the newest server');
-      assert.strictEqual(res.evidence.selection, 'oldest-in-progress-with-live-banner');
+      assert.strictEqual(res.evidence.selection, 'oldest-in-progress-with-live-signal');
       // the completed run was never even a candidate (the list filters by status)
       assert.ok(!res.evidence.rejected.some(r => r.runId === 2000), 'a completed run is not attachable');
     });
@@ -428,6 +433,69 @@ module.exports = async function registerOriginDiscoveryTests(H) {
       assert.strictEqual(a.banner, false);
       assert.strictEqual(a.readiness, false);
       assert.ok(a.markers.includes('error'));
+    });
+
+    // ------------------------------------------------------ live check-run signal
+    const signalLib = require('../lib/live-signal');
+    const { publicKey: sigPub, privateKey: sigPriv } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const PUB_PEM = sigPub.export({ type: 'spki', format: 'pem' });
+    const PRIV_PEM = sigPriv.export({ type: 'pkcs8', format: 'pem' });
+    const signalFor = (run, { attempt, sha, endpoint = 'http://100.101.102.103:7331', ttlMs = 3600e3, key = 'sig-' + crypto.randomBytes(8).toString('hex') } = {}) => signalLib.buildSignal({
+      repo: 'dictationb1/supreme-lamp', runId: run.id, attempt: attempt || run.run_attempt,
+      appSha: sha || run.head_sha, endpoint, expiresAt: new Date(Date.now() + ttlMs).toISOString(), key
+    }, PUB_PEM);
+
+    await test('live signal: an encrypted envelope round-trips, and every stale identity is refused by name', async () => {
+      const run = runObj({ id: 7001 });
+      const text = signalFor(run);
+      assert.ok(!text.includes('sig-'), 'the key must not appear in the public signal text');
+      const expect = { repo: 'dictationb1/supreme-lamp', runId: 7001, attempt: 1, appSha: SHA };
+      const ok = signalLib.resolveSignal(text, expect, PRIV_PEM);
+      assert.strictEqual(ok.ok, true, ok.detail || '');
+      assert.ok(ok.key.startsWith('sig-'));
+      assert.strictEqual(signalLib.resolveSignal(text, { ...expect, attempt: 2 }, PRIV_PEM).code, 'SIGNAL_STALE_ATTEMPT');
+      assert.strictEqual(signalLib.resolveSignal(text, { ...expect, runId: 7002 }, PRIV_PEM).code, 'SIGNAL_STALE_RUN');
+      assert.strictEqual(signalLib.resolveSignal(text, { ...expect, appSha: 'f'.repeat(40) }, PRIV_PEM).code, 'SIGNAL_SHA_MISMATCH');
+      assert.strictEqual(signalLib.resolveSignal(text, expect, null).code, 'SIGNAL_NO_PRIVATE_KEY');
+      const expired = signalLib.resolveSignal(signalFor(run, { ttlMs: -1000 }), expect, PRIV_PEM);
+      assert.strictEqual(expired.code, 'SIGNAL_EXPIRED');
+      const offTailnet = signalLib.resolveSignal(signalFor(run, { endpoint: 'https://example.com:7331' }), expect, PRIV_PEM);
+      assert.strictEqual(offTailnet.code, 'SIGNAL_ENDPOINT_NOT_TAILNET');
+      const tampered = text.slice(0, -8) + 'AAAAAAAA';
+      assert.strictEqual(signalLib.resolveSignal(tampered, expect, PRIV_PEM).ok, false);
+    });
+
+    await test('origin discovery: the live check-run signal attaches a run whose logs are NOT readable', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.checkRuns = null;
+      const run = runObj({ id: 7101 });
+      state.runs[7101] = run;
+      const key = 'sig-live-' + crypto.randomBytes(6).toString('hex');
+      state.checkRuns = [{ id: 99, name: signalLib.SIGNAL_NAME, status: 'in_progress', started_at: new Date().toISOString(), output: { summary: signalFor(run, { key }) } }];
+      process.env.LAB_SIGNAL_PRIVATE_KEY = PRIV_PEM;
+      const found = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7101 });
+      delete process.env.LAB_SIGNAL_PRIVATE_KEY;
+      assert.strictEqual(found.ok, true, found.detail || JSON.stringify(found.rejected || []));
+      assert.strictEqual(found.secret.dashboardToken, key);
+      assert.strictEqual(found.evidence.transport, 'check-run');
+      assert.strictEqual(found.evidence.signalLive, true);
+      assert.strictEqual(found.descriptor.authorizedEndpoint, 'http://100.101.102.103:7331');
+      assert.ok(!JSON.stringify(found.descriptor).includes(key), 'the descriptor must not carry the key');
+      assert.ok(!JSON.stringify(found.evidence).includes(key), 'the evidence must not carry the key');
+    });
+
+    await test('origin discovery: a signal for the WRONG attempt is refused and the readable log is used instead', async () => {
+      state.runs = {}; state.blobs = {}; state.jobLogs = {}; state.checkRuns = null;
+      const run = runObj({ id: 7201 });
+      state.runs[7201] = run;
+      state.blobs[7201] = logZip();
+      state.checkRuns = [{ id: 98, name: signalLib.SIGNAL_NAME, status: 'in_progress', started_at: new Date().toISOString(), output: { summary: signalFor(run, { attempt: 9 }) } }];
+      process.env.LAB_SIGNAL_PRIVATE_KEY = PRIV_PEM;
+      const found = await discovery.discoverOrigin({ originRepo: 'dictationb1/supreme-lamp', explicitRunId: 7201 });
+      delete process.env.LAB_SIGNAL_PRIVATE_KEY;
+      assert.strictEqual(found.ok, true, found.detail || JSON.stringify(found.rejected || []));
+      assert.strictEqual(found.evidence.transport, 'run-archive');
+      assert.strictEqual(found.evidence.signalFallback, 'SIGNAL_STALE_ATTEMPT');
+      assert.ok(!JSON.stringify(found.evidence).includes(KEY));
     });
 
     // ------------------------------------------------------------- workflows
