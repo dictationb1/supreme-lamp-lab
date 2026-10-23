@@ -423,9 +423,16 @@ async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() 
   if (!r.ok || !r.json || !Array.isArray(r.json.check_runs)) return fail('SIGNAL_LIST_FAILED', summarize(r));
   const pick = ls.pickCheckRun(r.json.check_runs);
   if (!pick) return fail('SIGNAL_ABSENT', 'the origin run publishes no mission-control-live-signal check run');
-  const resolved = ls.resolveSignal(pick.output && pick.output.summary, {
-    repo: originRepo, runId: run.id, attempt: run.run_attempt || 1, appSha: headSha, now
-  }, privateKeyPem);
+  // Both published formats are accepted: the base64 `MC-SIGNAL v1` token AND
+  // the application's `mc-signal/v1` fenced JSON (output text, hybrid envelope).
+  // Measured 2026-10-23 on run 39952421153: the application published the
+  // second format, so reading only the summary reported NOT_FOUND for a signal
+  // that was on the check run - the client verification could never attach.
+  const resolved = ls.resolveAnySignal(
+    { summary: pick.output && pick.output.summary, text: pick.output && (pick.output.text || pick.output.summary) },
+    { repo: originRepo, runId: run.id, attempt: run.run_attempt || 1, appSha: headSha, now },
+    privateKeyPem
+  );
   if (!resolved.ok) return { ...resolved, checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null } };
   const rawEndpoint = String(resolved.envelope.endpoint);
   const u = new URL(rawEndpoint);
@@ -442,6 +449,10 @@ async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() 
     fingerprint: crypto.createHash('sha256').update(resolved.key, 'utf8').digest('hex'),
     checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null },
     envelope: resolved.envelope,
+    // Which published format carried the credential (`MC-SIGNAL v1` base64 or
+    // the application's `mc-signal/v1` JSON). Evidence only; both are validated
+    // against the run API identically.
+    signalFormat: resolved.format || null,
     live: pick.status === 'in_progress'
   };
 }
@@ -612,8 +623,11 @@ async function discoverOrigin({
       }
     };
   }
+  // The final code alone is not enough to act on: when the signal read fails we
+  // fall back to the (usually unreadable) run log, and the collapsed
+  // `LOG_UNAVAILABLE` hides WHY the signal was refused. Name both.
   return fail('NO_LIVE_ORIGIN', rejected.length
-    ? `no attachable live origin (${rejected.map(r => `${r.runId}/${r.attempt}:${r.code}`).join(', ')})`
+    ? `no attachable live origin (${rejected.map(r => `${r.runId}/${r.attempt}:${r.code}${r.signal ? ` signal=${r.signal.code}:${String(r.signal.detail || '').slice(0, 80)}` : ''}`).join(', ')})`
     : `no ${originWorkflow} run is in progress in ${originRepo}`, { evidence: { rejected } });
 }
 

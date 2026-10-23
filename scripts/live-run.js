@@ -370,7 +370,18 @@ async function cmdLive(a) {
     // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
     // only names a candidate, and every field is re-derived from the log of the
     // exact attempt before a descriptor exists.
-    if (!rec && a.originTransport !== 'record') {
+    // ALWAYS resolve the credential from the ORIGIN'S OWN validated signal when
+    // the transport allows it - also when a queue record exists. The record's
+    // `envelopeTransport` is a lab default (`artifact live-run-<run>-<attempt>-
+    // envelope`), and the merged application publishes no such artifact: it
+    // seals the credential in MC-SIGNAL. Measured 2026-10-23 (lab run
+    // 39958377748): the record was used as-is, origin verification demanded the
+    // artifact, and the run died at BLOCKED ARTIFACT_NOT_FOUND while a valid,
+    // live, run/attempt/sha-bound signal was sitting on the check run.
+    // The signal is the stronger proof (it is bound to the run API identity),
+    // so it wins; the record still supplies the queue identity and is still
+    // where the claim/ack state lives.
+    if (a.originTransport !== 'record' && !a.envelopeInline) {
       setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
       const disc = await discovery.discoverOrigin({
         originRepo: a.originRepo || 'dictationb1/supreme-lamp',
@@ -478,7 +489,20 @@ async function cmdLive(a) {
     }
 
     // 3. serialize access to the VM desktop itself ------------------------
-    lock = acquireLock({ name: 'rdp-lab-desktop', owner: `${envOr('GITHUB_RUN_ID', 'local')}-${envOr('GITHUB_RUN_ATTEMPT', '1')}`, timeoutMs: 120000, role: 'live-run' });
+    // The desktop lock is a DIRECTORY lock (lib/lock.js), not a name/owner pair.
+    // Measured 2026-10-23 (lab run 39957424394, client VM): the call passed
+    // `name`/`owner`, acquireLock threw LOCK_DIR_REQUIRED, and the whole live
+    // verification aborted at CLAIMED before the origin was ever verified -
+    // while the run still exited 0, so the queue recorded a verdict it did not
+    // have. One desktop owner is a safety property: it must actually be taken.
+    const lockRoot = process.env.LAB_LOCK_DIR || path.join(os.tmpdir(), 'slab-locks');
+    lock = acquireLock({
+      lockDir: path.join(lockRoot, 'rdp-lab-desktop'),
+      runId: envOr('GITHUB_RUN_ID', 'local'),
+      runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
+      timeoutMs: 120000,
+      role: 'live-run'
+    });
     timings.desktopLockMs = Date.now() - t0;
 
     // 4. verify the origin against GitHub, not against the caller ---------
@@ -515,7 +539,14 @@ async function cmdLive(a) {
     // 6. the live backend must be ours: same sha, same instance ------------
     const target = descriptor.authorizedEndpoint;
     const ready = await waitForReady(target, { timeoutMs: Math.min(a.readyTimeoutMs, Math.max(5000, deadline - Date.now())) });
-    if (!ready.ready) return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
+    if (!ready.ready) {
+      // What was ACTUALLY contacted belongs in the annotation: "readiness
+      // timeout" alone cannot be distinguished from a wrong host, a tailnet
+      // route that is not up, or a server that never started.
+      const seen = (ready.history || []).slice(-4).map(h => `${h.code}@${h.at ? h.at.slice(11, 19) : '?'}(${String(h.detail || '').slice(0, 120)})`);
+      annotate.error('readiness', `${ready.code} after ${Math.round(a.readyTimeoutMs / 1000)}s against ${target}; history=${seen.join(' | ')}`);
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
+    }
     report.identity.readiness = ready.last && ready.last.body ? { pid: ready.last.body.pid, port: ready.last.body.port, phase: ready.last.body.phase, serverTs: ready.last.body.serverTs } : null;
 
     // 6b. the live process must be THIS run's instance, not merely a server on
@@ -551,7 +582,14 @@ async function cmdLive(a) {
     };
     if (!proof.ok) {
       const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
-      return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      // The coarse code alone cannot distinguish 'the server refused OUR token'
+      // from 'the gate was never enforced' or 'the request never left'. The
+      // artifact is not reachable from every environment, so the three gate
+      // observations go into the annotation itself (statuses only, no token).
+      const g = proof.results || {};
+      const gates = `noBearer=${(g.noBearer || {}).status}/${(g.noBearer || {}).transport} wrongBearer=${(g.wrongBearer || {}).status}/${(g.wrongBearer || {}).transport} ourBearer=${(g.ourBearer || {}).status}/${(g.ourBearer || {}).transport}${(g.ourBearer || {}).hasRid ? '+rid' : ''} ttl=${(g.ourBearer || {}).ttl || '-'} configGate=${(g.config || {}).gate || '-'} configStatuses=${JSON.stringify((g.config || {}).statuses || [])}`;
+      annotate.error('authorization', `${proof.code}: ${redact(String(proof.detail || '')).slice(0, 240)} | ${gates}`);
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', code, `${proof.code}: ${proof.detail} | ${gates}`));
     }
     timings.authMs = Date.now() - t0;
     report.timestamps.authenticatedAt = new Date().toISOString();
@@ -727,8 +765,15 @@ async function cmdAckState(a) {
   const descriptor = { originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt, correlationId: a.correlationId };
   if (!descriptor.originRepo || !descriptor.originRunId) return printExit(EXIT.USAGE, { code: 'ACK_TARGET_MISSING' });
   const jobResult = String(a.jobResult || 'unknown').toLowerCase();
+  // A JOB's success is not a VERDICT. The verify job exits 0 for every
+  // non-fatal outcome (BLOCKED/NO_EVIDENCE/UNCONFIRMED are all "not a crash"),
+  // so mapping success -> REPORTED_VERIFIED let a run that never reached the
+  // origin be recorded as verified (measured 2026-10-23: LOCK_DIR_REQUIRED
+  // aborted at CLAIMED and the queue then said REPORTED_VERIFIED). Only the
+  // in-process report may set a passing state; a gap-fill is BLOCKED and says
+  // so, which also permits the bounded re-queue.
   const map = {
-    success: 'REPORTED_VERIFIED',
+    success: 'BLOCKED',
     failure: 'FAILED',
     cancelled: 'BLOCKED',
     timed_out: 'BLOCKED',
@@ -742,7 +787,7 @@ async function cmdAckState(a) {
     return printExit(EXIT.OK, { code: 'ACK_ALREADY_REPORTED', state: existing.record.state, detail: 'the verify job already wrote the authoritative report; the job-level write-back stands down' });
   }
   const state = map[jobResult] || 'BLOCKED';
-  const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
+  const detail = `job-level write-back: verify job result=${jobResult} (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)`;
   const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
   return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
 }
@@ -1152,6 +1197,10 @@ async function cmdPoll(a) {
     .sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)))
     .slice(0, 1);
   fs.writeFileSync(path.join(artifactDir(), 'records.json'), JSON.stringify(out, null, 2));
+  // `--json-out` is the clean file the workflow consumes (`--records` for
+  // pick-record.js and `jq .pending`): stdout keeps its human header plus the
+  // workflow-command annotations, which are not valid JSON.
+  if (a.jsonOut) fs.writeFileSync(a.jsonOut, JSON.stringify(out, null, 2), { mode: 0o600 });
   print('poll-records', EXIT.OK, out);
   return process.exit(EXIT.OK);
 }
@@ -1424,7 +1473,6 @@ function classifyError(e) {
 function print(cmd, code, obj) {
   const compact = { cmd, exit: code, ...obj };
   const text = JSON.stringify(redactObject(compact), null, 2);
-  console.log(`\n===== ${cmd} result (exit ${code}) =====\n${text}\n`);
   const stage = obj && obj.stage;
   const objCode = (obj && (obj.code || (obj.verdict && obj.verdict.code))) || '';
   const msg = `${code === EXIT.OK ? 'verified' : 'exit ' + code}${stage ? ' at ' + stage : ''}: ${objCode}${obj && obj.detail ? ' — ' + redact(obj.detail).slice(0, 240) : ''}`;
@@ -1436,6 +1484,12 @@ function print(cmd, code, obj) {
   if (code === EXIT.OK) annotate.notice('live-run ' + cmd, msg);
   else if (benign.has(objCode)) annotate.notice('live-run ' + cmd + ' (nothing to attach)', msg);
   else annotate.error('live-run ' + cmd, msg);
+  // The machine-readable payload is printed LAST on purpose: `poll-records` is
+  // redirected straight into records.txt and consumed by pick-record.js / jq,
+  // and a trailing `[NOTICE]`/`::notice` line after the JSON made the queue look
+  // unreadable (measured: claim job answered RECORDS_UNREADABLE while a
+  // pickable record existed). Commands that print for humans keep the header.
+  console.log(`\n===== ${cmd} result (exit ${code}) =====\n${text}\n`);
 }
 function redactObject(o) { const { redactDeep } = require('./lib/redact'); return redactDeep(o); }
 function printExit(code, obj) { print('ack', code, obj); return code; }
