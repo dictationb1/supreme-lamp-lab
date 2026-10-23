@@ -400,17 +400,32 @@ async function probeRefreshAwareToken(target, dashboardToken, { timeoutMs = 1500
   const T = String(dashboardToken || '');
   if (!T) return { ok: false, code: 'TOKEN_ABSENT' };
   const bogus = crypto.randomBytes(16).toString('hex');
-  const ours = await request(`${target}/api/search/status`, { timeoutMs, headers: { 'X-Dash-Token': T } });
-  const anon = await request(`${target}/api/search/status`, { timeoutMs });
-  const forged = await request(`${target}/api/search/status`, { timeoutMs, headers: { 'X-Dash-Token': bogus } });
-  const results = { ours: { status: ours.status, transport: ours.transport }, anonymous: { status: anon.status, transport: anon.transport }, forged: { status: forged.status, transport: forged.transport } };
+  // A NONEXISTENT search id is deliberate: the route authenticates BEFORE it
+  // validates, so a token that passes the gate answers 404 UNKNOWN_SOURCE while
+  // a refused one answers 403. MEASURED on the first attempt: calling the route
+  // with no parameter at all answers 400 ("searchId required"), which is also
+  // post-auth but indistinguishable from a validation error raised earlier.
+  const probeId = `lab-probe-${crypto.randomBytes(6).toString('hex')}`;
+  const url = `${target}/api/search/status?searchid=${encodeURIComponent(probeId)}`;
+  const ours = await request(url, { timeoutMs, headers: { 'X-Dash-Token': T } });
+  const anon = await request(url, { timeoutMs });
+  const forged = await request(url, { timeoutMs, headers: { 'X-Dash-Token': bogus } });
+  const codeOf = r => (r && r.json && r.json.code) || null;
+  const results = {
+    probe: 'searchid sentinel (post-auth answer expected)',
+    ours: { status: ours.status, transport: ours.transport, code: codeOf(ours) },
+    anonymous: { status: anon.status, transport: anon.transport },
+    forged: { status: forged.status, transport: forged.transport }
+  };
   if (ours.transport !== 'ok') return { ok: false, code: 'REFRESH_AWARE_UNREACHABLE', results };
-  const oursOk = ours.status === 200;
+  // 200 = the route served; 404 UNKNOWN_SOURCE = the token passed and only the
+  // sentinel id was unknown. Both mean "the credential is current".
+  const oursAccepted = ours.status === 200 || (ours.status === 404 && codeOf(ours) === 'UNKNOWN_SOURCE');
   const refusedAnon = anon.status === 401 || anon.status === 403;
   const refusedForged = forged.status === 401 || forged.status === 403;
-  if (oursOk && refusedAnon && refusedForged) return { ok: true, code: 'REFRESH_AWARE_CURRENT', results };
-  if (!oursOk && (ours.status === 401 || ours.status === 403)) return { ok: false, code: 'REFRESH_AWARE_REJECTED', results };
-  if (oursOk && !(refusedAnon && refusedForged)) return { ok: false, code: 'REFRESH_AWARE_UNENFORCED', results };
+  if (oursAccepted && refusedAnon && refusedForged) return { ok: true, code: 'REFRESH_AWARE_CURRENT', results };
+  if (!oursAccepted && (ours.status === 401 || ours.status === 403)) return { ok: false, code: 'REFRESH_AWARE_REJECTED', results };
+  if (oursAccepted && !(refusedAnon && refusedForged)) return { ok: false, code: 'REFRESH_AWARE_UNENFORCED', results };
   return { ok: false, code: 'REFRESH_AWARE_UNPROVEN', results };
 }
 

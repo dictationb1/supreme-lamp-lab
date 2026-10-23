@@ -104,11 +104,13 @@ module.exports = async function register({ test, assert, fs, path }) {
     const token = 'run-token-current-0123456789';
     let mode = 'current';
     const srv = http.createServer((req, res) => {
-      if (req.url !== '/api/search/status') { res.writeHead(404); return res.end(); }
+      if (!String(req.url).startsWith('/api/search/status')) { res.writeHead(404); return res.end(); }
       const presented = String(req.headers['x-dash-token'] || '');
       const ok = mode === 'unenforced' ? true : (mode === 'current' && presented === token);
-      res.writeHead(ok ? 200 : 403, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ ok }));
+      if (!ok) { res.writeHead(403, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ code: 'AUTH_REQUIRED' })); }
+      // post-auth: the sentinel search id is unknown
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ code: 'UNKNOWN_SOURCE' }));
     });
     await new Promise(r => srv.listen(0, '127.0.0.1', r));
     const target = `http://127.0.0.1:${srv.address().port}`;
