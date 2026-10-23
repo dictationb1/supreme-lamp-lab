@@ -627,6 +627,26 @@ async function cmdLive(a) {
     }
     report.identity.instance = { backendIdentity: descriptor.backendIdentity, sessionId: attest.identity.sessionId, buildSha: attest.identity.buildSha };
 
+    // 6c. the process must belong to THIS run, not merely to this commit. A
+    //     server left running from an earlier run answers identically and keeps
+    //     every boot-time value (including the token snapshot its strict
+    //     /api/rdp-token route compares against). Reported, never guessed.
+    const boot = await serverIdentity.serverBootTime({ target }).catch(() => null);
+    const runStartedIso = origin && origin.run ? String(origin.run.run_started_at || origin.run.created_at || '') : '';
+    const bootIso = boot && boot.ok ? boot.boot.startedAt : null;
+    const predatesMs = bootIso && runStartedIso ? Date.parse(runStartedIso) - Date.parse(bootIso) : null;
+    report.identity.process = {
+      bootAt: bootIso, bootSource: boot ? boot.code : 'PROBE_FAILED',
+      uptimeSec: boot && boot.ok ? boot.boot.uptimeSec : null,
+      runStartedAt: runStartedIso || null,
+      predatesRunByMs: predatesMs
+    };
+    if (bootIso) annotate.notice('server process', `bootAt=${bootIso} uptimeSec=${report.identity.process.uptimeSec} runStartedAt=${runStartedIso || '-'} predatesRunByMs=${predatesMs === null ? '-' : predatesMs}`);
+    if (predatesMs !== null && predatesMs > 120000) {
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', 'ORIGIN_INSTANCE_PREDATES_RUN',
+        `the endpoint is served by a process that started ${Math.round(predatesMs / 60000)} min BEFORE origin run ${descriptor.originRunId} began (boot ${bootIso}, run ${runStartedIso}). Every boot-time value it holds belongs to an earlier run - the application's strict /api/rdp-token route compares the dashboard token against that boot snapshot - so a credential published by this run cannot prove THIS instance`));
+    }
+
     // 7. authenticate --------------------------------------------------------
     setStage('AUTHENTICATED');
     const proof = await auth.proveAuthorization({ target, dashboardToken: envelope.dashboardToken, log });

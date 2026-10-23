@@ -101,6 +101,54 @@ async function attestBackend({ target, appSha, timeoutMs = 15000 } = {}) {
 }
 
 /**
+ * When did the SERVING PROCESS start? buildSha ties the code to the origin
+ * commit but says nothing about the process: a server left running from an
+ * earlier run answers with the same buildSha, the same UI and a fresh-looking
+ * /api/readiness, while every boot-time value it holds (notably the dashboard
+ * token its strict /api/rdp-token route compares against, read once at start)
+ * belongs to a different run.
+ *
+ * MEASURED (lab runs 39906231257..39909552608): the origin's sealed signal
+ * decrypted to the credential the application published, /api/rdp-token
+ * answered 401 for it, and 401 for anonymous and forged callers alike.
+ *
+ * The application publishes its process start time as
+ * `logonCollector.startedAt` (plus `uptimeSec`) inside /api/diag/comprehensive.
+ * It is read structurally because the bundle's nesting changes between builds,
+ * and a missing value is reported as unavailable - never guessed.
+ */
+function findServerStart(node, depth = 0) {
+  if (!node || depth > 7) return null;
+  if (Array.isArray(node)) {
+    for (const v of node) { const r = findServerStart(v, depth + 1); if (r) return r; }
+    return null;
+  }
+  if (typeof node === 'object') {
+    const startedAt = node.startedAt || node.serverStartedAt || node.processStartedAt;
+    const uptime = node.uptimeSec === undefined ? null : Number(node.uptimeSec);
+    if (typeof startedAt === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(startedAt)) {
+      return { startedAt: new Date(startedAt).toISOString(), uptimeSec: uptime, source: 'startedAt' };
+    }
+    for (const v of Object.values(node)) { const r = findServerStart(v, depth + 1); if (r) return r; }
+  }
+  return null;
+}
+
+async function serverBootTime({ target, timeoutMs = 20000 } = {}) {
+  const r = await request(`${target}/api/diag/comprehensive`, { timeoutMs });
+  if (r.transport !== 'ok' || r.status !== 200 || !r.json) {
+    return { ok: false, code: 'BOOT_TIME_UNAVAILABLE', detail: `HTTP ${r.status} transport=${r.transport}`, boot: null };
+  }
+  const hit = findServerStart(r.json);
+  if (!hit && r.json.serverTs && r.json.uptimeSec !== undefined) {
+    const startedAt = new Date(Date.parse(r.json.serverTs) - Number(r.json.uptimeSec) * 1000).toISOString();
+    return { ok: true, code: 'BOOT_TIME_DERIVED', boot: { startedAt, uptimeSec: Number(r.json.uptimeSec), source: 'serverTs-uptimeSec' } };
+  }
+  if (!hit) return { ok: false, code: 'BOOT_TIME_ABSENT', detail: 'the diagnostic bundle reports no process start time', boot: null };
+  return { ok: true, code: 'BOOT_TIME_READ', boot: hit };
+}
+
+/**
  * Re-read the session stamp later in the run. A changed sessionId means the
  * server was restarted between the readiness proof and the feature pass, so the
  * evidence would describe two different instances and must not be reported as
@@ -127,4 +175,4 @@ function registerIdentitySecrets() {
   registerSecret('', 'IDENTITY_PLACEHOLDER_UNUSED');
 }
 
-module.exports = { attestBackend, reassertSession, stripCredSecrets, registerIdentitySecrets, FQDN_RE, USER_RE };
+module.exports = { attestBackend, reassertSession, stripCredSecrets, registerIdentitySecrets, FQDN_RE, USER_RE, serverBootTime, findServerStart };

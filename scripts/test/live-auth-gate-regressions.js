@@ -21,7 +21,7 @@
 // Both are now classified explicitly and never as a leak.
 // ===========================================================================
 
-module.exports = async function register({ test, assert }) {
+module.exports = async function register({ test, assert, fs, path }) {
   const http = require('http');
   const crypto = require('crypto');
   const shortHash = v => crypto.createHash('sha256').update(String(v), 'utf8').digest('hex').slice(0, 8);
@@ -96,6 +96,35 @@ module.exports = async function register({ test, assert }) {
     assert.deepStrictEqual(auth.findTokenRing({ a: { b: { dashTokenTelemetry: [{ expectedHash: 'x' }] } } }), [{ expectedHash: 'x' }]);
     assert.strictEqual(auth.findTokenRing({ a: 1 }), null);
     assert.strictEqual(auth.findTokenRing(null), null);
+  });
+
+
+  await test('identity: the serving process start time is read from the diagnostics bundle', async () => {
+    const si = require('../lib/server-identity');
+    assert.deepStrictEqual(si.findServerStart({ a: { logonCollector: { startedAt: '2026-10-23T04:00:00.0000000Z', uptimeSec: 7200 } } }),
+      { startedAt: '2026-10-23T04:00:00.000Z', uptimeSec: 7200, source: 'startedAt' });
+    assert.strictEqual(si.findServerStart({ a: { note: 'no time here' } }), null);
+
+    const srv = http.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ bundleVersion: 'f99/1', runner: { collector: { startedAt: '2026-10-23T04:00:00Z', uptimeSec: 60 } } }));
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    try {
+      const b = await si.serverBootTime({ target: `http://127.0.0.1:${srv.address().port}` });
+      assert.strictEqual(b.ok, true, JSON.stringify(b));
+      assert.strictEqual(b.boot.startedAt, '2026-10-23T04:00:00.000Z');
+    } finally { srv.close(); }
+    const dead = await si.serverBootTime({ target: 'http://127.0.0.1:1', timeoutMs: 3000 });
+    assert.strictEqual(dead.ok, false);
+    assert.strictEqual(dead.code, 'BOOT_TIME_UNAVAILABLE', 'an unreachable bundle is reported, never guessed');
+  });
+
+  await test('live: a process that started before the origin run is refused as a different instance', async () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'live-run.js'), 'utf8');
+    assert.match(src, /ORIGIN_INSTANCE_PREDATES_RUN/);
+    assert.match(src, /predatesMs > 120000/, 'the rule has an explicit tolerance');
+    assert.match(src, /serverBootTime/, 'it uses the measured start time');
   });
 
   await test('auth gate: classification never needs a credential value', async () => {
