@@ -790,7 +790,20 @@ async function cmdAckState(a) {
   }
   const state = map[jobResult] || 'BLOCKED';
   const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
-  const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
+  // A LAB-side failure that produced no in-process report must not poison the
+  // queue entry for an origin whose server is still alive: nothing was verified.
+  // MEASURED: run 39900345165 died in preflight cleanup, this write-back marked
+  // the record FAILED, and the next three sweeps found "no pickable record" —
+  // the still-live application run became unattachable by the lab's own
+  // bookkeeping. `retryable` says exactly that, and pick-record honours it. A
+  // real in-process report (REPORTED_VERIFIED / REPORTED_FAILED) never sets it.
+  const retryable = state !== 'REPORTED_VERIFIED';
+  const res = await store.updateRecordState({
+    repo: a.labRepo, descriptor, state,
+    by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`,
+    detail,
+    extra: retryable ? { retryable: true, retryableReason: 'no in-process report was produced by the lab attempt; the origin run was not verified' } : {}
+  });
   return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
 }
 

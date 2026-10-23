@@ -71,6 +71,36 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     assert.strictEqual(loaded.doc.records[0].correlationId, 'lr-39899087271-1');
   });
 
+
+  await test('queue: a lab attempt that died without an in-process report leaves the origin retryable', async () => {
+    const row = { ...ROW(), state: 'FAILED', retryable: true };
+    const res = await pick.pickFromRows([row], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'FAILED', retryable: true } })
+    });
+    assert.strictEqual(res.proceed, 'yes', res.reason);
+    assert.match(res.reason, /retryable=FAILED/);
+  });
+
+  await test('queue: a reported failure/verification is never re-served (no duplicate work, no relabelling)', async () => {
+    for (const state of ['REPORTED_VERIFIED', 'REPORTED_FAILED']) {
+      const row = { ...ROW(), state };
+      const res = await pick.pickFromRows([row], ARGS, {
+        allow: ['dictationb1/supreme-lamp'],
+        readFull: async () => ({ json: { descriptor: DESC(), state } })
+      });
+      assert.strictEqual(res.proceed, 'no', `${state} must not be picked`);
+      assert.match(res.reason, /state=REPORTED_/);
+    }
+    // FAILED without the retryable flag (the poisoning defect) is not served
+    const poisoned = { ...ROW(), state: 'FAILED' };
+    const res2 = await pick.pickFromRows([poisoned], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'FAILED' } })
+    });
+    assert.strictEqual(res2.proceed, 'no');
+  });
+
   await test('queue: the JSON extractor is balanced (braces inside strings cannot truncate it)', async () => {
     const obj = pick.extractJsonObject('noise {"a":{"b":"}{"},"c":[1,2]} trailing noise }');
     assert.deepStrictEqual(obj, { a: { b: '}{' }, c: [1, 2] });

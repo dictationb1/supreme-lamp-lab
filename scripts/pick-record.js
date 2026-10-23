@@ -135,7 +135,14 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } 
   const skipped = [];
   for (const r of candidates) {
     if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
-    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
+    // A lab attempt that failed WITHOUT an in-process report (e.g. the client VM
+    // preflight died) leaves the record `retryable`. The origin server is still
+    // alive and nothing was verified, so a later sweep may serve it again. A
+    // real report (REPORTED_VERIFIED / REPORTED_FAILED) is never re-served.
+    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation && !(r.retryable === true && (r.state === 'FAILED' || r.state === 'BLOCKED'))) {
+      skipped.push(`${r.correlationId}: state=${r.state}${r.retryable === true ? ' (not retryable for this state)' : ''}`);
+      continue;
+    }
     if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
     const originRepo = String(r.origin).split('#')[0];
     if (originRepo && allow.length && !allow.includes(originRepo)) { skipped.push(`${r.correlationId}: origin ${originRepo} not allowlisted`); continue; }
@@ -145,8 +152,8 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } 
     try {
       d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now });
     } catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
-    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) {
-      return { proceed: 'yes', reason: `SELECTED ${detail(r)}`, descriptor: d };
+    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation || (rec.retryable === true && (rec.state === 'FAILED' || rec.state === 'BLOCKED'))) {
+      return { proceed: 'yes', reason: `SELECTED ${detail(r)}${rec.state !== 'AWAITING_LAB_ACCEPTANCE' ? ` retryable=${rec.state}` : ''}`, descriptor: d };
     }
     skipped.push(`${r.correlationId}: state=${rec.state}`);
   }
