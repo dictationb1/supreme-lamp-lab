@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "ver": 16,
+  "session": {
+    "no": "7",
+    "day": "Thursday",
+    "date": "2026-10-22",
+    "title": "Session 7 - Travel & Transport",
+    "listId": "list_session_7_travel",
+    "branch": "CCBE Galle Branch",
+    "display": "SESSION 7 · 22/10/2026 · CCBE GALLE BRANCH"
+  },
+  "lists": [
+    {
+      "id": "list_session_7_travel",
+      "name": "Session 7 - Travel & Transport",
+      "version": 4,
+      "published": true,
+      "words": [
+        {
+          "w": "guidebook",
+          "m": "a book that gives information for visitors about a place, such as a city or country",
+          "s": "We bought a guidebook to learn about the best museums in Rome.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/guidebook--_gb_1.mp3"
+        },
+        {
+          "w": "handlebars",
+          "m": "the metal bar with handles at the front of a bicycle or motorcycle that you use for steering",
+          "s": "Hold the handlebars with both hands when you ride down the hill.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/handlebars--_gb_1.mp3"
+        },
+        {
+          "w": "harbour",
+          "m": "an area of water next to the coast, often protected by walls, where ships and boats can shelter",
+          "s": "The fishing boats returned safely to the harbour before the storm.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/harbour--_gb_1.mp3"
+        },
+        {
+          "w": "helicopter",
+          "m": "a type of aircraft without wings that has large blades on top that go round",
+          "s": "The rescue helicopter flew over the mountains to find the hikers.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/helicopter--_gb_1.mp3"
+        },
+        {
+          "w": "hitchhike",
+          "m": "to travel for free by standing by the road and asking drivers for a ride",
+          "s": "It is not safe to hitchhike alone along a busy motorway at night.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/hitchhike--_gb_1.mp3"
+        },
+        {
+          "w": "immigration",
+          "m": "the area at an airport or port where officials check the passports of people entering a country",
+          "s": "We showed our passports at immigration after landing in London.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/immigration--_gb_1.mp3"
+        },
+        {
+          "w": "journey",
+          "m": "the act of travelling from one place to another, especially in a vehicle",
+          "s": "The train journey from Galle to Colombo takes about two hours.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/journey--_gb_1.mp3"
+        },
+        {
+          "w": "luggage",
+          "m": "the bags, suitcases, and things that you take with you when you are travelling",
+          "s": "You are allowed one piece of hand luggage on the aircraft.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/luggage--_gb_1.mp3"
+        },
+        {
+          "w": "machine",
+          "m": "a piece of equipment with moving parts that uses power to do a particular job",
+          "s": "You can buy your train ticket from the machine at the station.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/machine--_gb_1.mp3"
+        },
+        {
+          "w": "mechanic",
+          "m": "someone whose job is repairing the engines of vehicles and other machines",
+          "s": "The mechanic repaired our car engine at the garage this morning.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/mechanic--_gb_1.mp3"
+        },
+        {
+          "w": "nationality",
+          "m": "the official right to belong to a particular country",
+          "s": "Please write your full name and nationality on the arrival form.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/nationality--_gb_1.mp3"
+        },
+        {
+          "w": "on business",
+          "m": "travelling or staying somewhere as part of your work, not for a holiday",
+          "s": "Her father has gone to Singapore on business for three days.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/on_business--_gb_1.mp3"
+        },
+        {
+          "w": "on vacation",
+          "m": "away from work or school for a holiday",
+          "s": "The office is closed because the manager is away on vacation.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/on_vacation--_gb_1.mp3"
+        },
+        {
+          "w": "overnight",
+          "m": "for or during the night",
+          "s": "We took the overnight ferry and arrived early the next morning.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/overnight--_gb_1.mp3"
+        },
+        {
+          "w": "passenger",
+          "m": "a person who is travelling in a vehicle but is not driving it or working on it",
+          "s": "Every passenger must fasten their seatbelt before the plane takes off.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/passenger--_gb_1.mp3"
+        },
+        {
+          "w": "public transport",
+          "m": "buses, trains, and other vehicles that anyone can pay to use",
+          "s": "Using public transport helps to reduce traffic in the city centre.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/public_transport--_gb_1.mp3"
+        },
+        {
+          "w": "reception",
+          "m": "the desk in a hotel or office building where visitors go when they first arrive",
+          "s": "Please leave your room key at reception when you check out.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/reception--_gb_1.mp3"
+        },
+        {
+          "w": "reservation",
+          "m": "an arrangement in which something such as a seat or hotel room is kept for you",
+          "s": "I called the hotel to make a room reservation for two nights.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/reservation--_gb_1.mp3"
+        },
+        {
+          "w": "road sign",
+          "m": "a notice at the side of a road that gives information or instructions to drivers",
+          "s": "The road sign warned drivers about a sharp bend ahead.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/road_sign--_gb_1.mp3"
+        },
+        {
+          "w": "signpost",
+          "m": "a sign by the side of a road or path that shows the direction and distance to places",
+          "s": "We followed the wooden signpost pointing towards the village.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/signpost--_gb_1.mp3"
+        },
+        {
+          "w": "spaceship",
+          "m": "a vehicle that is able to travel in space",
+          "s": "The astronauts travelled to the moon inside a silver spaceship.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/spaceship--_gb_1.mp3"
+        },
+        {
+          "w": "suitcase",
+          "m": "a large flat box with a handle used for carrying clothes when you travel",
+          "s": "She packed her warm winter clothes into a large blue suitcase.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/suitcase--_gb_1.mp3"
+        },
+        {
+          "w": "tourist information centre",
+          "m": "an office that gives free maps, brochures, and advice to visitors",
+          "s": "We got a free city map from the tourist information centre.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/tourist_information_centre--_gb_1.mp3"
+        },
+        {
+          "w": "traffic lights",
+          "m": "sets of red, amber, and green lights at road junctions that control traffic",
+          "s": "Walk across the pedestrian crossing when the traffic lights turn green.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/traffic_lights--_gb_1.mp3"
+        },
+        {
+          "w": "tunnel",
+          "m": "a long passage built underground or through a hill for a road or railway",
+          "s": "The express train went through a long dark tunnel under the river.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/tunnel--_gb_1.mp3"
+        },
+        {
+          "w": "tyre/tire",
+          "m": "a thick rubber ring that fits around the outside of a wheel on a car or bicycle",
+          "s": "He had to stop by the road to change a flat tyre on his car.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/tyre--_gb_1.mp3"
+        },
+        {
+          "w": "vehicle",
+          "m": "a machine, usually with wheels and an engine, used for transporting people or goods",
+          "s": "No motor vehicle is allowed to enter the pedestrian shopping street.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/vehicle--_gb_1.mp3"
+        },
+        {
+          "w": "visa",
+          "m": "an official mark in your passport that allows you to enter or leave a country",
+          "s": "You need to apply for a tourist visa before travelling to that country.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/visa--_gb_1.mp3"
+        },
+        {
+          "w": "waiting room",
+          "m": "a room at a station, airport, or doctor's surgery where people can sit and wait",
+          "s": "The passengers sat in the warm waiting room until the train arrived.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/waiting_room--_gb_1.mp3"
+        },
+        {
+          "w": "windscreen",
+          "m": "the large glass window at the front of a car, bus, or other vehicle",
+          "s": "Clean the car windscreen carefully so you can see clearly in the rain.",
+          "audio": "https://ssl.gstatic.com/dictionary/static/sounds/oxford/windscreen--_gb_1.mp3"
+        }
+      ]
+    }
+  ],
+  "plan": [
+    {
+      "key": "default",
+      "listId": "list_session_7_travel",
+      "pinned": true
+    },
+    {
+      "key": "pinned",
+      "listId": "list_session_7_travel",
+      "pinned": true
+    },
+    {
+      "key": "d2026-10-22",
+      "listId": "list_session_7_travel"
+    }
+  ],
+  "announcement": null,
+  "comments": [],
+  "appVersion": "2.4.0",
+  "updatedAt": "2026-10-23T00:00:00Z"
+}

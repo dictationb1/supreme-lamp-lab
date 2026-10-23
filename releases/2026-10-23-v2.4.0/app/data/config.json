@@ -1,0 +1,75 @@
+{
+  "appName": "Smart Dictation",
+  "level": "B1",
+  "classDays": [
+    "Thursday"
+  ],
+  "session": {
+    "no": "7",
+    "day": "Thursday",
+    "date": "2026-10-22",
+    "title": "Session 7 - Travel & Transport",
+    "listId": "list_session_7_travel",
+    "branch": "CCBE Galle Branch",
+    "display": "SESSION 7 · 22/10/2026 · CCBE GALLE BRANCH"
+  },
+  "listId": "list_session_7_travel",
+  "defaults": {
+    "sentence": false,
+    "repeats": 2,
+    "rate": 0.88,
+    "numbers": true,
+    "mode": "paper",
+    "writeMode": "fixed",
+    "writeFixed": 5,
+    "pauseWord": 1.2,
+    "pauseSent": 1.6,
+    "theme": "dark",
+    "perf": "auto",
+    "glassTint": 0
+  },
+  "ver": 16,
+  "version": "2.4.0",
+  "buildDate": "2026-10-23",
+  "credits": {
+    "createdBy": "Hansana",
+    "ideaBy": "Ayya01 (Lesandu)",
+    "lecturerInCharge": "Sumodya Sewmini",
+    "en": "Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini",
+    "si": "නිර්මාණය: Hansana · අදහස: Ayya01 (Lesandu) · භාරකාර කථිකාචාර්ය: Sumodya Sewmini"
+  },
+  "tts": {
+    "primary": "AWS Polly Amy (en-GB) via Streamelements",
+    "failover": "Google Translate TTS (en-GB female)",
+    "backup": "Device en-GB female voice (offline fallback only)"
+  },
+  "live": {
+    "state": "https://ntfy.sh/sdp_dictationb1_state_v8",
+    "community": "https://ntfy.sh/sdp_dictationb1_comm_v8",
+    "inbox": "https://ntfy.sh/sdp_dictationb1_inbox_v8"
+  },
+  "appVersion": "2.4.0",
+  "settingsRev": 16,
+  "performance": {
+    "mode": "auto",
+    "lite": {
+      "gb": "8px",
+      "gs": 1.35,
+      "gbr": 1.02
+    },
+    "full": {
+      "gb": "14px",
+      "gs": 1.6,
+      "gbr": 1.03
+    },
+    "probeMs": 1200,
+    "medianBudgetMs": 19
+  },
+  "dataSaving": {
+    "preload": "none",
+    "audioReuse": true,
+    "dictionaryFromMemory": true,
+    "versionPollOncePerBoot": true,
+    "ntfyPollWindow": "24h"
+  }
+}
