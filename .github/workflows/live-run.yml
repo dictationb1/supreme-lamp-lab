@@ -667,6 +667,33 @@ jobs:
           if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
           exit 1
 
+      - name: Publish sanitized evidence into the repository (artifacts are not retrievable from automation)
+        if: always()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          ORIGIN_RUN_OUT: ${{ needs.claim.outputs.origin_run }}
+          ORIGIN_ATTEMPT_OUT: ${{ needs.claim.outputs.origin_attempt }}
+        run: |
+          # Measured 2026-10-23: the artifact ZIP redirects to
+          # productionresultssa9.blob.core.windows.net and the step log redirects to
+          # results-receiver.actions.githubusercontent.com; both are unreachable from
+          # an automation environment whose egress allowlist is github.com /
+          # api.github.com / codeload / npm / pypi (EOF). Evidence that only exists
+          # as an artifact is therefore UNREADABLE, and its 14-day retention is not
+          # the limiting factor. The report goes into the branch instead.
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (-not (Test-Path $dir)) { Write-Host "::notice title=evidence publish::no artifact dir this run"; exit 0 }
+          # the listener classification lives beside the artifact dir, not inside it
+          $probe = Join-Path $env:RUNNER_TEMP 'probe'
+          if (Test-Path (Join-Path $probe 'listeners.json')) { Copy-Item (Join-Path $probe 'listeners.json') (Join-Path $dir 'listeners.json') -Force }
+          $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
+          $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
+          $dest = "reports/mission-control/$runId-$attempt/evidence"
+          node scripts/publish-evidence.js --dir $dir --dest $dest --branch $env:HEAD_BRANCH --message "evidence: $runId/$attempt lab run $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Keep the authorized viewer open (bounded, default useful)
         if: always() && inputs.keep_viewer_open_minutes != '0'
         shell: powershell
@@ -694,33 +721,6 @@ jobs:
         shell: powershell
         run: |
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
-          exit $LASTEXITCODE
-
-      - name: Publish sanitized evidence into the repository (artifacts are not retrievable from automation)
-        if: always()
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-          ORIGIN_RUN_OUT: ${{ needs.claim.outputs.origin_run }}
-          ORIGIN_ATTEMPT_OUT: ${{ needs.claim.outputs.origin_attempt }}
-        run: |
-          # Measured 2026-10-23: the artifact ZIP redirects to
-          # productionresultssa9.blob.core.windows.net and the step log redirects to
-          # results-receiver.actions.githubusercontent.com; both are unreachable from
-          # an automation environment whose egress allowlist is github.com /
-          # api.github.com / codeload / npm / pypi (EOF). Evidence that only exists
-          # as an artifact is therefore UNREADABLE, and its 14-day retention is not
-          # the limiting factor. The report goes into the branch instead.
-          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          if (-not (Test-Path $dir)) { Write-Host "::notice title=evidence publish::no artifact dir this run"; exit 0 }
-          # the listener classification lives beside the artifact dir, not inside it
-          $probe = Join-Path $env:RUNNER_TEMP 'probe'
-          if (Test-Path (Join-Path $probe 'listeners.json')) { Copy-Item (Join-Path $probe 'listeners.json') (Join-Path $dir 'listeners.json') -Force }
-          $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
-          $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
-          $dest = "reports/mission-control/$runId-$attempt/evidence"
-          node scripts/publish-evidence.js --dir $dir --dest $dest --branch $env:HEAD_BRANCH --message "evidence: $runId/$attempt lab run $env:GITHUB_RUN_ID [skip ci]"
           exit $LASTEXITCODE
 
       - name: Upload live-run evidence (sanitized)

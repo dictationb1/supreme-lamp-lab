@@ -1860,6 +1860,12 @@ $obj | ConvertTo-Json -Compress
     if (typeof register.staleClaim === 'function') await register.staleClaim({ test, assert });
   }
 
+  // ===== workflow ownership + evidence order (H-04, H-05) =====
+  {
+    const register = require('./test/workflow-ownership-regressions');
+    await register({ test, assert });
+  }
+
   // ===== evidence publish gate (the lab is public; refusals are security) =====
   {
     const register = require('./test/publish-evidence-regressions');
