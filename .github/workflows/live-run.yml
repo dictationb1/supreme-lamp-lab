@@ -510,28 +510,100 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22.23.3'
-
-      - name: Node.js on the client VM (a missing node must be loud, never a silent no-op)
+      - name: Provision Node.js on the client VM (no tool-cache dependency)
         run: |
-          # MEASURED (run 39902940714): this job had no actions/setup-node, so
-          # `node` was not on the step PATH. The cleanup wrapper then found no
-          # node, printed nothing, and the preflight "passed" without reading a
-          # single process - while the next step threw 'npm ci failed' with no
-          # explanation. A prerequisite that is missing must be named as one.
+          # MEASURED (run 39903491430): actions/setup-node died extracting its own
+          # tarball ("7zr.exe ... exit code 2") - a tool-cache/disk/AV problem, not
+          # a network one. MEASURED (run 39902940714): without that action this job
+          # has no `node` on PATH at all, so the owned-process cleanup silently
+          # no-ops and the verification cannot start.
+          #
+          # The job therefore provisions node itself, deterministically:
+          #   1. an existing node (PATH, Program Files, LOCALAPPDATA, tool cache);
+          #   2. otherwise the official Windows zip expanded into RUNNER_TEMP, which
+          #      bypasses the 7zr/tool-cache path entirely.
+          # Failure is a named prerequisite (exit 4, BLOCKED) with disk and PATH
+          # diagnostics in the uploaded evidence - never a silent skip.
           $ErrorActionPreference = 'Continue'
-          $node = Get-Command node -ErrorAction SilentlyContinue
-          $npm = Get-Command npm -ErrorAction SilentlyContinue
-          if (-not $node -or -not $npm) {
-            $missing = @()
-            if (-not $node) { $missing += 'node' }
-            if (-not $npm) { $missing += 'npm' }
-            Write-Host ("::error title=NO NODE ON CLIENT VM::missing " + ($missing -join ',') + " on PATH - the owned-process cleanup and the headed verification cannot run. This is a prerequisite (BLOCKED), not a product regression.")
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $diagPath = Join-Path $dir 'node-provision.txt'
+          $diag = New-Object System.Collections.Generic.List[string]
+          function Note($t) { Write-Host $t; $diag.Add([string]$t) }
+
+          $drive = Get-PSDrive C -ErrorAction SilentlyContinue
+          if ($drive) { Note ("disk C: free=" + [math]::Round(($drive.Free / 1GB), 2) + "GB") }
+          Note ("PATH entries mentioning node: " + ((($env:PATH -split ';') | Where-Object { $_ -match 'node' }) -join ' | '))
+
+          $cands = New-Object System.Collections.Generic.List[string]
+          $cmd = Get-Command node -ErrorAction SilentlyContinue
+          if ($cmd) { $cands.Add($cmd.Source) }
+          foreach ($p in @("$env:ProgramFiles\nodejs\node.exe", "${env:ProgramFiles(x86)}\nodejs\node.exe", "$env:LOCALAPPDATA\Programs\nodejs\node.exe", "$env:ProgramData\chocolatey\bin\node.exe")) {
+            if ($p -and (Test-Path -LiteralPath $p)) { $cands.Add($p) }
+          }
+          if ($env:RUNNER_TOOL_CACHE) {
+            $toolNode = Join-Path $env:RUNNER_TOOL_CACHE 'node'
+            if (Test-Path -LiteralPath $toolNode) {
+              Get-ChildItem -LiteralPath $toolNode -Recurse -Filter node.exe -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object { $cands.Add($_.FullName) }
+            }
+          }
+          Note ("node candidates: " + (($cands | Select-Object -Unique) -join ' | '))
+
+          $nodeDir = $null
+          $fallbackDir = $null
+          foreach ($c in ($cands | Select-Object -Unique)) {
+            try {
+              $v = ((& $c -v 2> $null) -join '').Trim()
+              if ($v -match '^v(\d+)\.') {
+                $major = [int]$Matches[1]
+                Note ("candidate $c -> $v")
+                if ($major -ge 22) { $nodeDir = Split-Path -Parent $c; break }
+                if ($major -ge 18 -and -not $fallbackDir) { $fallbackDir = Split-Path -Parent $c }
+              }
+            } catch { Note ("candidate $c -> unusable: " + $_.Exception.Message) }
+          }
+          if (-not $nodeDir -and $fallbackDir) {
+            Note ("no node 22+ found; using an older interpreter at $fallbackDir (the run still names the version it used)")
+            $nodeDir = $fallbackDir
+          }
+
+          if (-not $nodeDir) {
+            $ver = '22.23.3'
+            $zip = Join-Path $env:RUNNER_TEMP "node-v$ver-win-x64.zip"
+            $dst = Join-Path $env:RUNNER_TEMP "node-portable"
+            Note ("downloading https://nodejs.org/dist/v$ver/node-v$ver-win-x64.zip")
+            try {
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Invoke-WebRequest -Uri "https://nodejs.org/dist/v$ver/node-v$ver-win-x64.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 300
+              Note ("downloaded bytes=" + (Get-Item -LiteralPath $zip).Length)
+              if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+              Expand-Archive -LiteralPath $zip -DestinationPath $dst -Force
+              $exe = Join-Path $dst "node-v$ver-win-x64\node.exe"
+              if (Test-Path -LiteralPath $exe) { $nodeDir = Split-Path -Parent $exe } else { Note 'the expanded archive has no node.exe' }
+            } catch {
+              Note ("portable node failed: " + $_.Exception.Message)
+            }
+          }
+
+          if (-not $nodeDir) {
+            $diag | Out-File -LiteralPath $diagPath -Encoding utf8
+            if ($env:GITHUB_STEP_SUMMARY) { $diag | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
+            Write-Host ("::error title=NO NODE ON CLIENT VM::no usable node and the portable download failed - the owned-process cleanup and the headed verification cannot run. Prerequisite (BLOCKED), not a product regression. Diagnostics: " + $diagPath)
             exit 4
           }
-          Write-Host ("::notice title=client node::node=" + (& node -v) + " npm=" + (& npm -v) + " path=" + $node.Source)
+
+          $env:PATH = $nodeDir + ';' + $env:PATH
+          $nodeDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Note ("node dir: " + $nodeDir)
+          Note ("node -v: " + ((& node -v) -join ''))
+          Note ("npm -v: " + ((& npm -v) -join ''))
+          $diag | Out-File -LiteralPath $diagPath -Encoding utf8
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Node.js on the client VM') + ($diag | ForEach-Object { '- ' + $_ })
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          Write-Host ("::notice title=client node::" + ((& node -v) -join '') + " from " + $nodeDir)
+          exit 0
 
       - name: Preflight owned-process cleanup
         run: |
