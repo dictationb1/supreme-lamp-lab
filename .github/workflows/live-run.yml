@@ -512,34 +512,61 @@ jobs:
 
       - name: Preflight owned-process cleanup
         run: |
-          # MEASURED DEFECT (run 39900345165, 2026-10-23): this step exited 1 and
-          # SKIPPED the entire live verification, although discovery and claiming
-          # had already succeeded. A cleanup-bookkeeping failure (registry read /
-          # atomic rename / lock) kills nothing and says nothing about the
-          # verification, so it must be VISIBLE but not fatal. The two exits that
-          # do describe process-table safety stay fatal:
-          #   2 = owned processes survived termination
-          #   4 = the process snapshot could not be taken (never guess)
-          # The summarised JSON is written to the step summary, because a Windows
-          # runner step log is not retrievable from every automation environment.
-          $out = (& node scripts/cleanup-lab.js --mode preflight 2>&1 | Out-String)
+          # MEASURED DEFECTS (runs 39900345165 and 39902230571, 2026-10-23): this
+          # step exited 1 twice and SKIPPED the whole live verification, although
+          # discovery had attached the real application run and the claim had
+          # selected it.
+          #
+          # Two independent causes, both fixed here:
+          #  1. The runner wraps a PowerShell step with $ErrorActionPreference =
+          #     'stop'. Redirecting a native command's stderr into the pipeline
+          #     (node ... stderr folded into the pipeline) turns every stderr line into a
+          #     terminating NativeCommandError, so the step died at the call and
+          #     none of the classification below ever ran. stderr now goes to a
+          #     FILE, and the JSON summary comes from --out, not from console text.
+          #  2. The runner also exits with $LASTEXITCODE when it is set, so a
+          #     classified warning still failed the step. Every path ends with an
+          #     explicit exit.
+          #
+          # Classification (unchanged safety contract):
+          #   2 = owned processes survived termination -> fatal
+          #   4 = the process snapshot could not be taken -> fatal (never guess)
+          #   1/3 = registry bookkeeping only, nothing was killed and the desktop
+          #         state is unchanged -> warning, verification proceeds
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $jsonPath = Join-Path $dir 'cleanup-preflight.json'
+          $errPath = Join-Path $dir 'cleanup-preflight.stderr.txt'
+          & node scripts/cleanup-lab.js --mode preflight --out $jsonPath 1> $null 2> $errPath
           $code = $LASTEXITCODE
-          Write-Host $out
-          $line = ($out -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
-          if ($code -eq 2 -or $code -eq 4) {
-            Write-Host "::error title=preflight cleanup::exit $code - owned processes survived or the process table was unreadable; refusing to start a verification on an unsafe desktop"
-            exit 1
+          $body = if (Test-Path $jsonPath) { Get-Content -LiteralPath $jsonPath -Raw } else { '(cleanup wrote no summary)' }
+          $errBody = if (Test-Path $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- cleanup stderr ---'; Write-Host $errBody }
+          $detail = ''
+          try { if ($body.Trim().StartsWith('{')) { $o = $body | ConvertFrom-Json; if ($o.error) { $detail = [string]$o.error } } } catch { $detail = 'summary not parseable' }
+          if ($detail.Length -gt 600) { $detail = $detail.Substring(0, 600) }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Preflight owned-process cleanup (exit ' + $code + ')')
+            if ($detail) { $md += ('error: ' + $detail) }
+            $md += ('artifact: ' + $jsonPath)
+            $md += '```json'
+            $md += $body
+            $md += '```'
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
-          if ($code -ne 0) {
-            Write-Host "::warning title=preflight cleanup::exit $code - registry bookkeeping only (no process was killed, none needed to be); the verification proceeds"
+          if ($code -eq 2) {
+            Write-Host "::error title=preflight cleanup::exit 2 - owned processes survived termination; refusing to start a verification on a desktop another attempt may still be driving"
+          } elseif ($code -eq 4) {
+            Write-Host "::error title=preflight cleanup::exit 4 - the process table could not be read, so no process was touched; a cleanup that cannot see the desktop must not guess"
+          } elseif ($code -ne 0) {
+            Write-Host "::warning title=preflight cleanup::exit $code - registry bookkeeping only; no process was killed and the verification proceeds"
           } else {
             Write-Host '::notice title=preflight cleanup::exit 0'
           }
-          if ($env:GITHUB_STEP_SUMMARY) {
-            $json = ($out -split "`r?`n" | Select-String -Pattern '^\{' -Context 0,40 | Select-Object -First 1)
-            '### Preflight cleanup' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            ('exit=' + $code) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-          }
+          if ($detail) { Write-Host ("::warning title=preflight cleanup detail::" + $detail) }
+          exit 0
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
@@ -619,19 +646,48 @@ jobs:
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
         if: always()
-        shell: powershell
         run: |
-          $outDir = (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT")
-          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-          $out = (& node scripts/cleanup-lab.js --mode postflight --out (Join-Path $outDir 'cleanup-postflight.json') 2>&1 | Out-String)
+          # Same two runner mechanics as the preflight step (see there): stderr to a
+          # file, JSON from --out, explicit exit. Postflight kills only processes
+          # whose live (pid, createTime) equals the recorded identity for THIS
+          # run+attempt; a survivor or an unreadable process table stays fatal,
+          # because otherwise a leftover would silently poison the next attempt.
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $jsonPath = Join-Path $dir 'cleanup-postflight.json'
+          $errPath = Join-Path $dir 'cleanup-postflight.stderr.txt'
+          & node scripts/cleanup-lab.js --mode postflight --deadline-ms 60000 --out $jsonPath 1> $null 2> $errPath
           $code = $LASTEXITCODE
-          Write-Host $out
-          if ($code -eq 2 -or $code -eq 4) {
-            Write-Host "::error title=postflight cleanup::exit $code - owned processes survived OR the process table was unreadable; the evidence is kept and the leftover is named above"
-            exit 1
+          $body = if (Test-Path $jsonPath) { Get-Content -LiteralPath $jsonPath -Raw } else { '(cleanup wrote no summary)' }
+          $errBody = if (Test-Path $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- cleanup stderr ---'; Write-Host $errBody }
+          $detail = ''
+          try { if ($body.Trim().StartsWith('{')) { $o = $body | ConvertFrom-Json; if ($o.error) { $detail = [string]$o.error } } } catch { $detail = 'summary not parseable' }
+          if ($detail.Length -gt 600) { $detail = $detail.Substring(0, 600) }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Postflight cleanup (exit ' + $code + ')')
+            if ($detail) { $md += ('error: ' + $detail) }
+            $md += ('artifact: ' + $jsonPath)
+            $md += '```json'
+            $md += $body
+            $md += '```'
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
-          if ($code -ne 0) { Write-Host "::warning title=postflight cleanup::exit $code - registry bookkeeping only; nothing was left running by this step" }
-          else { Write-Host '::notice title=postflight cleanup::exit 0' }
+          if ($code -eq 2) {
+            Write-Host "::error title=postflight cleanup::exit 2 - an owned process survived termination and stays registered; the leftover is named in the summary above"
+            exit 1
+          } elseif ($code -eq 4) {
+            Write-Host "::error title=postflight cleanup::exit 4 - the process table could not be read, so nothing was reclaimed and nothing was guessed"
+            exit 1
+          } elseif ($code -ne 0) {
+            Write-Host "::warning title=postflight cleanup::exit $code - registry bookkeeping only; no process was left running by this step"
+          } else {
+            Write-Host '::notice title=postflight cleanup::exit 0'
+          }
+          if ($detail) { Write-Host ("::warning title=postflight cleanup detail::" + $detail) }
+          exit 0
 
       - name: Upload live-run evidence (sanitized)
         if: always()

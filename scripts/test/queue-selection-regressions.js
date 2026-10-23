@@ -184,12 +184,22 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
     const pre = wf.slice(wf.indexOf('- name: Preflight owned-process cleanup'), wf.indexOf('- name: Install lab dependencies'));
     assert.ok(pre.length > 100, 'preflight step located');
-    assert.match(pre, /\$code -eq 2 -or \$code -eq 4/, 'survivors/snapshot failures are fatal');
+    assert.match(pre, /\$code -eq 2/, 'survivors are fatal');
+    assert.match(pre, /\$code -eq 4/, 'an unreadable process table is fatal');
     assert.match(pre, /::warning title=preflight cleanup::exit \$code/, 'bookkeeping failures are visible but not fatal');
+    // the two runner mechanics that made the previous version fail silently
+    assert.match(pre, /\$ErrorActionPreference = 'Continue'/, 'native stderr redirection must not be terminating');
+    assert.doesNotMatch(pre, /2>&1/, 'never fold native stderr into the PowerShell pipeline');
+    assert.match(pre, /--out \$jsonPath/, 'the summary is read from a file, not from console text');
+    assert.match(pre, /cleanup-preflight\.json/, 'the summary lands in the uploaded artifact dir');
+    assert.match(pre, /^\s*exit 0$/m, 'a classified warning still exits the step successfully');
+    assert.match(pre, /GITHUB_STEP_SUMMARY/, 'the summary is surfaced as an annotation-grade artifact');
     const post = wf.slice(wf.indexOf('- name: Postflight cleanup'), wf.indexOf('- name: Upload live-run evidence'));
     assert.ok(post.length > 100, 'postflight step located');
     assert.match(post, /cleanup-postflight\.json/, 'postflight writes its JSON into the uploaded artifact dir');
-    assert.match(post, /\$code -eq 2 -or \$code -eq 4/);
+    assert.match(post, /\$code -eq 2/);
+    assert.match(post, /\$code -eq 4/);
+    assert.match(post, /^\s*exit 0$/m);
   });
 
   await test('workflow: the live step re-derives the credential in process (key in env, signal-first transport)', async () => {
