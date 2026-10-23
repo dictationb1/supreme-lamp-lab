@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const proc = require('./lib/proc');
 const registry = require('./lib/registry');
+const annotate = require('./lib/annotate');
 
 const CRITICAL = /^(system|idle|registry|smss|csrss|wininit|winlogon|services|lsass|lsaiso|svchost|fontdrvhost|dwm|explorer|runner\.listener|runner\.worker|runsvc|memory compression|init|systemd)(\.exe)?$/i;
 
@@ -202,6 +203,22 @@ async function main() {
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     fs.writeFileSync(args.out, json);
   }
+  // The runner's step LOG lives on the results blob host, which a driving
+  // automation environment cannot always read; an annotation can. One cleanup
+  // failure (a stale process owned by another account, a corrupt registry, a
+  // snapshot timeout) silently failed the Windows client job on 2026-10-23 and
+  // nothing about the cause was reachable - never again.
+  try {
+    const bits = [];
+    if (summary.error) bits.push(summary.error);
+    if (summary.helperDiagnostic) bits.push('helper=' + JSON.stringify(summary.helperDiagnostic).slice(0, 200));
+    if (summary.survivors && summary.survivors.length) bits.push(`survivors=${summary.survivors.map(x => x.pid).join(',')}`);
+    const term = (summary.decisions || []).filter(d => d.action === 'terminate').length;
+    bits.push(`terminated=${summary.terminated}; terminate-decisions=${term}; records=${(summary.decisions || []).length}`);
+    const text = bits.join(' | ');
+    if (code === 0) annotate.notice('cleanup ' + args.mode, text);
+    else annotate.error('cleanup ' + args.mode, `exit ${code}: ${text}`);
+  } catch (e) { /* an annotation must never change the exit code */ }
   process.exit(code);
 }
 
