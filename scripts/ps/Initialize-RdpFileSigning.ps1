@@ -216,9 +216,13 @@ function Find-SigningCert {
     param([string]$Thumbprint)
     $want = Get-NormalizedThumbprint $Thumbprint
     if (-not $want) { return $null }
-    return (Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
-        Where-Object { (Get-NormalizedThumbprint $_.Thumbprint) -eq $want } |
-        Select-Object -First 1)
+    foreach ($store in @('Cert:\CurrentUser\My', 'Cert:\LocalMachine\My')) {
+        $c = Get-ChildItem -Path $store -ErrorAction SilentlyContinue |
+            Where-Object { (Get-NormalizedThumbprint $_.Thumbprint) -eq $want } |
+            Select-Object -First 1
+        if ($c) { return $c }
+    }
+    return $null
 }
 
 # --------------------------------------------------------------- trust writing
@@ -262,32 +266,50 @@ function Sign-RdpFile {
     if (-not (Test-Path -LiteralPath $Path)) {
         return [pscustomobject]@{ ok = $false; code = 'RDP_FILE_MISSING'; detail = $Path }
     }
-    # /sha256 first (current builds), fall back to /sha1 only if the binary
-    # rejects the switch -- recorded, never silent.
-    $out = & $rdpsign /sha256 /sha1 $Thumb $Path 2>&1
-    $code = $LASTEXITCODE
-    $used = 'sha256'
-    if ($code -ne 0) {
-        $out2 = & $rdpsign /sha1 $Thumb $Path 2>&1
-        $code2 = $LASTEXITCODE
-        if ($code2 -eq 0) { $code = 0; $out = $out2; $used = 'sha1-fallback' }
-        else { $out = @($out) + @($out2) }
+    # rdpsign resolves the certificate from the store OF THE CALLING ACCOUNT, and
+    # the exact switch set differs between builds. Try the documented shapes in
+    # order and record which one worked; a failure is the rdpsign message, never
+    # a silent "unsigned but probably fine".
+    #   measured 2026-10-22 (Server 2022 20348.5756): /sha256 /sha1 failed with
+    #   0x80092004 "Unable locate the certificate specified" while the cert was
+    #   only in LocalMachine\My - the calling account could not see it.
+    $attempts = @(
+        @{ name = 'sha256+sha1'; args = @('/sha256', '/sha1', $Thumb, $Path) },
+        @{ name = 'sha1';        args = @('/sha1', $Thumb, $Path) },
+        @{ name = 'sha256';      args = @('/sha256', $Thumb, $Path) },
+        @{ name = 'plain';       args = @($Thumb, $Path) }
+    )
+    $tried = @()
+    $finalOut = @()
+    $used = $null
+    $exitCode = 1
+    foreach ($a in $attempts) {
+        $out = & $rdpsign @($a.args) 2>&1
+        $exitCode = $LASTEXITCODE
+        $tried += [pscustomobject]@{ switch = $a.name; exitCode = $exitCode; output = (($out | Out-String) -replace '\s+', ' ').Trim() }
+        $finalOut = $out
+        if ($exitCode -eq 0) { $used = $a.name; break }
     }
     $sig = $null
     try { $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop } catch { $sig = $null }
-    $status = if ($sig) { [string]$sig.Status } else { 'UNKNOWN' }
+    $sigStatus = if ($sig) { [string]$sig.Status } else { 'UNKNOWN' }
     $signer = if ($sig -and $sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { $null }
     $sigThumb = if ($sig -and $sig.SignerCertificate) { Get-NormalizedThumbprint $sig.SignerCertificate.Thumbprint } else { $null }
-    $ok = ($code -eq 0) -and ($status -eq 'Valid')
+    # rdpsign's exit code is the authority for an .rdp; Get-AuthenticodeSignature
+    # may report NotSigned because .rdp is not a SIP-verified extension, so it is
+    # recorded as a second opinion and never used to override a success.
+    $ok = ($exitCode -eq 0)
+    $text = (($finalOut | Out-String) -replace '\s+', ' ').Trim()
     return [pscustomobject]@{
-        ok         = $ok
-        code       = $(if ($ok) { 'SIGNED_VALID' } else { 'SIGN_OR_VERIFY_FAILED' })
-        exitCode   = $code
-        status     = $status
-        signer     = $signer
-        thumbprint = $sigThumb
-        hashAlg    = $used
-        output     = (($out | Out-String) -replace '\s+', ' ').Trim().Substring(0, [Math]::Min(300, (($out | Out-String) -replace '\s+', ' ').Trim().Length))
+        ok               = $ok
+        code             = $(if ($ok) { 'SIGNED' } else { 'SIGN_FAILED' })
+        exitCode         = $exitCode
+        switchUsed       = $used
+        attempts         = $tried
+        authenticodeStatus = $sigStatus
+        signer           = $signer
+        thumbprint       = $sigThumb
+        output           = $text.Substring(0, [Math]::Min(400, $text.Length))
     }
 }
 
@@ -337,7 +359,7 @@ $mstsc = Join-Path $env:SystemRoot 'System32\mstsc.exe'
 
 switch ($Mode) {
     'Status' {
-        $certs = @(Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+        $certs = @((Get-ChildItem -Path Cert:\CurrentUser\My -ErrorAction SilentlyContinue) + (Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue) |
             Where-Object { $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.3') } |
             Select-Object -First 10 |
             ForEach-Object {
@@ -364,16 +386,31 @@ switch ($Mode) {
             break
         }
         $cert = $null
-        if ($recorded -and $recorded.thumbprint) { $cert = Find-SigningCert -Thumbprint $recorded.thumbprint }
+        if ($recorded -and $recorded.thumbprint) {
+            $cert = Find-SigningCert -Thumbprint $recorded.thumbprint
+            # A certificate created by an earlier run of THIS script landed in
+            # LocalMachine\My; rdpsign cannot resolve it from the calling account
+            # (measured 0x80092004), so a recorded machine-only identity is
+            # replaced by a signing-account one instead of being reported as fine.
+            if ($cert -and ([string]$cert.PSPath) -notmatch 'CurrentUser') {
+                $Result.actions += "recorded certificate $($cert.Thumbprint) is machine-only and unusable for signing; creating a signing-account identity"
+                $cert = $null
+            }
+        }
         if (-not $cert) {
+            # The signing certificate lives in the RUNNER ACCOUNT's personal store
+            # (CurrentUser\My): rdpsign resolves it from the calling account, not
+            # from LocalMachine (measured: 0x80092004 when it was only machine-wide).
+            # The machine store keeps the PUBLIC part so any launcher account on
+            # this VM can validate the signature.
             $cert = New-SelfSignedCertificate -Type CodeSigningCert `
                 -Subject $Subject `
                 -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 `
                 -KeyExportPolicy NonExportable `
-                -CertStoreLocation 'Cert:\LocalMachine\My' `
+                -CertStoreLocation 'Cert:\CurrentUser\My' `
                 -NotAfter (Get-Date).AddYears($ValidYears) `
                 -ErrorAction Stop
-            $Result.actions += "created code-signing certificate $($cert.Thumbprint) in LocalMachine\My"
+            $Result.actions += "created code-signing certificate $($cert.Thumbprint) in CurrentUser\My (signing account store)"
         } else {
             $Result.actions += "reused recorded certificate $($cert.Thumbprint)"
         }
@@ -424,7 +461,7 @@ switch ($Mode) {
         $probeFile = Join-Path $StateDir 'probe.rdp'
         $null = New-ProbeRdpFile -Path $probeFile
         $sig = Sign-RdpFile -Path $probeFile -Thumb $idRec.thumbprint
-        $Result.actions += "signed probe.rdp: $($sig.code) status=$($sig.status) hash=$($sig.hashAlg)"
+        $Result.actions += "signed probe.rdp: $($sig.code) via=$($sig.switchUsed) authenticode=$($sig.authenticodeStatus)"
         if (-not $sig.ok) {
             $Result.probe = @{ signed = $false; signature = $sig }
             $Result.code = 'PROBE_SIGN_FAILED'
@@ -451,7 +488,10 @@ switch ($Mode) {
         }
         $Result.probe = [pscustomobject]@{
             signedFile            = $probeFile
-            signatureStatus       = $sig.status
+            signatureExitCode     = $sig.exitCode
+            signatureSwitch       = $sig.switchUsed
+            signatureAttempts     = $sig.attempts
+            signatureStatus       = $sig.authenticodeStatus
             signatureThumbprint   = $sig.thumbprint
             mstscPid              = $p.Id
             mstscAliveAfterSeconds= $still
@@ -494,7 +534,7 @@ switch ($Mode) {
         }
         if ($rec -and $rec.thumbprint) {
             $thumb = Get-NormalizedThumbprint $rec.thumbprint
-            foreach ($store in @('Cert:\LocalMachine\My', 'Cert:\LocalMachine\Root')) {
+            foreach ($store in @('Cert:\CurrentUser\My', 'Cert:\LocalMachine\My', 'Cert:\LocalMachine\Root')) {
                 Get-ChildItem -Path $store -ErrorAction SilentlyContinue |
                     Where-Object { (Get-NormalizedThumbprint $_.Thumbprint) -eq $thumb } |
                     ForEach-Object {

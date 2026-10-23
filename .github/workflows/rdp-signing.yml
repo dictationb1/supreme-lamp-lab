@@ -88,7 +88,17 @@ jobs:
           # between runs (a runner.temp path would be wiped and the identity
           # would silently disappear, which is exactly the kind of "configured"
           # claim that must never be made from a transient file).
-          "status_json=$($out | Select-Object -Last 1)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $json = $out | Select-Object -Last 1
+          "status_json=$json" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $st = $null
+          try { $st = $json | ConvertFrom-Json } catch { $st = $null }
+          if ($st) {
+            $policyCount = 0
+            if ($st.policyValues -and $st.policyValues.values) { $policyCount = @($st.policyValues.values).Count }
+            Write-Host "::notice title=rdp signing status::admin=$($st.isAdmin) osBuild=$($st.osBuild) admxPolicyFound=$($st.admxPolicyFound) admxKey=`"$($st.admxKey)`" valuePrefix=`"$($st.admxValuePrefix)`" policyKey=`"$($st.policyKey)`" policyEntries=$policyCount allowUnsigned=$($st.policyValues.allowPolicies.AllowUnsignedFiles) allowSigned=$($st.policyValues.allowPolicies.AllowSignedFiles) rootPinned=$($st.rootPinned) storedIdentity=$(if ($st.identity) { $st.identity.thumbprint } else { 'none' })"
+          } else {
+            Write-Host '::warning title=rdp signing status::status output was not parseable; the raw JSON is in the step log'
+          }
 
       - name: Bootstrap (identity + single-thumbprint trust pin)
         id: bootstrap
@@ -109,6 +119,7 @@ jobs:
           }
           $id = $parsed.identity
           Write-Host "::notice title=rdp signing identity::thumbprint=$($id.thumbprint) subject=`"$($id.subject)`" notAfter=$($id.notAfter) policy=$($id.policyValue)"
+          Write-Host "::notice title=rdp signing bootstrap::actions=$($parsed.actions -join ' | ')"
           {
             '### RDP file signing identity (public identifiers only)'
             ''
@@ -140,7 +151,7 @@ jobs:
           try { $parsed = $json | ConvertFrom-Json } catch { $parsed = $null }
           if (-not $parsed) { Write-Host '::error title=rdp signing probe::unparseable output'; exit 1 }
           if ($parsed.ok) {
-            Write-Host "::notice title=rdp signing probe::PASS - a signed .rdp opened with no security-review dialog (signature $($parsed.probe.signatureStatus))"
+            Write-Host "::notice title=rdp signing probe::PASS - a signed .rdp opened with no security-review dialog (rdpsign switch $($parsed.probe.signatureSwitch), exit $($parsed.probe.signatureExitCode))"
           } else {
             Write-Host "::error title=rdp signing probe::FAIL $($parsed.code) $($parsed.detail)"
             exit 1
