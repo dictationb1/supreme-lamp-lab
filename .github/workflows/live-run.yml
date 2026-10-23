@@ -563,12 +563,22 @@ jobs:
           Write-Host "::notice title=net preflight::tcp $hostName`:$port reachable=$tcp"
           # HTTP liveness, unauthenticated, 8 s timeout. /api/ping is the F92
           # endpoint designed to answer without a credential.
-          $code = 'none'
-          try { $code = & curl.exe -s -o NUL -m 8 -w '%{http_code}' ("{0}://{1}:{2}/api/ping" -f $u.Scheme, $hostName, $port) 2>$null } catch { $code = "error:$($_.Exception.Message)" }
-          Write-Host "::notice title=net preflight::http /api/ping code=$code"
-          if (-not $tcp) {
+          $code = 'none'; $curlExit = -1
+          try { $code = & curl.exe -s -o NUL -m 20 -w '%{http_code}' ("{0}://{1}:{2}/api/ping" -f $u.Scheme, $hostName, $port) 2>$null } catch { $code = "error:$($_.Exception.Message)" }
+          $curlExit = $LASTEXITCODE
+          Write-Host "::notice title=net preflight::http /api/ping code=$code curlExit=$curlExit"
+          if ($tcp -and ($code -eq '000' -or $code -eq 'none')) {
+            # TCP accepted but no HTTP answer: the port is open and the API is
+            # NOT serving. That is a different fault from 'unreachable', and it
+            # is recorded as such (measured 2026-10-23: reachable=True, code=000).
+            Write-Host "::warning title=net preflight::the port is OPEN but /api/ping did not answer within 20s - the server accepted the connection and then stalled (wedged listener / wrong process on the port), not a network block."
+          } elseif (-not $tcp) {
             Write-Host "::warning title=net preflight::the endpoint is NOT reachable from this desk; every live check would end in READINESS_TIMEOUT. This is a lab-network/tailnet condition, not a product verdict."
           }
+          # A diagnostic is never a gate: never let it fail the job (native exit
+          # codes propagate as the step's exit code when it is the last command).
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
