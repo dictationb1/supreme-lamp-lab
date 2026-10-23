@@ -127,3 +127,55 @@ module.exports = async function register({ test, assert, fs, path, os, tmpRoot }
     assert.match(r.reason, /TTL_TOO_SHORT|EXPIRED|expired/);
   });
 };
+
+// ---- re-queue of a record whose only failure was a LAB write-back ----------
+module.exports.requeue = async function requeueTests({ test, assert }) {
+  const { selectRecord } = require('../pick-record');
+  const REPO = 'dictationb1/supreme-lamp';
+  const SHA = '24ddaa9904c92dbbba39e3cc7aba458769e6bbe4';
+  const now = Date.now();
+  const desc = {
+    protocol: 'slab-live-run/1', originRepo: REPO, originWorkflow: '.github/workflows/main.yml',
+    originRunId: 39952421153, originAttempt: 1, appSha: SHA, uiBuild: `ui-dist-${SHA}`,
+    backendIdentity: '100.87.91.3:7331', authorizedEndpoint: 'http://100.87.91.3:7331',
+    issuedAt: new Date(now - 60000).toISOString(), expiresAt: new Date(now + 3600000).toISOString(),
+    labRevision: 'f'.repeat(40), correlationId: 'lr-39952421153-1',
+    dashTokenFingerprint: 'a'.repeat(64), clientTailnetIp: '', mode: 'live-origin'
+  };
+  const rows = [{ path: 'records/x.json', correlationId: 'lr-39952421153-1', origin: `${REPO}#39952421153/1`, appSha: SHA.slice(0, 12), mode: 'live-origin', state: 'FAILED', claimedBy: null, expiresInSeconds: 18000, pickable: false }];
+  const a = { correlation: '', origin: '', run: 0, attempt: 1 };
+  const readFull = rec => async () => ({ json: rec, sha: 'x' });
+  const writeback = { at: new Date().toISOString(), state: 'FAILED', by: 'lab', detail: 'job-level write-back: verify job result=failure (the verify job exited without an in-process report)' };
+
+  await test('requeue: a FAILED record with a lab write-back and NO report is re-queued once, visibly', async () => {
+    const rec = { descriptor: desc, state: 'FAILED', history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, writeback] };
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(rec) });
+    assert.strictEqual(r.proceed, 'yes', r.reason);
+    assert.match(r.reason, /REQUEUE_NO_VERIFICATION_WAS_ATTEMPTED\(1\/3\)/);
+  });
+
+  await test('requeue: a record that DID produce a report is never re-queued automatically', async () => {
+    const rec = { descriptor: desc, state: 'FAILED', report: { verdict: { code: 'NOT_VERIFIED' } }, history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, writeback] };
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(rec) });
+    assert.strictEqual(r.proceed, 'no', r.reason);
+  });
+
+  await test('requeue: a BLOCKED record from a product/origin cause is not re-queued, and the counter is bounded', async () => {
+    const blocked = { descriptor: desc, state: 'BLOCKED', history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, { state: 'BLOCKED', by: 'lab', detail: 'SIGNAL_EXPIRED' }] };
+    assert.strictEqual((await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(blocked) })).proceed, 'no');
+
+    const spun = {
+      descriptor: desc, state: 'FAILED',
+      history: [
+        { state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' },
+        writeback,
+        { state: 'AWAITING_LAB_ACCEPTANCE', by: 'lab' },
+        { state: 'AWAITING_LAB_ACCEPTANCE', by: 'lab' },
+        { state: 'AWAITING_LAB_ACCEPTANCE', by: 'lab' },
+        writeback
+      ]
+    };
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(spun) });
+    assert.strictEqual(r.proceed, 'no', r.reason);
+  });
+};
