@@ -1,0 +1,214 @@
+name: App Candidate (lab-owned Windows)
+
+# LAB-CANDIDATE verification of the application patch queue in app-candidate/.
+#
+# This workflow NEVER touches dictationb1/supreme-lamp: the application source is
+# read-only (checked out at an immutable base SHA, at most twice), the patch queue
+# is applied to a LAB-OWNED COPY inside the runner workspace, and both variants are
+# staged with the application's OWN staging function (scripts/f60-stage-and-start.ps1
+# via scripts/server/Stage-App.ps1). Nothing is pushed upstream.
+#
+# Execution identity : this workflow, in dictationb1/supreme-lamp-lab
+# Source identity    : base SHA + the recorded patch queue (sha256 in the manifest)
+# These are two different identities on purpose; a run of this workflow is NOT a
+# supreme-lamp main run and must never be reported as one.
+#
+# What it proves (real Windows, real payloads/ghrdp-server.ps1, real staging):
+#   P001  boot-before-token ordering: the CURRENT token is refused and the
+#         SUPERSEDED token is mintable on the baseline; the candidate inverts
+#         both while anonymous/forged stay refused.
+#   P002  /api/version reports config.json buildSha on the candidate and still
+#         answers "dev" when no identity was written.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: 'immutable supreme-lamp base SHA (40-hex)'
+        required: false
+        default: '978a8375ee77b392ce11694ccee7722fd6ca4f71'
+      apply_patches:
+        description: 'true = stage the patched candidate too; false = baseline only'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+concurrency:
+  group: app-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: windows candidate (baseline vs patched)
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      BASE_SHA: ${{ inputs.base_sha || '978a8375ee77b392ce11694ccee7722fd6ca4f71' }}
+      APPLY_PATCHES: ${{ inputs.apply_patches || 'true' }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lab identity (never an application run)
+        run: |
+          Write-Host "::notice title=Provisioning=lab-candidate::execution=${{ github.repository }} run=${{ github.run_id }}/${{ github.run_attempt }} source_base=$env:BASE_SHA patches=$env:APPLY_PATCHES - NOT a dictationb1/supreme-lamp workflow run"
+
+      - name: Verify the base SHA is immutable and complete
+        run: |
+          if ($env:BASE_SHA -notmatch '^[0-9a-f]{40}$') { throw "BASE_SHA_INVALID: $env:BASE_SHA" }
+
+      - name: Checkout application at the exact base SHA (pristine)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dictationb1/supreme-lamp
+          ref: ${{ env.BASE_SHA }}
+          path: app-base
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout application candidate copy (isolated)
+        if: env.APPLY_PATCHES == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dictationb1/supreme-lamp
+          ref: ${{ env.BASE_SHA }}
+          path: app-cand
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Prove the checkout identity + record the baseline
+        run: |
+          $base = (& git -C app-base rev-parse HEAD).Trim()
+          if ($base -ne $env:BASE_SHA) { throw "BASELINE_MISMATCH: app-base HEAD=$base expected=$env:BASE_SHA" }
+          $server = Join-Path $PWD 'app-base/payloads/ghrdp-server.ps1'
+          $h = (Get-FileHash -LiteralPath $server -Algorithm SHA256).Hash.ToLowerInvariant()
+          [ordered]@{ baseSha = $base; serverSha256 = $h } | ConvertTo-Json | Out-File -FilePath base-identity.json -Encoding utf8
+          Write-Host "::notice title=Baseline::supreme-lamp@$base payloads/ghrdp-server.ps1 sha256=$h"
+
+      - name: Verify + apply the patch queue (lab-owned copy only)
+        if: env.APPLY_PATCHES == 'true'
+        run: |
+          $series = 'app-candidate/patches/series.txt'
+          if (-not (Test-Path $series)) { throw "SERIES_MISSING: $series" }
+          $names = @(Get-Content $series | Where-Object { $_ -and -not $_.StartsWith('#') })
+          if ($names.Count -eq 0) { throw 'SERIES_EMPTY' }
+          $applied = @()
+          foreach ($n in $names) {
+            $p = Join-Path 'app-candidate/patches' $n
+            if (-not (Test-Path $p)) { throw "PATCH_MISSING: $p" }
+            $sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            & git -C app-cand apply --check --whitespace=nowarn $p
+            if ($LASTEXITCODE -ne 0) { throw "PATCH_DOES_NOT_APPLY: $n (unexpected base or conflict) - refusing to continue" }
+            & git -C app-cand apply --whitespace=nowarn $p
+            if ($LASTEXITCODE -ne 0) { throw "PATCH_APPLY_FAILED: $n" }
+            $applied += [ordered]@{ patch = $n; sha256 = $sha }
+            Write-Host "::notice title=Patch applied::$n sha256=$sha"
+          }
+          $diffSha = (& git -C app-cand diff | ForEach-Object { $_ }) -join "`n"
+          $diffSha256 = [System.BitConverter]::ToString(
+            [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+              [System.Text.Encoding]::UTF8.GetBytes($diffSha))).Replace('-','').ToLowerInvariant()
+          $server = Join-Path $PWD 'app-cand/payloads/ghrdp-server.ps1'
+          $h = (Get-FileHash -LiteralPath $server -Algorithm SHA256).Hash.ToLowerInvariant()
+          $touched = @(& git -C app-cand status --porcelain | ForEach-Object { $_.Substring(3) })
+          $uiTouched = @($touched | Where-Object { $_ -like 'src/*' -or $_ -like 'index.html' -or $_ -like 'vite.config.*' })
+          if ($uiTouched.Count -gt 0) { throw "PATCH_QUEUE_TOUCHES_UI: $($uiTouched -join ',') - the commit-matched UI bundle would no longer describe the candidate" }
+          [ordered]@{
+            baseSha = $env:BASE_SHA; patches = $applied; appliedDiffSha256 = $diffSha256
+            candidateServerSha256 = $h; touched = $touched
+            uiSourcesTouched = $uiTouched.Count
+            uiBundleIdentity = 'commit-matched ui-dist-<base>.zip (patches change no UI source, asserted above)'
+          } | ConvertTo-Json -Depth 5 | Out-File -FilePath candidate-identity.json -Encoding utf8
+          Write-Host "::notice title=Candidate identity::base=$env:BASE_SHA patches=$($applied.Count) serverSha256=$h diffSha256=$diffSha256"
+
+      - name: Stage the pristine baseline (application's own staging)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/server/Stage-App.ps1 -LabAppDir app-base -LabSha $env:BASE_SHA -LabStageRoot 'C:\ghrdp-base' -LabOut (Join-Path $PWD 'stage-base.json')
+
+      - name: Stage the patched candidate (same staging function)
+        if: env.APPLY_PATCHES == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/server/Stage-App.ps1 -LabAppDir app-cand -LabSha $env:BASE_SHA -LabStageRoot 'C:\ghrdp-cand' -LabOut (Join-Path $PWD 'stage-cand.json')
+
+      - name: 'Probe the pristine baseline (expected: both defects reproduce)'
+        continue-on-error: true
+        run: |
+          node scripts/lab-candidate/verify-routes.js --root 'C:\ghrdp-base' --port 7331 --variant baseline --build-sha $env:BASE_SHA --out (Join-Path $PWD 'probe-baseline.json')
+          $code = $LASTEXITCODE
+          Write-Host "baseline probe exit=$code (0 = the documented defects reproduced exactly)"
+          exit 0
+
+      - name: 'Probe the patched candidate (expected: fixed, negatives intact)'
+        if: env.APPLY_PATCHES == 'true'
+        continue-on-error: true
+        run: |
+          node scripts/lab-candidate/verify-routes.js --root 'C:\ghrdp-cand' --port 7332 --variant candidate --build-sha $env:BASE_SHA --out (Join-Path $PWD 'probe-candidate.json')
+          $code = $LASTEXITCODE
+          Write-Host "candidate probe exit=$code (0 = every expectation met)"
+          exit 0
+
+      - name: Probe the candidate with NO written identity (must still answer dev)
+        if: env.APPLY_PATCHES == 'true'
+        continue-on-error: true
+        run: |
+          node scripts/lab-candidate/verify-routes.js --root 'C:\ghrdp-cand' --port 7332 --variant candidate --phase no-metadata --out (Join-Path $PWD 'probe-no-metadata.json')
+          $code = $LASTEXITCODE
+          Write-Host "no-metadata probe exit=$code (0 = dev preserved, no invented identity)"
+          exit 0
+
+      - name: Verdict (explicit, from the recorded probes)
+        run: |
+          function Get-Verdict($f) {
+            if (-not (Test-Path $f)) { return $null }
+            Get-Content -LiteralPath $f -Raw | ConvertFrom-Json
+          }
+          $base = Get-Verdict 'probe-baseline.json'
+          $cand = Get-Verdict 'probe-candidate.json'
+          $nom  = Get-Verdict 'probe-no-metadata.json'
+          $fail = @()
+          if (-not $base) { $fail += 'BASELINE_NOT_RUN' }
+          elseif (-not $base.verdicts.allExpectationsMet) {
+            $fail += ('BASELINE_NOT_REPRODUCED: ' + (($base.checks | Where-Object { -not $_.pass } | ForEach-Object { $_.id }) -join ','))
+          } else {
+            Write-Host "::notice title=P001 reproduction (baseline)::currentTokenAccepted=$($base.verdicts.currentTokenAccepted) supersededTokenAccepted=$($base.verdicts.supersededTokenAccepted) versionSha=$($base.verdicts.versionSha)"
+          }
+          if ($env:APPLY_PATCHES -eq 'true') {
+            if (-not $cand) { $fail += 'CANDIDATE_NOT_RUN' }
+            elseif (-not $cand.verdicts.allExpectationsMet) {
+              $fail += ('CANDIDATE_EXPECTATION_FAILED: ' + (($cand.checks | Where-Object { -not $_.pass } | ForEach-Object { $_.id }) -join ','))
+            } else {
+              Write-Host "::notice title=P001 fix (candidate)::currentTokenAccepted=$($cand.verdicts.currentTokenAccepted) supersededTokenAccepted=$($cand.verdicts.supersededTokenAccepted) versionSha=$($cand.verdicts.versionSha)"
+            }
+            if (-not $nom) { $fail += 'NO_METADATA_NOT_RUN' }
+            elseif (-not ($nom.checks | Where-Object { $_.id -eq 'P002.negative' -and $_.pass })) { $fail += 'P002_NEGATIVE_NOT_PROVEN' }
+            else { Write-Host '::notice title=P002 negative::no written identity still answers dev' }
+          }
+          if ($fail.Count -gt 0) {
+            foreach ($f in $fail) { Write-Host "::error title=app candidate:: $f" }
+            throw ('APP_CANDIDATE_NOT_VERIFIED: ' + ($fail -join ' | '))
+          }
+          Write-Host "::notice title=APP_CANDIDATE_VERIFIED::real Windows: P001+$($cand.verdicts.versionSha) proven on the patched candidate; baseline reproduced the defects"
+
+      - name: Upload candidate evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: app-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            base-identity.json
+            candidate-identity.json
+            stage-base.json
+            stage-cand.json
+            probe-*.json
+          if-no-files-found: warn
+          retention-days: 14

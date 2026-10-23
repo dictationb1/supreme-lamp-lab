@@ -1,0 +1,72 @@
+From e5e248c947148d28b1817301d52f9cb6242d1eeb Mon Sep 17 00:00:00 2001
+From: LAB candidate <lab@local>
+Date: Fri, 23 Oct 2026 09:37:25 +0000
+Subject: [PATCH 2/2] P002: /api/version reads config.json buildSha, the
+ identity main.yml actually writes
+
+main.yml "Stage files + write config.json" writes buildSha = $env:GITHUB_SHA.
+The server is started by the F92 GHRDP-Server Scheduled Task, which does not
+inherit GHRDP_BUILD_SHA/GITHUB_SHA from the workflow step, so /api/version fell
+through to config.json 'commit' - a key nothing writes - and answered
+sha="dev" for a server whose exact identity was sitting in config.json.
+
+The route now consults buildSha (then gitCommit/sourceSha) before 'dev'.
+A config with none of those keys still answers dev: the patch reads the real
+identity, it never invents one.
+---
+ payloads/ghrdp-server.ps1                       | 17 +++++++++++++++++
+ ...001-p002-ticket-and-version-identity.test.js | 16 ++++++++++++++++
+ 2 files changed, 33 insertions(+)
+
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index 20fff5a3..026b24d9 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -8430,6 +8430,23 @@ function Invoke-ClientRequest {
+             try { $f85Sha = [string]$env:GHRDP_BUILD_SHA } catch { $f85Sha = '' }
+             if (-not $f85Sha) { try { $f85Sha = [string]$env:GITHUB_SHA } catch { $f85Sha = '' } }
+             if (-not $f85Sha) { try { $cfgV = Read-JsonFile -Path $script:CfgPath; $f85Sha = [string]$cfgV.commit } catch { $f85Sha = '' } }
++            # [P002] The production workflow writes the exact source identity into
++            # config.json as `buildSha` (main.yml "Stage files + write config.json"),
++            # but the server is started by a Scheduled Task, which does NOT inherit
++            # GHRDP_BUILD_SHA/GITHUB_SHA from the workflow step. Reading only `commit`
++            # answered sha="dev" for a server that HAD its identity on disk. Consult
++            # the keys the application actually writes; if none carries a value the
++            # answer stays "dev" - identity is never invented.
++            if (-not $f85Sha) {
++                try {
++                    $cfgV2 = Read-JsonFile -Path $script:CfgPath
++                    if ($cfgV2) {
++                        foreach ($ck in @('buildSha', 'gitCommit', 'sourceSha')) {
++                            if ($cfgV2.PSObject.Properties[$ck] -and [string]$cfgV2.$ck) { $f85Sha = ([string]$cfgV2.$ck).Trim(); break }
++                        }
++                    }
++                } catch { $f85Sha = '' }
++            }
+             if (-not $f85Sha) { $f85Sha = 'dev' }
+             $f85Sha7 = $f85Sha
+             if ($f85Sha7.Length -gt 7) { $f85Sha7 = $f85Sha7.Substring(0, 7) }
+diff --git a/tests/p001-p002-ticket-and-version-identity.test.js b/tests/p001-p002-ticket-and-version-identity.test.js
+index c598dde9..39afeda3 100644
+--- a/tests/p001-p002-ticket-and-version-identity.test.js
++++ b/tests/p001-p002-ticket-and-version-identity.test.js
+@@ -76,3 +76,19 @@ test("P001: an empty snapshot with no current token still refuses (no fail-open)
+   const block = routeBlock("if ($path -eq '/api/rdp-token' -and $parts.method -eq 'POST') {");
+   assert.ok(block.includes("$tokOk = $false"), "the route does not default to refusal");
+ });
++
++test("P002: /api/version reads the identity key the application actually writes", () => {
++  const block = routeBlock("if ($path -eq '/api/version') {");
++  assert.ok(block.includes("'buildSha'"), "the version route still ignores config.json buildSha (main.yml writes it)");
++  assert.ok(block.includes("$cfgV.commit"), "the pre-existing commit fallback was removed");
++  // Never fabricate an identity: the last resort stays the literal dev.
++  assert.ok(block.includes("$f85Sha = 'dev'"), "the dev fallback was removed or replaced with a synthetic value");
++});
++
++test("P002: a config with no identity key still answers dev", () => {
++  const block = routeBlock("if ($path -eq '/api/version') {");
++  const devIdx = block.indexOf("$f85Sha = 'dev'");
++  const buildIdx = block.indexOf("'buildSha'");
++  assert.ok(buildIdx > 0 && devIdx > buildIdx, "the dev fallback no longer runs after the buildSha lookup");
++  assert.ok(block.includes("if ($cfgV2.PSObject.Properties[$ck] -and [string]$cfgV2.$ck)"), "an empty buildSha would be accepted as an identity");
++});

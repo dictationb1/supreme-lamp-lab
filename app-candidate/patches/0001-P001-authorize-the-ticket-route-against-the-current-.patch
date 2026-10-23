@@ -1,0 +1,180 @@
+From d630c83125fc183f8d7de0b7a60ed88c89029e07 Mon Sep 17 00:00:00 2001
+From: LAB candidate <lab@local>
+Date: Fri, 23 Oct 2026 09:37:14 +0000
+Subject: [PATCH 1/2] P001: authorize the ticket route against the current
+ dashboard token, not the boot snapshot
+
+POST /api/rdp-token compared the bearer with $script:Token, which is read
+once at boot. main.yml kicks the GHRDP-Server task in "F92 register
+user-session server" and writes dash-token.txt in "Stage files + write
+config.json" much later, so the strict route refused the current run's own
+credential (lab run 39929404780: ourBearer=401 while the refresh-aware
+routes answered 403/404 past the gate) and kept a previous run's token
+mintable for the life of the process.
+
+The route now authorizes against the CURRENT token on disk
+(dash-token.txt, then config.json dashToken); the boot snapshot is only
+consulted when no current token can be read, which preserves the behaviour
+of a static deployment whose file was removed after boot. Missing, empty,
+forged and superseded tokens still get 401, and the constant-time compare
+is unchanged.
+---
+ payloads/ghrdp-server.ps1                     | 50 +++++++++++-
+ ...1-p002-ticket-and-version-identity.test.js | 78 +++++++++++++++++++
+ 2 files changed, 125 insertions(+), 3 deletions(-)
+ create mode 100644 tests/p001-p002-ticket-and-version-identity.test.js
+
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index 4fbb4851..20fff5a3 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -900,6 +900,39 @@ function Test-GhrdpDashToken {
+     }
+     return $false
+ }
++# [P001] Strict ticket-route credential candidates.
++# The ticket route is the AUTHORIZATION boundary for minting native RDP
++# tickets, so unlike the refresh-aware lanes it must not accept a token the
++# application has already replaced. $script:Token is read ONCE at boot, while
++# main.yml writes dash-token.txt in "Stage files + write config.json" - long
++# after the GHRDP-Server task is kicked. Comparing against the snapshot alone
++# therefore (a) refuses the current run's credential and (b) keeps a previous
++# run's credential mintable for the whole life of the process.
++# Policy: the CURRENT token on disk wins and authorizes exactly itself; the
++# boot snapshot is consulted only when no current token can be read (a static
++# deployment whose file was removed after boot). Nothing is weakened for the
++# missing/invalid cases: no candidates at all still means 401.
++function Get-GhrdpStrictDashTokenCandidates {
++    param([string]$SnapshotToken)
++    $cur = @()
++    try {
++        $tp = Join-Path $Root 'dash-token.txt'
++        if (Test-Path -LiteralPath $tp) {
++            $ft = ([System.IO.File]::ReadAllText($tp)).Trim()
++            if ($ft) { $cur += $ft }
++        }
++    } catch { }
++    try {
++        $cfgS = Read-JsonFile -Path $script:CfgPath
++        if ($cfgS -and $cfgS.PSObject.Properties['dashToken'] -and [string]$cfgS.dashToken) {
++            $ct = ([string]$cfgS.dashToken).Trim()
++            if ($ct -and $cur -notcontains $ct) { $cur += $ct }
++        }
++    } catch { }
++    if ($cur.Count -gt 0) { return $cur }
++    if ($SnapshotToken) { return @([string]$SnapshotToken) }
++    return @()
++}
+ function Add-F99TokenTelemetry {
+     param([string]$Route, [string]$Presented, [string]$SnapshotToken, [bool]$Valid)
+     try {
+@@ -7092,11 +7125,22 @@ function Invoke-ClientRequest {
+         if ($path -eq '/api/rdp-token' -and $parts.method -eq 'POST') {
+             # Tailnet reachability alone must not mint native RDP tokens. Require
+             # the dashboard secret in a header (never in the request URL).
++            # [P001] Compare against the CURRENT token (see
++            # Get-GhrdpStrictDashTokenCandidates), not only the boot snapshot.
+             $auth = [string]$parts.headers['authorization']
+-            $expected = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)
+             $received = [System.Text.Encoding]::UTF8.GetBytes($auth)
+-            if (-not $Token -or $received.Length -ne $expected.Length -or
+-                -not (Test-TicketBearer $received $expected)) {
++            $strictCands = @(Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token)
++            $strictExpected = ''
++            if ($strictCands.Count -gt 0) { $strictExpected = [string]$strictCands[0] }
++            $tokOk = $false
++            foreach ($strictCand in $strictCands) {
++                if (-not $strictCand) { continue }
++                $expected = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + [string]$strictCand)
++                if ($received.Length -ne $expected.Length) { continue }
++                if (Test-TicketBearer $received $expected) { $tokOk = $true; break }
++            }
++            try { Add-F99TokenTelemetry -Route '/api/rdp-token' -Presented ([string]$parts.headers['authorization'] -replace '^Bearer\s+', '') -SnapshotToken $strictExpected -Valid $tokOk } catch { }
++            if (-not $tokOk) {
+                 Send-ClientResponse -Stream $stream -Code 401 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('dashboard authorization required'))
+                 return
+             }
+diff --git a/tests/p001-p002-ticket-and-version-identity.test.js b/tests/p001-p002-ticket-and-version-identity.test.js
+new file mode 100644
+index 00000000..c598dde9
+--- /dev/null
++++ b/tests/p001-p002-ticket-and-version-identity.test.js
+@@ -0,0 +1,78 @@
++// [P001/P002] Two measured backend defects, pinned at source level the same way
++// every other server-side fix in this repo is pinned: the tests read the
++// SHIPPED payload and assert the exact contract, so a later edit that reverts
++// either fix fails here instead of becoming another live-run annotation.
++//
++// P001  POST /api/rdp-token compared the bearer against $script:Token, the
++//       dashboard token read ONCE at server boot, while main.yml writes
++//       dash-token.txt in "Stage files + write config.json" long after the
++//       GHRDP-Server task is kicked. Observed consequences (lab run
++//       39929404780): the current run's credential got 401 while the
++//       refresh-aware routes accepted it, and a previous run's credential
++//       stayed mintable for the life of the process.
++//
++// P002  GET /api/version answered sha="dev" because it read config.json only
++//       through the `commit` key, while the production workflow writes the
++//       source identity as `buildSha`; the server is started by a Scheduled
++//       Task, which does not inherit GHRDP_BUILD_SHA/GITHUB_SHA.
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++
++const SERVER = readFileSync(new URL("../payloads/ghrdp-server.ps1", import.meta.url), "utf8");
++
++function routeBlock(startMarker) {
++  const i = SERVER.indexOf(startMarker);
++  assert.ok(i > 0, `route marker not found: ${startMarker}`);
++  return SERVER.slice(i, i + 4000);
++}
++
++test("P001: the strict ticket route has a current-token candidate resolver", () => {
++  assert.ok(
++    SERVER.includes("function Get-GhrdpStrictDashTokenCandidates"),
++    "the strict-route candidate resolver is missing",
++  );
++  const fn = SERVER.slice(
++    SERVER.indexOf("function Get-GhrdpStrictDashTokenCandidates"),
++    SERVER.indexOf("function Add-F99TokenTelemetry"),
++  );
++  assert.ok(fn.includes("Join-Path $Root 'dash-token.txt'"), "the resolver does not read the current token file");
++  assert.ok(fn.includes("PSObject.Properties['dashToken']"), "the resolver does not read config.json dashToken");
++  // CURRENT token wins; the boot snapshot is only the fallback.
++  const curIdx = fn.indexOf("if ($cur.Count -gt 0) { return $cur }");
++  const snapIdx = fn.indexOf("if ($SnapshotToken) { return @([string]$SnapshotToken) }");
++  assert.ok(curIdx > 0 && snapIdx > curIdx, "the boot snapshot is preferred over the current token");
++});
++
++test("P001: /api/rdp-token authorizes against the current token, not the boot snapshot", () => {
++  const block = routeBlock("if ($path -eq '/api/rdp-token' -and $parts.method -eq 'POST') {");
++  assert.ok(
++    block.includes("Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token"),
++    "the ticket route does not consult the current-token candidates",
++  );
++  assert.ok(
++    !block.includes("$expected = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)"),
++    "the ticket route still compares the boot snapshot directly",
++  );
++  // The rejection path is unchanged: no candidate still means 401.
++  assert.ok(block.includes("Code 401"), "the 401 rejection path disappeared");
++  assert.ok(
++    block.includes("Add-F99TokenTelemetry -Route '/api/rdp-token'"),
++    "the strict route no longer records token telemetry (expectedLen would go unexplained)",
++  );
++  // Constant-time comparison is preserved for every candidate.
++  assert.ok(block.includes("Test-TicketBearer $received $expected"), "the constant-time comparison was dropped");
++});
++
++test("P001: an empty snapshot with no current token still refuses (no fail-open)", () => {
++  const fn = SERVER.slice(
++    SERVER.indexOf("function Get-GhrdpStrictDashTokenCandidates"),
++    SERVER.indexOf("function Add-F99TokenTelemetry"),
++  );
++  // Last resort is an EMPTY candidate set, never an unconditional accept.
++  const tail = fn.slice(fn.lastIndexOf("if ($SnapshotToken)"));
++  assert.ok(tail.includes("return @()"), "the resolver does not fall back to an empty set");
++  assert.ok(!fn.includes("return $true"), "the resolver decides acceptance itself instead of returning candidates");
++  const block = routeBlock("if ($path -eq '/api/rdp-token' -and $parts.method -eq 'POST') {");
++  assert.ok(block.includes("$tokOk = $false"), "the route does not default to refusal");
++});
