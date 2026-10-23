@@ -9,5 +9,7 @@
   "descriptorId": "c5ebc96722458997",
   "correlationId": "lr-40022345749-1",
   "releaseHint": "claim is released by its owner or when the claimant lab run reaches a terminal state",
-  "nonce": "6454886fbf9f4652"
+  "nonce": "6454886fbf9f4652",
+  "supersededAt": "2026-10-23T21:31:45.522Z",
+  "supersededReason": "claimant run 40025875096 is completed/success"
 }
