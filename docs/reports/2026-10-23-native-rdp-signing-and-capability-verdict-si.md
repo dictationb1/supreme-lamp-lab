@@ -16,11 +16,13 @@
 | 39878430536 | `pull_request` | `e2859e6a` | success | `rdp-signing` — identity reuse + `value-plain` pin + probe PASS |
 | 39879458347 | `pull_request` | `ebc24ff6` | success | `live-run` candidate gate (read-only, pre-merge) |
 | **39879458404** | `pull_request` | `ebc24ff6` | **success** | `capability` — jobs: static, server, client, report; skipped: live-origin guard, auth-diagnostic |
+| **39882179584** | `pull_request` | `ebebbbd8` | **success** | `capability` — **දෙවන ස්වාධීන ධාවනය**, එම `verdict=VERIFIED`, capabilities 9ම PASS, නව server VM + නව සැසිය |
+| 39882179861 / 39882179751 | `pull_request` | `ebebbbd8` | success | `rdp-signing` සහ `live-run` candidate gate |
 | 39878430491 / 39877716229 | `pull_request` | කලින් SHAs | success | `live-run` candidate gate |
 
 `39879458404` හි job කාලසටහන (UTC): static 00:40:33→00:49:10 · server 00:49:14→00:55:18 · client 00:49:14→00:54:52 · report 00:55:21→00:55:30.
 
-**Verdict annotation (report job):**
+**Verdict annotation (report job, 39879458404 සහ 39882179584 දෙකේම සමානය):**
 `verdict=VERIFIED browser_synthetic=PASS native_screenshot=PASS backend_readiness_server_local=PASS dashboard_server_local=PASS tailnet_connectivity=PASS backend_readiness_remote=PASS dashboard_client=PASS web_desktop=PASS rdp_auto_login=PASS`
 
 Regression: Windows client job `170 tests: 170 passed, 0 failed, 0 skipped`; static job (Linux) `170 tests: 162 passed, 0 failed, 8 skipped` (browser e2e Windows-only 8ක් skip).
