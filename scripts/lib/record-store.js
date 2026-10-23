@@ -234,16 +234,41 @@ async function claimRecord({ repo, descriptor, labRunId, labAttempt, maxWaitMs =
       let ownerState = null;
       try { ownerState = await labRunStatus(ownerRun); } catch (e) { ownerState = { status: 'unknown', error: e.message }; }
       if (ownerState && TERMINAL_RUN_STATES.has(ownerState.status)) {
-        const stale = { ...claim, supersededAt: new Date().toISOString(), supersededReason: `claimant run ${ownerRun} is ${ownerState.status}${ownerState.conclusion ? `/${ownerState.conclusion}` : ''}` };
-        const cur = await readRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor));
-        await writeRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor), JSON.stringify(stale, null, 2), `live-run claim supersede ${descriptor.correlationId} [skip ci]`, { sha: cur ? cur.sha : undefined });
-        const body = {
-          kind: 'slab-live-run-claim/1', claimedAt: new Date().toISOString(),
-          claimant: { labRunId, labAttempt }, descriptorId: descriptor.id,
-          correlationId: descriptor.correlationId, superseded: stale.supersededReason, nonce: crypto.randomBytes(8).toString('hex')
-        };
-        await writeRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor), JSON.stringify(body, null, 2), `live-run claim ${descriptor.correlationId} [skip ci]`, { sha: (await readRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor)))?.sha });
-        return { claimed: true, claim: body, reason: 'SUPERSEDED_DEAD_CLAIMANT' };
+        // Two sweeps can race here (the 10-minute cron plus a client run):
+        // measured 2026-10-23, the second PUT answered HTTP 409
+        // "does not match <sha>" and the whole verification aborted with
+        // LIVE_RUN_ERROR before the desktop was touched. The file is the lock,
+        // so a lost race is EXPECTED - retry with the fresh sha, and treat a
+        // claim that has meanwhile become MINE as success.
+        const supersedeReason = `claimant run ${ownerRun} is ${ownerState.status}${ownerState.conclusion ? `/${ownerState.conclusion}` : ''}`;
+        let body = null;
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          const cur = await readRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor)).catch(() => null);
+          if (cur && cur.json && Number(cur.json.claimant && cur.json.claimant.labRunId) === Number(labRunId)) {
+            return { claimed: true, claim: cur.json, reason: 'ALREADY_MINE' };
+          }
+          const stale = { ...(cur && cur.json ? cur.json : claim), supersededAt: new Date().toISOString(), supersededReason: supersedeReason };
+          try {
+            await writeRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor), JSON.stringify(stale, null, 2), `live-run claim supersede ${descriptor.correlationId} [skip ci]`, { sha: cur ? cur.sha : undefined });
+          } catch (e) {
+            if (e.status === 409 || e.status === 422) { await sleep(250 * attempt); continue; }
+            throw e;
+          }
+          body = {
+            kind: 'slab-live-run-claim/1', claimedAt: new Date().toISOString(),
+            claimant: { labRunId, labAttempt }, descriptorId: descriptor.id,
+            correlationId: descriptor.correlationId, superseded: supersedeReason, nonce: crypto.randomBytes(8).toString('hex')
+          };
+          try {
+            const fresh = await readRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor));
+            await writeRepoFile(repo, RECORDS_BRANCH, claimPath(descriptor), JSON.stringify(body, null, 2), `live-run claim ${descriptor.correlationId} [skip ci]`, { sha: fresh ? fresh.sha : undefined });
+            return { claimed: true, claim: body, reason: 'SUPERSEDED_DEAD_CLAIMANT' };
+          } catch (e) {
+            if (e.status === 409 || e.status === 422) { await sleep(250 * attempt); continue; }
+            throw e;
+          }
+        }
+        return { claimed: false, claim: null, reason: 'CLAIM_RACE_LOST', detail: `another sweep kept winning the claim file after 5 attempts; nothing was started` };
       }
       if (Date.now() + pollMs > deadline) {
         return { claimed: false, claim, reason: 'QUEUED_BEHIND_LIVE_CLAIMANT', detail: `claimant run ${ownerRun} is ${ownerState ? ownerState.status : 'unknown'}; ${CLAIM_TTL_HINT}` };
