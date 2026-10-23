@@ -32,6 +32,12 @@
       "state": "FAILED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=failure (the verify job exited without an in-process report)"
+    },
+    {
+      "at": "2026-10-23T04:43:18.696Z",
+      "state": "FAILED",
+      "by": "dictationb1/supreme-lamp-lab@lab",
+      "detail": "job-level write-back: verify job result=failure (the verify job exited without an in-process report)"
     }
   ],
   "envelopeTransport": {
@@ -45,5 +51,7 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T04:31:33.609Z"
+  "updatedAt": "2026-10-23T04:43:18.696Z",
+  "retryable": true,
+  "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified"
 }
