@@ -95,7 +95,7 @@ jobs:
           if ($st) {
             $policyCount = 0
             if ($st.policyValues -and $st.policyValues.values) { $policyCount = @($st.policyValues.values).Count }
-            Write-Host "::notice title=rdp signing status::admin=$($st.isAdmin) osBuild=$($st.osBuild) admxPolicyFound=$($st.admxPolicyFound) admxKey=`"$($st.admxKey)`" valuePrefix=`"$($st.admxValuePrefix)`" policyKey=`"$($st.policyKey)`" policyEntries=$policyCount allowUnsigned=$($st.policyValues.allowPolicies.AllowUnsignedFiles) allowSigned=$($st.policyValues.allowPolicies.AllowSignedFiles) rootPinned=$($st.rootPinned) storedIdentity=$(if ($st.identity) { $st.identity.thumbprint } else { 'none' })"
+            Write-Host "::notice title=rdp signing status::admin=$($st.isAdmin) osBuild=$($st.osBuild) admxPolicyFound=$($st.admxPolicyFound) admxKey=`"$($st.admxKey)`" valuePrefix=`"$($st.admxValuePrefix)`" policyKey=`"$($st.policyKey)`" policyEntries=$policyCount allowUnsigned=$($st.policyValues.allowPolicies.AllowUnsignedFiles) allowSigned=$($st.policyValues.allowPolicies.AllowSignedFiles) rootPinned=$($st.rootPinned) code=$($st.code) detail=$($st.detail) storedIdentity=$(if ($st.identity) { $st.identity.thumbprint } else { 'none' })"
           } else {
             # The step log of a Windows runner is not retrievable from every
             # automation environment, so the failing lines go to annotations too.

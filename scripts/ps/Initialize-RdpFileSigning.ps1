@@ -452,22 +452,43 @@ $mstsc = Join-Path $env:SystemRoot 'System32\mstsc.exe'
 try {
 switch ($Mode) {
     'Status' {
-        $certs = @((Get-ChildItem -Path Cert:\CurrentUser\My -ErrorAction SilentlyContinue) + (Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue) |
-            Where-Object { $_.HasPrivateKey -and ($_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.3') } |
-            Select-Object -First 10 |
-            ForEach-Object {
-                [pscustomobject]@{
-                    subject    = $_.Subject
-                    thumbprint = $_.Thumbprint
-                    notAfter   = $_.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-                    sha256     = $_.SignatureAlgorithm.FriendlyName
+        # Signing identities: CurrentUser (the account rdpsign resolves from) and
+        # LocalMachine. Written as explicit loops so a single odd certificate can
+        # never abort the read-only status report.
+        $certs = @()
+        foreach ($store in @('Cert:\CurrentUser\My', 'Cert:\LocalMachine\My')) {
+            try {
+                $found = Get-ChildItem -Path $store -ErrorAction SilentlyContinue
+            } catch { $found = @() }
+            foreach ($c in @($found)) {
+                if (-not $c) { continue }
+                if (-not $c.HasPrivateKey) { continue }
+                $eku = @()
+                try { $eku = @($c.EnhancedKeyUsageList | ForEach-Object { $_.ObjectId }) } catch { $eku = @() }
+                if ($eku -notcontains '1.3.6.1.5.5.7.3.3') { continue }
+                if (@($certs).Count -ge 10) { break }
+                $notAfter = $null
+                try { $notAfter = $c.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch { $notAfter = $null }
+                $certs += [pscustomobject]@{
+                    store      = $store
+                    subject    = [string]$c.Subject
+                    thumbprint = [string]$c.Thumbprint
+                    notAfter   = $notAfter
                 }
-            })
+            }
+        }
         $Result['codeSigningCerts'] = $certs
-        $Result['rootPinned'] = $false
+        $Result['rootPinned'] = $null
         if ($recorded -and $recorded.thumbprint) {
-            $Result['rootPinned'] = [bool](Get-ChildItem -Path Cert:\LocalMachine\Root -ErrorAction SilentlyContinue |
-                Where-Object { (Get-NormalizedThumbprint $_.Thumbprint) -eq (Get-NormalizedThumbprint $recorded.thumbprint) })
+            $want = Get-NormalizedThumbprint $recorded.thumbprint
+            $pinned = $null
+            try {
+                $roots = @(Get-ChildItem -Path Cert:\LocalMachine\Root -ErrorAction SilentlyContinue)
+                foreach ($r in $roots) {
+                    if ((Get-NormalizedThumbprint $r.Thumbprint) -eq $want) { $pinned = $true; break }
+                }
+            } catch { $pinned = $null }
+            if ($pinned) { $Result['rootPinned'] = $true } else { $Result['rootPinned'] = $false }
         }
         $Result.ok = $true
         $Result.code = 'STATUS_ONLY'
