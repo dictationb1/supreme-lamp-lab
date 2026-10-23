@@ -105,6 +105,13 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
   });
 
 
+
+  await test('store: labRunStatus is exported (its absence read as an unreadable claimant)', async () => {
+    const store = require('../lib/record-store');
+    assert.strictEqual(typeof store.labRunStatus, 'function');
+    assert.ok(store.TERMINAL_RUN_STATES.has('completed'));
+  });
+
   await test('queue: a claim left by a terminal lab run does not make the origin unattachable', async () => {
     const body = { descriptor: DESC(), state: 'FAILED', retryable: true };
     const row = { ...ROW(), state: 'FAILED', retryable: true, claimedBy: '39904982757' };

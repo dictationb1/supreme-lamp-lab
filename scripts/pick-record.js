@@ -199,7 +199,13 @@ async function main() {
       try {
         const st = await store.labRunStatus(labRunId);
         return !store.TERMINAL_RUN_STATES.has(String(st.status || ''));
-      } catch (e) { return null; }
+      } catch (e) {
+        // Never silent: an unreadable claimant keeps the row skipped, and the
+        // reason has to say why so a broken status read is not mistaken for a
+        // live lab run.
+        console.error(`[NOTICE] claim status unreadable for lab run ${labRunId}: ${e && e.message}`);
+        return null;
+      }
     },
     readFull: async (p) => {
       const store = require('./lib/record-store');
