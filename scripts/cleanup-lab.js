@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const proc = require('./lib/proc');
 const registry = require('./lib/registry');
+const annotate = require('./lib/annotate');
 
 const CRITICAL = /^(system|idle|registry|smss|csrss|wininit|winlogon|services|lsass|lsaiso|svchost|fontdrvhost|dwm|explorer|runner\.listener|runner\.worker|runsvc|memory compression|init|systemd)(\.exe)?$/i;
 
@@ -110,6 +111,8 @@ async function run(args) {
   const ctx = { mode: args.mode, protectedPids, sessionId: me && me.sessionId !== undefined ? me.sessionId : null };
   const pending = [];
 
+  let registryError = null;
+  try {
   registry.updateRegistry(records => {
     const keep = [];
     for (const rec of records) {
@@ -128,10 +131,22 @@ async function run(args) {
           entry.action = 'would-terminate';
           keep.push(rec);
         } else {
-          const res = terminateTreeSync(rec, snap);
-          entry.killed = res.killed;
-          if (!res.killed.length) keep.push(rec);
-          else pending.push({ rec, entry, killed: res.killed });
+          // ONE process that cannot be dealt with must never abort the whole
+          // cleanup: on 2026-10-23 the Windows client job failed here with
+          // exit 1 and no annotation, and the entire verification was lost
+          // before it started. A failure is recorded per record (and the record
+          // is kept so a later run can retry it), then reported in the summary.
+          try {
+            const res = terminateTreeSync(rec, snap);
+            entry.killed = res.killed;
+            if (!res.killed.length) keep.push(rec);
+            else pending.push({ rec, entry, killed: res.killed });
+          } catch (e) {
+            entry.action = 'error';
+            entry.reason = `TERMINATE_FAILED:${String(e && e.message || e).slice(0, 160)}`;
+            summary.errors.push({ pid: rec.pid, reason: entry.reason });
+            keep.push(rec);
+          }
         }
       } else if (d.action === 'keep') {
         keep.push(rec);
@@ -140,6 +155,14 @@ async function run(args) {
     }
     return keep;
   });
+  } catch (e) {
+    // A registry read/modify/write failure (lock timeout, unreadable file,
+    // atomic-write EPERM) is REPORTED, not turned into a crash: the run needs
+    // its verdict, and "could not update the bookkeeping" is not "the desktop
+    // is dirty".
+    registryError = `REGISTRY_UPDATE_FAILED:${String(e && e.message || e).slice(0, 200)}`;
+    summary.errors.push({ registry: registryError });
+  }
 
   // Bounded identity re-verification of everything we signalled. Records with
   // survivors stay registered so a later cleanup can retry them.
@@ -202,6 +225,22 @@ async function main() {
     fs.mkdirSync(path.dirname(args.out), { recursive: true });
     fs.writeFileSync(args.out, json);
   }
+  // The runner's step LOG lives on the results blob host, which a driving
+  // automation environment cannot always read; an annotation can. One cleanup
+  // failure (a stale process owned by another account, a corrupt registry, a
+  // snapshot timeout) silently failed the Windows client job on 2026-10-23 and
+  // nothing about the cause was reachable - never again.
+  try {
+    const bits = [];
+    if (summary.error) bits.push(summary.error);
+    if (summary.helperDiagnostic) bits.push('helper=' + JSON.stringify(summary.helperDiagnostic).slice(0, 200));
+    if (summary.survivors && summary.survivors.length) bits.push(`survivors=${summary.survivors.map(x => x.pid).join(',')}`);
+    const term = (summary.decisions || []).filter(d => d.action === 'terminate').length;
+    bits.push(`terminated=${summary.terminated}; terminate-decisions=${term}; records=${(summary.decisions || []).length}`);
+    const text = bits.join(' | ');
+    if (code === 0) annotate.notice('cleanup ' + args.mode, text);
+    else annotate.error('cleanup ' + args.mode, `exit ${code}: ${text}`);
+  } catch (e) { /* an annotation must never change the exit code */ }
   process.exit(code);
 }
 

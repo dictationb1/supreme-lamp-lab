@@ -407,16 +407,16 @@ jobs:
           if [ "${MODE:-live-origin}" = "origin-selftest" ]; then
             # The lab's own server job is the origin for this harness; its
             # record was published by that job, so select it explicitly.
-            node scripts/live-run.js poll-records > records.txt || true
-            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.txt)
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
+            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.json)
           else
-            node scripts/live-run.js poll-records > records.txt || true
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
             PICK=$(node scripts/pick-record.js \
               --correlation "${DISPATCH_CORRELATION:-${INPUT_CORRELATION:-}}" \
               --origin "${DISPATCH_ORIGIN_REPO:-${INPUT_ORIGIN_REPO:-}}" \
               --run "${DISPATCH_ORIGIN_RUN:-${INPUT_ORIGIN_RUN:-}}" \
               --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" \
-              --records records.txt)
+              --records records.json)
           fi
           echo "$PICK" | tee -a "$GITHUB_STEP_SUMMARY"
           {
@@ -431,7 +431,7 @@ jobs:
             echo "endpoint=$(echo "$PICK" | jq -r '.descriptor.authorizedEndpoint // ""')"
             echo "expires_at=$(echo "$PICK" | jq -r '.descriptor.expiresAt // ""')"
             echo "mode=$(echo "$PICK" | jq -r '.descriptor.mode // "live-origin"')"
-            pending=$(jq -r '.pending // 0' records.txt 2>/dev/null || echo 0)
+            pending=$(jq -r '.pending // 0' records.json 2>/dev/null || echo 0)
             case "$pending" in (*[!0-9]*|'') pending=0;; esac
             echo "pending=$pending"
           } >> "$GITHUB_OUTPUT"
@@ -513,7 +513,16 @@ jobs:
       - name: Preflight owned-process cleanup
         run: |
           node scripts/cleanup-lab.js --mode preflight
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          # Safety is the invariant, not "must kill everything": a snapshot that
+          # cannot be taken (4) means the process table is unreadable, and
+          # guessing is forbidden -> fail. A leftover process of ANOTHER run that
+          # this account cannot terminate (2 = survivors, 3 = registry/lock) is a
+          # warning that names itself in an annotation; aborting here would
+          # destroy a verification that never started (measured 2026-10-23).
+          if ($code -eq 4) { throw "preflight cleanup could not read the process table (exit 4) - refusing to guess" }
+          if ($code -ne 0) { Write-Host "::warning title=preflight cleanup::exit $code - continuing; survivors are named in the annotation and will be retried by a later cleanup" }
+          exit 0
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
@@ -521,6 +530,55 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+
+      - name: Network preflight (read-only — can this desk even reach the endpoint?)
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Read-only. Answers the ONE question a READINESS_TIMEOUT cannot:
+          # is the address unroutable (this desk is not on the tailnet), blocked
+          # (firewall/ACL), or answering-but-unready? No credential is used and
+          # no request carries a token; responses are not printed, only codes.
+          $target = $env:ENDPOINT
+          if (-not $target) { Write-Host "::warning title=net preflight::no ENDPOINT for this claim (idle sweep) - skipped"; exit 0 }
+          try { $u = [uri]$target } catch { Write-Host "::error title=net preflight::unparseable ENDPOINT"; exit 0 }
+          $hostName = $u.Host; $port = if ($u.Port -gt 0) { $u.Port } else { 80 }
+          Write-Host "target host=$hostName port=$port"
+          $mine = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like '100.*' } | ForEach-Object { $_.IPAddress })
+          Write-Host "::notice title=net preflight::desk=$env:RUNNER_NAME tailnetIPv4=$($mine -join ',') (empty = this desk has no tailnet address)"
+          $ts = Get-Command tailscale -ErrorAction SilentlyContinue
+          if ($ts) {
+            $st = & tailscale status --json 2>$null | ConvertFrom-Json
+            $peer = $st.Peer.PSObject.Properties.Value | Where-Object { $_.TailscaleIPs -contains $hostName } | Select-Object -First 1
+            Write-Host "::notice title=net preflight::tailscale backend=$($st.BackendState) selfOnline=$($st.Self.Online) peerFound=$([bool]$peer) peerOnline=$($peer.Online)"
+          } else { Write-Host "::notice title=net preflight::tailscale CLI not installed on this desk" }
+          # TCP reachability, bounded: 5 s per attempt, 3 attempts.
+          $tcp = $false
+          for ($i = 1; $i -le 3; $i++) {
+            $c = Test-NetConnection -ComputerName $hostName -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue
+            if ($c) { $tcp = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host "::notice title=net preflight::tcp $hostName`:$port reachable=$tcp"
+          # HTTP liveness, unauthenticated, 8 s timeout. /api/ping is the F92
+          # endpoint designed to answer without a credential.
+          $code = 'none'; $curlExit = -1
+          try { $code = & curl.exe -s -o NUL -m 20 -w '%{http_code}' ("{0}://{1}:{2}/api/ping" -f $u.Scheme, $hostName, $port) 2>$null } catch { $code = "error:$($_.Exception.Message)" }
+          $curlExit = $LASTEXITCODE
+          Write-Host "::notice title=net preflight::http /api/ping code=$code curlExit=$curlExit"
+          if ($tcp -and ($code -eq '000' -or $code -eq 'none')) {
+            # TCP accepted but no HTTP answer: the port is open and the API is
+            # NOT serving. That is a different fault from 'unreachable', and it
+            # is recorded as such (measured 2026-10-23: reachable=True, code=000).
+            Write-Host "::warning title=net preflight::the port is OPEN but /api/ping did not answer within 20s - the server accepted the connection and then stalled (wedged listener / wrong process on the port), not a network block."
+          } elseif (-not $tcp) {
+            Write-Host "::warning title=net preflight::the endpoint is NOT reachable from this desk; every live check would end in READINESS_TIMEOUT. This is a lab-network/tailnet condition, not a product verdict."
+          }
+          # A diagnostic is never a gate: never let it fail the job (native exit
+          # codes propagate as the step's exit code when it is the last command).
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live

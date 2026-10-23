@@ -7,3 +7,6 @@ lab-lock.lock
 supreme-lamp-lab-state/
 *.lock.d/
 verification-report.json
+
+# verification evidence captured at run time (never committed)
+.evidence/
