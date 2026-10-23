@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:07:46Z",
+  "generatedAt": "2026-10-23T10:26:00Z",
   "executor": {
     "repository": "dictationb1/supreme-lamp-lab",
     "workflow": "app-candidate.yml",
@@ -37,6 +37,21 @@
         "conclusion": "failure",
         "why": "ONE baseline hygiene check (anonymous 401) did not match; every candidate expectation passed",
         "headSha": "3bbf387b"
+      },
+      {
+        "id": 39937150635,
+        "attempt": 1,
+        "startedAt": "2026-10-23T10:11:00Z",
+        "conclusion": "failure",
+        "why": "harness: the purge-superseded assertion was inverted in both arms; the observed behaviour was already correct"
+      },
+      {
+        "id": 39937351659,
+        "attempt": 1,
+        "startedAt": "2026-10-23T10:16:00Z",
+        "conclusion": "success",
+        "why": "ASSEMBLED CANDIDATE (3 patches) VERIFIED on real Windows",
+        "headSha": "L003"
       }
     ]
   },
@@ -58,69 +73,57 @@
   },
   "candidateIdentity": {
     "baseSha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
-    "patches": [
-      {
-        "file": "0001-P001-authorize-the-ticket-route-against-the-current-.patch",
-        "sha256_stored_lf": "550f44dfcf07ab1db247209018a9cf8ea46ff25044c6bde0222fc754b3ff7109",
-        "sha256_observed_on_windows_checkout": "22a5fe20806d671764fd5486e6c299970ccc3b57100878a8b87555da40e9116f",
-        "mode": "strict"
-      },
-      {
-        "file": "0002-P002-api-version-reads-config.json-buildSha-the-iden.patch",
-        "sha256_stored_lf": "a645b8287342a6bbdb2b475a53db559335052467def7b3fc9cb01171146b3cfb",
-        "sha256_observed_on_windows_checkout": "80c1577f4f386db30c02218d5b9c868979da52b903eaf961cbad1befa1a41b3a",
-        "mode": "strict"
-      }
-    ],
-    "note_on_checksum_difference": "the Windows checkout normalises the patch file's line endings, so Get-FileHash differs from the LF blob hash. Both patches applied in strict mode; SHA256SUMS is authoritative for the stored (LF) files.",
-    "candidateServerSha256": "1a09fbbde614721365bae2758bc062123534426472f69a3e7fa519676c72cd61",
+    "patchesApplied": 3,
+    "candidateServerSha256": "002513d96d0df64cee34dbad65a4f3bd1099085eee3420a1465097606431ded5",
     "baselineServerSha256": "d6453fef836328866d6cfe019db43077f92266cdec1ec073fb7815a2a187ee94",
-    "appliedDiffSha256": "cd8846b9c44275e3a049cfd5ccd253eb3b70b1f238cf8a9caf42d31935d2906e",
-    "uiSourcesTouched": 0
+    "appliedDiffSha256": "a990f49f0e0a75670ff7ba2a760b674cca1f893cc8fbbbdb00d9ef85d984dbeb",
+    "uiSourcesTouched": 0,
+    "checksumNote": "the Windows checkout normalises patch line endings, so its Get-FileHash differs from the LF blob hash in SHA256SUMS; both applied in strict mode. SHA256SUMS governs the stored files."
   },
   "startShape": {
     "how": "pwsh -File <root>/ghrdp-server.ps1 -Port <p> -Root <root> with GHRDP_BUILD_SHA and GITHUB_SHA removed from the child env (Scheduled Task shape)",
     "tokenOrder": "previous run's token on disk at boot; current token written to dash-token.txt + config.json dashToken after LISTENING"
   },
   "results": {
+    "baseline": {
+      "verdict": "REPRODUCED",
+      "arm": "run 39937351659",
+      "currentTokenAccepted": false,
+      "supersededTokenAccepted": true,
+      "purgeCurrentAccepted": false,
+      "purgeSupersededAccepted": true,
+      "versionSha": "dev",
+      "reading": "the current run's credential is refused on both strict routes while a superseded one is mintable, and /api/version cannot name the build"
+    },
     "candidate": {
       "verdict": "PASS",
+      "arm": "run 39937351659",
       "currentTokenAccepted": true,
       "supersededTokenAccepted": false,
+      "purgeCurrentAccepted": true,
+      "purgeSupersededAccepted": false,
       "versionSha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
       "versionIs40Hex": true,
       "noIdentityStillDev": true,
       "checks": {
-        "P001.anonymous": "PASS (401)",
-        "P001.forged": "PASS (401)",
-        "P001.current_token": "PASS (accepted past the gate)",
-        "P001.superseded_token": "PASS (401)",
-        "P002.version_identity": "PASS (40-hex base sha)",
-        "P002.negative": "PASS (dev)"
+        "P001.anonymous": "PASS",
+        "P001.forged": "PASS",
+        "P001.current_token": "PASS",
+        "P001.superseded_token": "PASS",
+        "P001B.purge_current": "PASS",
+        "P001B.purge_superseded": "PASS",
+        "P002.version_identity": "PASS",
+        "P002.negative": "PASS"
       }
-    },
-    "baseline": {
-      "verdict": "PARTIAL_REPRODUCTION",
-      "currentTokenAccepted": false,
-      "supersededTokenAccepted": true,
-      "versionSha": "dev",
-      "checks": {
-        "P001.forged": "PASS (401)",
-        "P001.current_token": "REPRODUCED (refused)",
-        "P001.superseded_token": "REPRODUCED (mintable)",
-        "P002.version_identity": "REPRODUCED (dev)",
-        "P001.anonymous": "DID NOT MATCH (expected 401)"
-      },
-      "note": "the anonymous hygiene probe is not one of the two defects; the same code path answered 401 on the candidate instance. Recorded as a harness/transient artefact, not as an application difference."
     }
   },
   "discriminators": {
-    "routeOrder": "credential (401) -> tailnet source (403) -> MagicDNS (409) -> mint (200)",
-    "acceptedMeans": "200 or 403/409 = the credential passed the gate; 401 = refused"
+    "routeOrder": "credential (401) -> tailnet source (403) -> MagicDNS (409) -> mint (200) on /api/rdp-token; /api/purge-stale-creds answers 200 (no tailnet check)",
+    "acceptedMeans": "200/403/409 on the ticket route and 200 on the purge route mean the credential passed the gate; 401 means refused"
   },
   "honestLimits": [
-    "no tailnet peer, so a 200 {rid} mint is not claimed (the gate pass is proven by 403/409 or, on this run, by 200/description in the JSON)",
-    "no client VM, no mstsc, no Mission Control UI in this workflow",
-    "the baseline arm is 4/5 on a non-defect hygiene probe"
+    "no tailnet peer, so a 200 {rid,ttl} mint is not claimed for the ticket route",
+    "no client VM, mstsc or Mission Control UI in this workflow",
+    "the purge response body is read, never executed"
   ]
 }

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:07:46Z",
+  "generatedAt": "2026-10-23T10:26:00Z",
   "scope": "this bundle covers two server-side defects; the application feature inventory is NOT claimed here",
   "features": [
     {
@@ -12,13 +12,13 @@
     {
       "id": "auth.dash_token_gate",
       "status": "PASS",
-      "evidence": "anonymous 401, forged 401, current token accepted, superseded token refused",
+      "evidence": "anonymous 401, forged 401, current token accepted, superseded refused (both strict routes); run 39937351659",
       "where": "windows-results.json"
     },
     {
       "id": "auth.no_stale_key_reuse",
       "status": "PASS",
-      "evidence": "superseded token refused by the patched candidate",
+      "evidence": "superseded token refused by the patched candidate on /api/rdp-token AND /api/purge-stale-creds; run 39937351659",
       "where": "windows-results.json"
     },
     {
@@ -96,6 +96,12 @@
       "id": "lifecycle.teardown",
       "status": "NOT_RUN",
       "reason": "needs dedicated test runs on the origin"
+    },
+    {
+      "id": "auth.purge_route_gate",
+      "status": "PASS",
+      "evidence": "current token authorizes the credential-deleting purge route; superseded token refused (candidate), opposite on baseline",
+      "where": "windows-results.json"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:00:00Z",
+  "generatedAt": "2026-10-23T10:26:00Z",
   "base": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
   "patches": [
     {
@@ -22,8 +22,8 @@
         "superseded token -> 401 (candidate) / mintable (baseline)",
         "empty snapshot and no current token -> 401"
       ],
-      "windowsEvidence": "real Windows run 39936599775: candidate arm PASS for this defect (P001: current accepted / superseded refused; P002: sha=<40-hex base>)",
-      "limitations": "does not add a rotation grace window (none is documented); the boot snapshot remains the fallback when no current token can be read"
+      "windowsEvidence": "run 39937351659: baseline refused the current token and minted a superseded one; candidate accepted the current and refused the superseded",
+      "limitations": "no rotation grace window (none documented); the boot snapshot remains the fallback when no current token can be read; a 200 mint from a real tailnet peer is still unproven"
     },
     {
       "id": "P002",
@@ -44,8 +44,30 @@
         "config.json without buildSha/gitCommit/sourceSha still answers dev",
         "an empty buildSha is not accepted as identity"
       ],
-      "windowsEvidence": "real Windows run 39936599775: candidate arm PASS for this defect (P001: current accepted / superseded refused; P002: sha=<40-hex base>)",
+      "windowsEvidence": "run 39937351659: candidate /api/version sha=978a8375\u2026 40-hex; the no-identity phase still answers dev",
       "limitations": "reports the identity the workflow wrote; it cannot detect a config.json written by a different run (that is the run-descriptor's job)"
+    },
+    {
+      "id": "P001B",
+      "file": "0003-P001B-purge-route-current-token.patch",
+      "sha256": "1e20650fd6a4830298c918e7ed4a311d9ec9f33d49b859f04ba87a36710e436e",
+      "symptom": "/api/purge-stale-creds (a credential-DELETING command route) refused the current run's dashboard token and accepted a superseded one",
+      "rootCause": "identical to P001: the gate compared the bearer with the boot snapshot only (-not $Token -or length -ne ...)",
+      "changedFiles": [
+        "payloads/ghrdp-server.ps1",
+        "tests/p001-p002-ticket-and-version-identity.test.js"
+      ],
+      "dependsOn": [
+        "P001"
+      ],
+      "failingReproduction": "source read at the base and at the live run's SHA 15e15ab8 (line 8226); measured in run 39937351659 on the baseline arm",
+      "targetedRegression": "1 additional pinned test (6 total, 6 pass)",
+      "negativeCases": [
+        "empty/invalid bearer -> 401",
+        "superseded token -> 401 on the candidate"
+      ],
+      "windowsEvidence": "run 39937351659: purge_current accepted / purge_superseded refused on the candidate; the inverse on the baseline",
+      "limitations": "the returned command is never executed by the lab; the route has no tailnet-source check, which is pre-existing behaviour"
     }
   ]
 }

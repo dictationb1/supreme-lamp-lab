@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-23T10:26:00Z",
+  "upstream": {
+    "repository": "dictationb1/supreme-lamp",
+    "baselineSha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+    "mainAtRecovery": "6a327168dbcdf5cabe40406ba21b726c8617fb8e",
+    "liveRunShaValidated": "15e15ab847ad8672960b1117a51ed17b47386c81",
+    "queueAppliesStrictlyToLiveRunSha": true,
+    "whyBaseIsNotMain": "the base is the newest commit with a commit-matched ui-dist-<sha>.zip (staging refuses to substitute). The live run's SHA carries the same three code sites; the queue applied strict there in a clean checkout and the pinned tests passed 6/6."
+  },
+  "lab": {
+    "repository": "dictationb1/supreme-lamp-lab",
+    "branch": "arena/77adac0a-supreme-lamp-lab",
+    "pr": 23,
+    "note": "PR #23 is the historical lab PR; this session's work is pushed on top of 171e7cf"
+  },
+  "candidate": {
+    "clone": "isolated local clone (not pushed upstream)",
+    "commits": [
+      "d630c831 P001",
+      "e5e248c9 P002",
+      "5f110d96 P001B"
+    ],
+    "patches": [
+      {
+        "file": "0001-P001-authorize-the-ticket-route-against-the-current-.patch",
+        "sha256": "550f44dfcf07ab1db247209018a9cf8ea46ff25044c6bde0222fc754b3ff7109"
+      },
+      {
+        "file": "0002-P002-api-version-reads-config.json-buildSha-the-iden.patch",
+        "sha256": "a645b8287342a6bbdb2b475a53db559335052467def7b3fc9cb01171146b3cfb"
+      },
+      {
+        "file": "0003-P001B-purge-route-current-token.patch",
+        "sha256": "1e20650fd6a4830298c918e7ed4a311d9ec9f33d49b859f04ba87a36710e436e"
+      }
+    ],
+    "patchOrder": [
+      "0001-P001-authorize-the-ticket-route-against-the-current-.patch",
+      "0002-P002-api-version-reads-config.json-buildSha-the-iden.patch",
+      "0003-P001B-purge-route-current-token.patch"
+    ],
+    "dependencies": [
+      "0002 depends on 0001 (same file, adjacent regions)",
+      "0003 depends on 0001 (reuses its resolver)",
+      "0003 independent of 0002"
+    ],
+    "candidateServerSha256": "002513d96d0df64cee34dbad65a4f3bd1099085eee3420a1465097606431ded5",
+    "baselineServerSha256": "d6453fef836328866d6cfe019db43077f92266cdec1ec073fb7815a2a187ee94",
+    "appliedDiffSha256": "a990f49f0e0a75670ff7ba2a760b674cca1f893cc8fbbbdb00d9ef85d984dbeb",
+    "uiSourcesTouched": 0
+  },
+  "runtime": {
+    "node": "v22 (lab), pwsh 7 (windows-latest)",
+    "windowsRunner": "windows-latest ephemeral (lab-owned)",
+    "applicationServer": "payloads/ghrdp-server.ps1 from the staged tree",
+    "staging": "scripts/f60-stage-and-start.ps1 Stage-F60FromCheckout via scripts/server/Stage-App.ps1",
+    "startShape": "pwsh -File ghrdp-server.ps1 with GHRDP_BUILD_SHA/GITHUB_SHA removed (Scheduled-Task shape); token written after LISTENING"
+  },
+  "verification": {
+    "windowsRun": {
+      "id": 39937351659,
+      "attempt": 1,
+      "conclusion": "success",
+      "verdict": "APP_CANDIDATE_VERIFIED",
+      "startedAt": "2026-10-23T10:16:00Z"
+    },
+    "earlierWindowsRuns": [
+      {
+        "id": 39933439635,
+        "why": "harness: patch path resolved inside app-cand"
+      },
+      {
+        "id": 39934037798,
+        "why": "harness: 90 s listen wait"
+      },
+      {
+        "id": 39934941144,
+        "why": "harness: watched an env-named marker the payload never writes"
+      },
+      {
+        "id": 39936599775,
+        "why": "harness: one non-defect baseline hygiene probe mismatched; candidate arm PASS"
+      },
+      {
+        "id": 39937150635,
+        "why": "harness: purge-superseded assertion inverted in both arms"
+      }
+    ],
+    "portableReplay": {
+      "result": "REPLAY_OK",
+      "patches": 3,
+      "where": "fresh clone at the pinned base"
+    },
+    "pinnedTests": {
+      "file": "tests/p001-p002-ticket-and-version-identity.test.js",
+      "count": 6,
+      "passed": 6
+    },
+    "labRegressions": {
+      "tests": 241,
+      "passed": 233,
+      "failed": 0,
+      "skipped": 8,
+      "platform": "linux"
+    },
+    "commands": [
+      "app-candidate/replay/apply-and-verify.sh <fresh-checkout>",
+      "node --test tests/p001-p002-ticket-and-version-identity.test.js",
+      "node scripts/run-regressions.js",
+      ".github/workflows/app-candidate.yml (real Windows)"
+    ]
+  },
+  "liveOrigin": {
+    "url": "https://github.com/dictationb1/supreme-lamp/actions/runs/39936058717",
+    "repository": "dictationb1/supreme-lamp",
+    "workflow": ".github/workflows/main.yml",
+    "workflowName": "Windows RDP - Tailscale Mission Control (6h ephemeral)",
+    "runId": 39936058717,
+    "attempt": 1,
+    "sha": "15e15ab847ad8672960b1117a51ed17b47386c81",
+    "status": "in_progress",
+    "rdpJob": {
+      "id": 120356350557,
+      "runner": "windows-latest",
+      "stateAtValidation": "in progress at step 50/62 (Build and deploy WebRTC server)"
+    },
+    "signal": {
+      "published": false,
+      "observedAt": "2026-10-23T10:26:00Z",
+      "expectedStep": "60 Publish live Mission Control signal (MC-SIGNAL)",
+      "note": "no check-run for this commit carried output.text yet; the lab did NOT attach, so no endpoint/credential/descriptor was derived or reused"
+    },
+    "relationshipToCandidate": "different source identity: the live run is UNPATCHED at 15e15ab8; the candidate is base+3 patches. A candidate PASS is NOT evidence that this live run is fixed."
+  },
+  "previousOrigin": {
+    "runId": 39899087271,
+    "attempt": 1,
+    "sha": "c470531e4739be072daea20425a1de203d0ed326",
+    "terminalState": "completed/failure at 2026-10-23T09:51:22Z",
+    "recordState": "FAILED (retryable=true)",
+    "claim": "released at 2026-10-23T10:12Z by its owning lab run (39929404780), reason recorded in the claim file",
+    "reuse": "none: no endpoint, credential, descriptor or claim was carried over; the old 10:12:31Z descriptor expiry is not used"
+  },
+  "parity": {
+    "document": "docs/APP-CANDIDATE-PARITY-si.md",
+    "keyDifferences": [
+      "no application workflow run",
+      "Scheduled-Task shape reproduced by env removal, not by Task Scheduler",
+      "no tailnet peer (403/409/mint discriminator)",
+      "no client VM, no mstsc, no Mission Control UI"
+    ]
+  },
+  "unverifiedClaims": [
+    "a 200 {rid,ttl} mint from a real tailnet peer",
+    "authenticated Mission Control UI",
+    "native RDP through the intended launcher (LogonType 10)",
+    "Web Desktop frames",
+    "fresh-run lifecycle (cancellation, expiry, superseded attempts)",
+    "any statement about the deployed application"
+  ],
+  "upstreamStatus": "NOT_DEPLOYED / NOT_VERIFIED",
+  "artifacts": {
+    "workflowArtifact": "app-candidate-<run>-1 (14-day retention)",
+    "durable": "this directory in the lab repository"
+  }
+}

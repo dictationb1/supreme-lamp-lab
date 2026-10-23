@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:07:46Z",
+  "generatedAt": "2026-10-23T10:26:00Z",
   "results": [
     {
       "suite": "lab regressions (scripts/run-regressions.js)",
@@ -12,13 +12,6 @@
       "note": "8 skips are PowerShell/host-dependent"
     },
     {
-      "suite": "app pinned tests tests/p001-p002-ticket-and-version-identity.test.js",
-      "tests": 5,
-      "passed": 5,
-      "failed": 0,
-      "where": "candidate clone, and a clean 6a327168 checkout with the queue applied"
-    },
-    {
       "suite": "portable replay (app-candidate/replay/apply-and-verify.sh)",
       "result": "REPLAY_OK",
       "base": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
@@ -26,13 +19,20 @@
       "where": "fresh clone at the pinned base"
     },
     {
-      "suite": "real Windows candidate probes",
-      "result": "4/4 candidate expectations + P002 negative",
-      "where": "run 39936599775"
+      "suite": "app pinned tests tests/p001-p002-ticket-and-version-identity.test.js",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "where": "candidate clone; a clean checkout at the live run's SHA 15e15ab8 with the queue applied; and the replay clone"
+    },
+    {
+      "suite": "real Windows assembled candidate",
+      "result": "8/8 expectations PASS (baseline arm reproduced all three sites)",
+      "where": "run 39937351659"
     }
   ],
   "before_after": {
-    "before": "POST /api/rdp-token: current token 401, superseded token mintable; GET /api/version sha=dev",
-    "after": "POST /api/rdp-token: current token accepted, superseded + forged + anonymous 401; GET /api/version sha=<base 40-hex>; no identity -> dev"
+    "before": "/api/rdp-token: current 401, superseded mintable; /api/purge-stale-creds: current 401, superseded accepted; /api/version sha=dev",
+    "after": "both strict routes: current accepted, superseded/forged/anonymous 401; /api/version sha=978a8375\u2026 (40-hex); no identity -> dev"
   }
 }
