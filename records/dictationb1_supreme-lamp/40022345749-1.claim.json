@@ -1,15 +1,12 @@
 {
   "kind": "slab-live-run-claim/1",
-  "claimedAt": "2026-10-23T21:20:29.107Z",
+  "claimedAt": "2026-10-23T21:31:46.646Z",
   "claimant": {
-    "labRunId": "40025875096",
-    "labAttempt": "1",
-    "url": "https://github.com/dictationb1/supreme-lamp-lab/actions/runs/40025875096"
+    "labRunId": "40026969350",
+    "labAttempt": "1"
   },
-  "descriptorId": "c5ebc96722458997",
+  "descriptorId": "a7039690c7e4d9b4",
   "correlationId": "lr-40022345749-1",
-  "releaseHint": "claim is released by its owner or when the claimant lab run reaches a terminal state",
-  "nonce": "6454886fbf9f4652",
-  "supersededAt": "2026-10-23T21:31:45.522Z",
-  "supersededReason": "claimant run 40025875096 is completed/success"
+  "superseded": "claimant run 40025875096 is completed/success",
+  "nonce": "3181b0a7f7e1a815"
 }
