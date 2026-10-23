@@ -28,7 +28,11 @@ run-name: app-candidate ${{ github.event.pull_request.head.ref || github.ref_nam
 
 on:
   pull_request:
-    types: [labeled]
+    # `labeled` is the deliberate trigger. `synchronize` is included because the
+    # label event stopped being delivered after repeated add/remove cycles from
+    # the automation token (measured 2026-10-23 22:05Z: the label was present and
+    # no run appeared), and a candidate build is cheap on a hosted runner.
+    types: [labeled, synchronize]
   workflow_dispatch:
     inputs:
       app_sha:
