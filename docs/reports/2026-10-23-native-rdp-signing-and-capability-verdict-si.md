@@ -97,3 +97,10 @@ Regression: Windows client job `170 tests: 170 passed, 0 failed, 0 skipped`; sta
 2. `/api/logon-status` patch + test එක යෙදීම.
 3. `mode=rdp` සමඟ `main.yml` dispatch කිරීම; ඉන්පසු ලැබ් sweep එක තත්පර 600ක් තුළ එය අල්ලාගනී (හෝ `repository_dispatch` — තත්පර 12ක් මනින ලද path එක).
 4. එම ධාවනය `VERIFIED` ලෙස පිළිගැනීමට නම්: `discover` → `claim` → client VM → `report` සියල්ල සාර්ථක වී, `verdict=VERIFIED` annotation එකේ capabilities 9ම PASS විය යුතුය. Publisher skip වූවා නම් එය VERIFIED නොවේ.
+
+## 9. Merge සහ merge-පසු තත්ත්වය
+
+* PR **#22** `--merge` මගින් merge විය: merge commit **`c74fa3811ab2ef72381536923d13950e1d12c5a3`** (2026-10-23). ඊට පෙර `mergeable_state=clean` සහ HEAD `c7c0d6f2` හි checks සියල්ල සාර්ථක විය.
+* merge-පසු `push` ධාවනය **39885513219** (`capability push main`, `c74fa381`) — නැවතත් `verdict=VERIFIED`, capabilities 9ම PASS, regressions `170/170/0/0`. එනම් **එකිනෙකට ස්වාධීන ධාවන 4ක්** (39879458404, 39882179584, 39883697110, 39885513219) එකම ප්‍රතිඵලය දුන්නේය.
+* `schedule: cron '*/10'` දැන් default branch එකේ පවතී, එබැවින් sweep එක සක්‍රීයයි. නමුත් එය අල්ලාගත හැක්කේ **සජීවී `mode=rdp` යෙදුම් ධාවනයක්** පවතී නම් පමණක්; එවැන්නක් මෙම පරිසරයෙන් නිපදවිය නොහැකි බැවින් (dispatch 403) එම කොටස තවමත් **NOT_VERIFIED** ය.
+* Merge-පසු පළමු scheduled sweep එක මෙම වාර්තාව ලියන විට තවම ධාවනය වී නැත (GitHub cron ප්‍රමාද විය හැක); එය ධාවනය වූ පසු එහි annotation වලින් discovery decision එක (`NO_LIVE_ORIGIN`, `NOT_FOUND` වැනි) කියවිය හැක. එය සාර්ථකත්වයක් ලෙස නොගැනේ — discovery ධාවනය වීම සහ verification සම්පූර්ණ වීම දෙකකි.
