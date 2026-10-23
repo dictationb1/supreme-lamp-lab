@@ -1,0 +1,12 @@
+repository: dictationb1/supreme-lamp
+url: https://github.com/dictationb1/supreme-lamp
+base_commit: 978a8375ee77b392ce11694ccee7722fd6ca4f71
+why_this_base: >-
+  Immutable, stageable baseline. It is the newest application commit with a
+  commit-matched ui-dist-<sha>.zip (+ .sha256) in the app ui-dist release, which
+  is what the application staging function (Stage-F60UiBundle / Stage-App.ps1)
+  requires and refuses to substitute. Current main 6a327168dbcdf5cabe40406ba21b726c8617fb8e
+  was resolved on 2026-10-23 and carries the SAME two defects; the patch queue
+  was dry-run applied there (git apply --check OK, pinned tests 5/5 pass).
+main_at_recovery: 6a327168dbcdf5cabe40406ba21b726c8617fb8e
+main_at_recovery_date: 2026-10-23T09:33:46Z

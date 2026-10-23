@@ -36,7 +36,7 @@ const VARIANT = arg('variant', 'baseline');   // baseline | candidate
 const PHASE = arg('phase', 'boot-order');     // boot-order | no-metadata
 const OUT = arg('out', path.join(process.cwd(), 'route-probe.json'));
 const BUILD_SHA = arg('build-sha', '');
-const WAIT_MS = Number(arg('wait-ms', '90000'));
+const WAIT_MS = Number(arg('wait-ms', '240000'));
 
 if (!ROOT) { console.error('MISSING --root'); process.exit(2); }
 
@@ -179,6 +179,7 @@ async function main() {
   const listen = await waitListening(s.okFile, s.child);
   out.steps.listen = listen;
   if (!listen.ok) {
+    listen.logTail = s.logs.join('').replace(/[\r\n]+/g, ' ').slice(-1200);
     out.checks.push({ id: 'server.listening', pass: false, detail: listen });
     out.logTail = s.logs.join('').slice(-4000);
     out.finishedAt = new Date().toISOString();

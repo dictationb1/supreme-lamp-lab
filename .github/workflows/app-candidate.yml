@@ -217,6 +217,25 @@ jobs:
           }
           if ($fail.Count -gt 0) {
             foreach ($f in $fail) { Write-Host "::error title=app candidate:: $f" }
+            # The Windows step log lives on a blob host some tooling cannot read,
+            # so put the REASON in an annotation: the listen code and the child's
+            # own last words are what make a failed start diagnosable.
+            foreach ($pair in @(@('baseline', $base), @('candidate', $cand), @('no-metadata', $nom))) {
+              $name = $pair[0]; $v = $pair[1]
+              if (-not $v) { continue }
+              $ids = @($v.checks | Where-Object { -not $_.pass } | ForEach-Object { $_.id })
+              if ($ids.Count -eq 0) { continue }
+              $det = ''
+              if ($v.checks | Where-Object { $_.id -eq 'server.listening' -and -not $_.pass }) {
+                $d = ($v.checks | Where-Object { $_.id -eq 'server.listening' } | Select-Object -First 1).detail
+                $det = (' listen=' + ($d | ConvertTo-Json -Compress -Depth 4))
+              }
+              $tail = ''
+              if ($v.steps -and $v.steps.listen -and $v.steps.listen.logTail) { $tail = ' childLog=' + $v.steps.listen.logTail }
+              elseif ($v.logTail) { $tail = ' childLog=' + $v.logTail }
+              $msg = ('probe=' + $name + ' failed=' + ($ids -join ',') + $det + $tail)
+              Write-Host ('::error title=app candidate probe detail::' + ($msg -replace '[\r\n]+', ' '))
+            }
             throw ('APP_CANDIDATE_NOT_VERIFIED: ' + ($fail -join ' | '))
           }
           Write-Host "::notice title=APP_CANDIDATE_VERIFIED::real Windows: P001+$($cand.verdicts.versionSha) proven on the patched candidate; baseline reproduced the defects"
