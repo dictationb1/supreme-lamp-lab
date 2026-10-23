@@ -79,6 +79,23 @@ function run() {
     }
   }
 
+  // REPRODUCED (rdp-signing run 39875315477 on the client VM): every step that
+  // asked for `shell: pwsh` died immediately with "pwsh: command not found".
+  // The interactive client runner has Windows PowerShell 5.1 only, so any job
+  // scheduled on the `rdp-lab-client` label must declare `powershell` (or use
+  // `pwsh` only after provisioning it).
+  for (const wf of workflows) {
+    const jobs = wt.jobBlocks(wf.text);
+    for (const [id, job] of Object.entries(jobs)) {
+      if (!/rdp-lab-client/.test(job.runsOn)) continue;
+      job.text.split('\n').forEach((line) => {
+        if (/^\s*shell:\s*pwsh\s*$/.test(line)) {
+          add('PWSH_NOT_AVAILABLE_ON_CLIENT', wf.file, `job ${id}: shell: pwsh on rdp-lab-client, which has Windows PowerShell 5.1 only (measured: "pwsh: command not found")`);
+        }
+      });
+    }
+  }
+
   const byFile = (name) => workflows.find(w => w.name === name);
   const signing = byFile('rdp-signing.yml');
   if (signing) {

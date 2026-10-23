@@ -494,7 +494,7 @@ jobs:
         shell: powershell
     steps:
       - name: Runner identity (account + interactive session, re-checked every run)
-        shell: pwsh
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           $s = (Get-Process -Id $PID).SessionId
@@ -524,7 +524,7 @@ jobs:
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_DIR: ${{ runner.temp }}\artifacts\live-${{ github.run_id }}-${{ github.run_attempt }}
@@ -571,7 +571,7 @@ jobs:
 
       - name: Keep the authorized viewer open (bounded, default useful)
         if: always() && inputs.keep_viewer_open_minutes != '0'
-        shell: pwsh
+        shell: powershell
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
           # stopped by the postflight step. It is never an orphan left behind to
@@ -593,7 +593,7 @@ jobs:
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
         if: always()
-        shell: pwsh
+        shell: powershell
         run: |
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
           exit $LASTEXITCODE

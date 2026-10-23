@@ -93,6 +93,28 @@ function stepBlock(text, stepName) {
   return out.join('\n');
 }
 
+/**
+ * Split a workflow into its top-level jobs: { jobId: { text, runsOn } }.
+ * `runsOn` is the raw `runs-on:` line of that job (empty when absent).
+ */
+function jobBlocks(text) {
+  const s = normalizeText(text);
+  const jobsAt = s.search(/^jobs:[ \t]*$/m);
+  if (jobsAt < 0) return {};
+  const lines = s.slice(jobsAt).split('\n');
+  const out = {};
+  let id = null;
+  let buf = [];
+  const flush = () => { if (id) out[id] = { text: buf.join('\n'), runsOn: (buf.find(l => /^\s{4}runs-on:/.test(l)) || '').trim() }; };
+  for (const line of lines.slice(1)) {
+    const m = line.match(/^  ([A-Za-z0-9_-]+):[ \t]*$/);
+    if (m) { flush(); id = m[1]; buf = [line]; continue; }
+    if (id) buf.push(line);
+  }
+  flush();
+  return out;
+}
+
 /** Env keys visible to a step: step-level `env:` plus job/workflow `env:` names. */
 function envKeysIn(block) {
   const keys = new Set();
@@ -111,6 +133,7 @@ module.exports = {
   normalizeText,
   readNormalized,
   concurrencyBlock,
+  jobBlocks,
   stepBlock,
   envKeysIn,
   envValue

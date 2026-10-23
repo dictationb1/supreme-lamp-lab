@@ -71,14 +71,14 @@ jobs:
           persist-credentials: false
 
       - name: Runner identity (read, never assumed)
-        shell: pwsh
+        shell: powershell
         run: |
           $s = (Get-Process -Id $PID).SessionId
           Write-Host "::notice title=Signing runner::$env:COMPUTERNAME\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)"
 
       - name: "Status (read-only: ADMX layout, policy, identities)"
         id: status
-        shell: pwsh
+        shell: powershell
         run: |
           # The ADMX on THIS build decides where the thumbprint list lives; the
           # script reads it instead of assuming a layout.
@@ -95,7 +95,7 @@ jobs:
         if: >-
           (github.event_name == 'workflow_dispatch' && inputs.mode == 'bootstrap') ||
           (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'rdp-signing-bootstrap'))
-        shell: pwsh
+        shell: powershell
         run: |
           $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Bootstrap 2>&1
           $out | Out-String | Write-Host
@@ -130,7 +130,7 @@ jobs:
           (github.event_name == 'pull_request' &&
            (contains(github.event.pull_request.labels.*.name, 'rdp-signing-bootstrap') ||
             contains(github.event.pull_request.labels.*.name, 'rdp-signing-probe')))
-        shell: pwsh
+        shell: powershell
         run: |
           $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Probe -ProbeSeconds 14 2>&1
           $out | Out-String | Write-Host
@@ -148,7 +148,7 @@ jobs:
 
       - name: Rollback (only when explicitly asked)
         if: github.event_name == 'workflow_dispatch' && inputs.mode == 'rollback'
-        shell: pwsh
+        shell: powershell
         run: |
           $out = & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Rollback 2>&1
           $out | Out-String | Write-Host

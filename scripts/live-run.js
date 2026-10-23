@@ -1426,8 +1426,15 @@ function print(cmd, code, obj) {
   const text = JSON.stringify(redactObject(compact), null, 2);
   console.log(`\n===== ${cmd} result (exit ${code}) =====\n${text}\n`);
   const stage = obj && obj.stage;
-  const msg = `${code === EXIT.OK ? 'verified' : 'exit ' + code}${stage ? ' at ' + stage : ''}: ${(obj && (obj.code || (obj.verdict && obj.verdict.code)) || '')}${obj && obj.detail ? ' — ' + redact(obj.detail).slice(0, 240) : ''}`;
+  const objCode = (obj && (obj.code || (obj.verdict && obj.verdict.code))) || '';
+  const msg = `${code === EXIT.OK ? 'verified' : 'exit ' + code}${stage ? ' at ' + stage : ''}: ${objCode}${obj && obj.detail ? ' — ' + redact(obj.detail).slice(0, 240) : ''}`;
+  // NOT EVERY NON-ZERO EXIT IS AN ERROR. "Nothing attachable right now" is the
+  // normal outcome of a sweep or of a pre-merge candidate run and must not be
+  // painted red - that is how an expected state gets read as a defect. Only a
+  // refusal that means something is wrong keeps the error level.
+  const benign = new Set(['NO_LIVE_ORIGIN', 'ORIGIN_PROBE_ONLY', 'ORIGIN_SELFTEST']);
   if (code === EXIT.OK) annotate.notice('live-run ' + cmd, msg);
+  else if (benign.has(objCode)) annotate.notice('live-run ' + cmd + ' (nothing to attach)', msg);
   else annotate.error('live-run ' + cmd, msg);
 }
 function redactObject(o) { const { redactDeep } = require('./lib/redact'); return redactDeep(o); }
