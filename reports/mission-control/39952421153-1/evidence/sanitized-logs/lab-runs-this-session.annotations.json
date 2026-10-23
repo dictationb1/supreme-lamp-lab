@@ -1,0 +1,3201 @@
+{
+ "39956527570": {
+  "runId": 39956527570,
+  "jobs": [
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover (nothing to attach)",
+      "message": "exit 4: NO_LIVE_ORIGIN \u2014 no attachable live origin (39952421153/1:LOG_UNAVAILABLE)"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run idle",
+      "message": "NO_PICKABLE_RECORD: lr-39899087271-1: already claimed by live lab run 39929404780 | lr-39952421153-1: state=FAILED \u2014 no verification was attempted, so nothing is reported as passed"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   }
+  ]
+ },
+ "39956837362": {
+  "runId": 39956837362,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run idle",
+      "message": "NO_PICKABLE_RECORD: lr-39899087271-1: already claimed by live lab run 39929404780 | lr-39952421153-1: state=FAILED \u2014 no verification was attempted, so nothing is reported as passed"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   }
+  ]
+ },
+ "39957424394": {
+  "runId": 39957424394,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 18,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 19,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 7 at FAILED: LIVE_RUN_ERROR"
+     },
+     {
+      "title": "live-run aborted",
+      "message": "[object Object]: Error: LOCK_DIR_REQUIRED\n    at acquireLock (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\lib\\lock.js:271:23)\n    at cmdLive (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\live-run.js:481:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "verified: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job exited without an in-process report)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39958007407": {
+  "runId": 39958007407,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run idle",
+      "message": "NO_PICKABLE_RECORD: lr-39899087271-1: already claimed by live lab run 39929404780 | lr-39952421153-1: already claimed by live lab run 39957424394 \u2014 no verification was attempted, so nothing is reported as passed"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "skipped",
+    "steps": [],
+    "annotations": []
+   }
+  ]
+ },
+ "39958377748": {
+  "runId": 39958377748,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 18,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 19,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 4 at BLOCKED: ARTIFACT_NOT_FOUND"
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39958850298": {
+  "runId": 39958850298,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 18,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 19,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 8 at EXPIRED: BLOCKED_DESCRIPTOR_CHANGED"
+     },
+     {
+      "title": "descriptor refreshed",
+      "message": "the queue entry was 0b7d71dd9ad715c8; this sweep re-derived fd3fb32f40a5e37b (expiry refreshed). Stable identity 07e1499a532b48afe6fbef48953c7d8c."
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39959782248": {
+  "runId": 39959782248,
+  "jobs": [
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 18,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 19,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 4 at BLOCKED: READINESS_TIMEOUT"
+     },
+     {
+      "title": "descriptor refreshed",
+      "message": "the queue entry was 2bef9b1dc8809261; this sweep re-derived 5793fb31ea65816d (expiry refreshed). Stable identity 71cfff16ac7686a23f1cf8aeae00af50."
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39961306113": {
+  "runId": 39961306113,
+  "jobs": [
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 18,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 19,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 4 at BLOCKED: READINESS_TIMEOUT"
+     },
+     {
+      "title": "readiness",
+      "message": "READINESS_TIMEOUT after 240s against http://100.87.91.3:7331; history=READINESS_TIMEOUT@13:30:11(TIMEOUT: TimeoutError: The operation was aborted due to timeout (code=23))"
+     },
+     {
+      "title": "descriptor refreshed",
+      "message": "the queue entry was 20831c4fb375f42d; this sweep re-derived 11d6bd7001b7aee7 (expiry refreshed). Stable identity 71cfff16ac7686a23f1cf8aeae00af50."
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39962631679": {
+  "runId": 39962631679,
+  "jobs": []
+ },
+ "39963018826": {
+  "runId": 39963018826,
+  "jobs": [
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "failure",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Network preflight (read-only \u2014 can this desk even reach the endpoint?)",
+      "c": "failure"
+     },
+     {
+      "n": 7,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "skipped"
+     },
+     {
+      "n": 8,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 9,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 20,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 21,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "",
+      "message": "Process completed with exit code 1."
+     },
+     {
+      "title": "net preflight",
+      "message": "http /api/ping code=000"
+     },
+     {
+      "title": "net preflight",
+      "message": "tcp 100.87.91.3:7331 reachable=True"
+     },
+     {
+      "title": "net preflight",
+      "message": "tailscale backend=Running selfOnline=True peerFound=True peerOnline=True"
+     },
+     {
+      "title": "net preflight",
+      "message": "desk=rdp-lab-client tailnetIPv4=100.93.94.15 (empty = this desk has no tailnet address)"
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=failure (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ },
+ "39963491076": {
+  "runId": 39963491076,
+  "jobs": [
+   {
+    "name": "discover the live origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve mode (dispatch input only; never an event-payload guess)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Origin-selftest / probe short-circuit (no application run is named)",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Discover the originating run (publish one queue entry per run+attempt)",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "candidate gate (read-only, pre-merge)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Signal key status (presence, algorithm, fingerprint - never the value)",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Real discovery decision for the application repository (read-only)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Workflow structure gate (line-ending independent)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "actionlint the workflow files (pinned, findings as annotations)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Candidate verdict (explicit, never implied)",
+      "c": "success"
+     },
+     {
+      "n": 15,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 16,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 17,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "candidate gate",
+      "message": "read-only. A PASS here means the candidate revision parses, the key is configured, and discovery reported its real decision. It is NOT live acceptance: that needs a real application run plus the 'live-verify' label (or the merged default-branch sweep)."
+     },
+     {
+      "title": "actionlint",
+      "message": "0 findings"
+     },
+     {
+      "title": "live-run discover",
+      "message": "verified: ORIGIN_DISCOVERED"
+     },
+     {
+      "title": "signal key",
+      "message": "configured AND round-trip proven"
+     },
+     {
+      "title": "signal key status",
+      "message": "LAB_SIGNAL_PRIVATE_KEY present (rsa, 3072 bit, fingerprint f5ae1689a220835e...); round-trip: PROVEN"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "claim + verify origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Resolve the record to run (never \"the newest server\")",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Wake the next sweep if the queue still has work",
+      "c": "skipped"
+     },
+     {
+      "n": 6,
+      "name": "Operator status",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 12,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 13,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run claimed",
+      "message": "lr-39952421153-1 origin=dictationb1/supreme-lamp#39952421153/1 app=24ddaa9904c92dbbba39e3cc7aba458769e6bbe4 stage=CONNECTING_VM"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   },
+   {
+    "name": "client VM (live Mission Control)",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Runner identity (account + interactive session, re-checked every run)",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Preflight owned-process cleanup",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Install lab dependencies + Chromium (headed)",
+      "c": "success"
+     },
+     {
+      "n": 6,
+      "name": "Network preflight (read-only \u2014 can this desk even reach the endpoint?)",
+      "c": "success"
+     },
+     {
+      "n": 7,
+      "name": "LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)",
+      "c": "success"
+     },
+     {
+      "n": 8,
+      "name": "Keep the authorized viewer open (bounded, default useful)",
+      "c": "skipped"
+     },
+     {
+      "n": 9,
+      "name": "Postflight cleanup (owned processes + per-run browser profile only)",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Upload live-run evidence (sanitized)",
+      "c": "success"
+     },
+     {
+      "n": 20,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 21,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "cleanup postflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "live-run live",
+      "message": "exit 7 at FAILED: LIVE_RUN_ERROR"
+     },
+     {
+      "title": "live-run aborted",
+      "message": "[object Object]: Error: gh PUT /repos/dictationb1/supreme-lamp-lab/contents/records/dictationb1_supreme-lamp/39952421153-1.claim.json: HTTP 409 {\"message\":\"records/dictationb1_supreme-lamp/39952421153-1.claim.json does not match 305c0064c89df5c35ad92d1d508cb74cd44fca78\",\"documentation_url\":\"https://docs.github.com/rest/repos/contents#create-o\n    at gh (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\lib\\record-store.js:86:17)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async Object.claimRecord (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\lib\\record-store.js:245:9)\n    at async cmdLive (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\live-run.js:483:17)"
+     },
+     {
+      "title": "descriptor refreshed",
+      "message": "the queue entry was 0a24a01c8e1559ca; this sweep re-derived fe182b62fac13daf (expiry refreshed). Stable identity 71cfff16ac7686a23f1cf8aeae00af50."
+     },
+     {
+      "title": "net preflight",
+      "message": "the port is OPEN but /api/ping did not answer within 20s - the server accepted the connection and then stalled (wedged listener / wrong process on the port), not a network block."
+     },
+     {
+      "title": "net preflight",
+      "message": "http /api/ping code=000 curlExit=28"
+     },
+     {
+      "title": "net preflight",
+      "message": "tcp 100.87.91.3:7331 reachable=True"
+     },
+     {
+      "title": "net preflight",
+      "message": "tailscale backend=Running selfOnline=True peerFound=True peerOnline=True"
+     },
+     {
+      "title": "net preflight",
+      "message": "desk=rdp-lab-client tailnetIPv4=100.93.94.15 (empty = this desk has no tailnet address)"
+     },
+     {
+      "title": "cleanup preflight",
+      "message": "terminated=0; terminate-decisions=0; records=0"
+     },
+     {
+      "title": "Client runner",
+      "message": "rdp-lab-client WIN-NFU1JG4VESE\\User session=1 PS=5.1.20348.5756"
+     }
+    ]
+   },
+   {
+    "name": "report + ack to the origin",
+    "conclusion": "success",
+    "steps": [
+     {
+      "n": 1,
+      "name": "Set up job",
+      "c": "success"
+     },
+     {
+      "n": 2,
+      "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 3,
+      "name": "Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 4,
+      "name": "Publish the report to this run summary",
+      "c": "success"
+     },
+     {
+      "n": 5,
+      "name": "Write the ack back for the origin run to read",
+      "c": "success"
+     },
+     {
+      "n": 9,
+      "name": "Post Run actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+      "c": "success"
+     },
+     {
+      "n": 10,
+      "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "c": "success"
+     },
+     {
+      "n": 11,
+      "name": "Complete job",
+      "c": "success"
+     }
+    ],
+    "annotations": [
+     {
+      "title": "live-run ack",
+      "message": "exit 4: ACK_STATE_WRITTEN \u2014 job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+     },
+     {
+      "title": "",
+      "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+     }
+    ]
+   }
+  ]
+ }
+}
