@@ -1833,6 +1833,18 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== public-only MC-SIGNAL identity binding (no private key) =====
+  {
+    const register = require('./test/signal-binding-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
+  // ===== application-format signal (mc-signal/v1, hybrid envelope) =====
+  {
+    const register = require('./test/app-signal-regressions');
+    await register({ test, assert, crypto, tmpRoot });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');
