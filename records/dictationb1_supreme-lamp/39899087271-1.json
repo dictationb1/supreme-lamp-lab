@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "REPORTED_VERIFIED",
+  "state": "BLOCKED",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
@@ -80,6 +80,12 @@
       "state": "REPORTED_VERIFIED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=success (the verify job exited without an in-process report)"
+    },
+    {
+      "at": "2026-10-23T05:15:12.302Z",
+      "state": "BLOCKED",
+      "by": "operator@lab",
+      "detail": "operator correction of REPORTED_VERIFIED: the 05:12 job-level write-back recorded REPORTED_VERIFIED for an origin the client never verified (exit 4 at AWAITING_READINESS: BLOCKED_ORIGIN_RUN_LOOKUP_FAILED); no acceptance exists"
     }
   ],
   "envelopeTransport": {
@@ -93,7 +99,7 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T05:12:36.515Z",
+  "updatedAt": "2026-10-23T05:15:12.302Z",
   "retryable": true,
-  "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified"
+  "retryableReason": "the 05:12 job-level write-back recorded REPORTED_VERIFIED for an origin the client never verified (exit 4 at AWAITING_READINESS: BLOCKED_ORIGIN_RUN_LOOKUP_FAILED); no acceptance exists"
 }
