@@ -1,0 +1,152 @@
+{
+  "kind": "slab-live-run-report/1",
+  "generatedAt": "2026-10-23T22:18:51.071Z",
+  "protocol": "slab-live-run/1",
+  "origin": {
+    "repo": "dictationb1/supreme-lamp",
+    "workflow": ".github/workflows/main.yml",
+    "runId": 40022345749,
+    "attempt": 1,
+    "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40022345749",
+    "correlationId": "lr-40022345749-1",
+    "descriptorId": "91558ee13354e3b9",
+    "appSha": "e432d3df4cf00a8528d574f8410f6a76e590db31",
+    "uiBuild": "ui-dist-e432d3df4cf00a8528d574f8410f6a76e590db31"
+  },
+  "lab": {
+    "runId": "40032463802",
+    "attempt": "1",
+    "revision": "59cd51f46231a23a35af7b8c7570a4efb8a1ec32",
+    "repo": "dictationb1/supreme-lamp-lab"
+  },
+  "runner": {
+    "name": "rdp-lab-client",
+    "account": "WIN-NFU1JG4VESE\\User",
+    "session": 1,
+    "platform": "win32",
+    "psHint": "headed browser + native mstsc require the interactive desktop"
+  },
+  "timestamps": {
+    "discoveredAt": "2026-10-23T22:18:53.637Z",
+    "advertisedAt": "2026-10-23T22:18:51.919Z",
+    "expiresAt": "2026-10-24T02:50:46.000Z"
+  },
+  "identity": {
+    "originVerification": {
+      "ok": true,
+      "code": "ORIGIN_VERIFIED",
+      "checks": [
+        {
+          "code": "RUN_FETCHED",
+          "ok": true,
+          "detail": "run 40022345749 attempt 1"
+        },
+        {
+          "code": "RUN_REPO_MATCH",
+          "ok": true,
+          "detail": "dictationb1/supreme-lamp"
+        },
+        {
+          "code": "RUN_WORKFLOW_MATCH",
+          "ok": true,
+          "detail": ".github/workflows/main.yml"
+        },
+        {
+          "code": "RUN_HEAD_SHA_MATCH",
+          "ok": true,
+          "detail": "e432d3df4cf00a8528d574f8410f6a76e590db31"
+        },
+        {
+          "code": "RUN_ATTEMPT_MATCH",
+          "ok": true,
+          "detail": "attempt 1"
+        },
+        {
+          "code": "RUN_IN_PROGRESS",
+          "ok": true,
+          "detail": "status=in_progress"
+        }
+      ],
+      "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40022345749"
+    },
+    "backend": {
+      "endpointHost": "100.99.208.107:7331",
+      "backendIdentity": "100.99.208.107:7331",
+      "envelopeTransport": "inline",
+      "envelopeSha": null
+    }
+  },
+  "authorization": {},
+  "capabilities": {},
+  "features": null,
+  "manual": {
+    "interventionOccurred": false,
+    "note": "a live run that needs any human input is reported BLOCKED, never VERIFIED"
+  },
+  "verdict": {
+    "status": "FAIL",
+    "accepted": false,
+    "code": "READINESS_TIMEOUT",
+    "detail": "deadline 240000ms reached; last: TIMEOUT: TimeoutError: The operation was aborted due to timeout (code=23) — the originating server must be alive; a completed run's ephemeral host is not attachable (history=READINESS_TIMEOUT)"
+  },
+  "cleanup": {},
+  "stages": [
+    {
+      "at": "2026-10-23T22:18:51.294Z",
+      "stage": "AWAITING_READINESS"
+    },
+    {
+      "at": "2026-10-23T22:18:51.918Z",
+      "stage": "AWAITING_READINESS",
+      "code": "DISCOVERING_ORIGIN"
+    },
+    {
+      "at": "2026-10-23T22:18:53.637Z",
+      "stage": "CLAIMED"
+    },
+    {
+      "at": "2026-10-23T22:19:00.254Z",
+      "stage": "CONNECTING_VM"
+    }
+  ],
+  "discovery": {
+    "code": "ORIGIN_DISCOVERED",
+    "detail": "",
+    "transportRequested": "auto",
+    "transportRequestedRaw": "auto",
+    "evidence": {
+      "transport": "check-run",
+      "checkRun": {
+        "id": 120654530661,
+        "status": "in_progress",
+        "startedAt": "2026-10-23T21:01:53Z"
+      },
+      "signalLive": true,
+      "signalFallback": null,
+      "keyFingerprint16": null,
+      "readinessLine": null,
+      "bannerLines": [],
+      "selection": "explicit-run-id",
+      "rejected": [],
+      "originLogPubliclyReadable": false
+    }
+  },
+  "descriptorRefreshed": {
+    "queuedId": "7cb1ac326ef243de",
+    "derivedId": "91558ee13354e3b9",
+    "stableIdentity": "8763658ea0a98710fffbd6bc240133cc"
+  },
+  "transport": {
+    "kind": "origin-live-signal",
+    "mechanism": "MC-SIGNAL v1 in the mission-control-live-signal check-run output, RSA-OAEP-256 ciphertext decrypted in memory",
+    "credentialAtRest": "encrypted (ciphertext only in a public check-run)",
+    "repository": "dictationb1/supreme-lamp",
+    "runId": 40022345749,
+    "attempt": 1,
+    "checkRunId": 120654530661,
+    "checkRunLive": true,
+    "signalFallback": null,
+    "evidence": "the origin run published its own run/attempt/sha-bound encrypted signal; GitHub run metadata is what bound that signal to the exact id+attempt"
+  },
+  "stage": "BLOCKED"
+}

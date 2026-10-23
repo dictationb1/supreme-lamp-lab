@@ -94,7 +94,10 @@ function validateSignal(env, expect = {}) {
   const expires = Date.parse(env.expiresAt);
   if (!Number.isFinite(expires)) return { ok: false, code: 'SIGNAL_NO_EXPIRY', detail: 'expiresAt missing' };
   if (expires <= now) return { ok: false, code: 'SIGNAL_EXPIRED', detail: `expired at ${env.expiresAt}` };
-  if (expires - now > MAX_TTL_MS) return { ok: false, code: 'SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
+  // The publisher stamps expiresAt = publish + 6 h, so the remaining TTL is at the
+  // cap by construction; a consumer whose clock is a few seconds behind the
+  // publisher's must not read that as a longer-than-allowed TTL.
+  if (expires - now > MAX_TTL_MS + CLOCK_SKEW_MS) return { ok: false, code: 'SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
   if (Number.isFinite(issued) && issued - now > CLOCK_SKEW_MS) return { ok: false, code: 'SIGNAL_FROM_FUTURE', detail: `issuedAt ${env.issuedAt}` };
   if (expect.keyId && env.enc.keyId !== expect.keyId) return { ok: false, code: 'SIGNAL_UNKNOWN_KEY', detail: `keyId ${env.enc.keyId} != ${expect.keyId}` };
   return { ok: true, host, expiresAt: new Date(expires).toISOString() };
@@ -141,7 +144,216 @@ function resolveSignal(text, expect = {}, privateKeyPem) {
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// APPLICATION-FORMAT SIGNAL (`mc-signal/v1`)
+// ---------------------------------------------------------------------------
+// The application repository's merged publisher (commit 10cd512a, deployed by
+// run 39952421153) does NOT emit the base64url `MC-SIGNAL v1` token above. It
+// publishes one fenced JSON object in the check run's **output text**
+// (`schema: "mc-signal/v1"`, human summary in `output.summary`) and seals the
+// credential with a HYBRID envelope:
+//
+//   rsa-oaep-sha256+aes-256-gcm :  RSA-OAEP(SHA-256) wraps a fresh CEK,
+//                                  AES-256-GCM seals the plaintext.
+//   x25519-hkdf-sha256+aes-256-gcm :  named below, refused by this reader
+//                                  (the lab key is RSA; a refusal must be named,
+//                                  never a silent "undecryptable").
+//
+// The envelope's AAD is published verbatim (`aadB64`) and must equal the
+// run identity; every value is compared against the RUN API expectation, never
+// against another field of the same document.
+//
+// Measured consequence of NOT supporting this: run 39952421153 published a
+// correct, live signal at 12:31:37Z and the lab reader answered
+// SIGNAL_NOT_FOUND (read-only check on the real check run, 2026-10-23).
+
+const APP_SCHEMA = 'mc-signal/v1';
+const APP_ALG_RSA = 'rsa-oaep-sha256+aes-256-gcm';
+const APP_ALG_X25519 = 'x25519-hkdf-sha256+aes-256-gcm';
+
+/** Pull the fenced JSON object out of a check-run output text. */
+function extractFencedJson(text) {
+  const raw = String(text || '');
+  const fence = raw.match(/```json\s*([\s\S]*?)```/i);
+  const candidate = fence ? fence[1] : (/^\s*\{/.test(raw) ? raw : '');
+  if (!candidate) return null;
+  try { return JSON.parse(candidate); } catch (e) { return null; }
+}
+
+/** Parse the application-format signal from a check run's output text. */
+function parseAppSignal(text) {
+  const sig = extractFencedJson(text);
+  if (!sig) return { ok: false, code: 'APP_SIGNAL_NOT_FOUND', detail: 'no fenced JSON block in the check-run output text' };
+  if (sig.schema !== APP_SCHEMA) return { ok: false, code: 'APP_SIGNAL_SCHEMA', detail: `schema ${JSON.stringify(sig.schema)} != ${APP_SCHEMA}` };
+  const env = sig.credential && sig.credential.envelope;
+  if (!env || !env.ct || !env.tag || !env.nonce) return { ok: false, code: 'APP_SIGNAL_INCOMPLETE', detail: 'credential.envelope is missing ct/nonce/tag' };
+  return { ok: true, signal: sig };
+}
+
+/**
+ * Identity + freshness validation. `expect` is built from the GitHub run API.
+ * Endpoint must be tailnet-scoped, TTL is hard-capped at 6 h (same rule as the
+ * base64 format), and a `state` other than `live` is refused by name.
+ */
+function validateAppSignal(sig, expect = {}) {
+  const now = expect.now || Date.now();
+  const endpoint = String((sig.endpoint && sig.endpoint.primary) || '');
+  let host = '';
+  try { host = new URL(endpoint).hostname.replace(/^\[|\]$/g, ''); } catch (e) { host = ''; }
+  if (!host) return { ok: false, code: 'APP_SIGNAL_ENDPOINT_INVALID', detail: `unparseable endpoint ${JSON.stringify(endpoint)}` };
+  if (!CGNAT_V4.test(host) && !/\.ts\.net\.?$/i.test(host)) {
+    return { ok: false, code: 'APP_SIGNAL_ENDPOINT_NOT_TAILNET', detail: `endpoint host ${JSON.stringify(host)} is not tailnet-scoped` };
+  }
+  if (String(sig.state || '') !== 'live') return { ok: false, code: 'APP_SIGNAL_NOT_LIVE', detail: `state ${JSON.stringify(sig.state)}` };
+  if (expect.repo && String(sig.repository) !== String(expect.repo)) return { ok: false, code: 'APP_SIGNAL_FOREIGN_REPO', detail: `${sig.repository} != ${expect.repo}` };
+  if (expect.runId && String(sig.runId) !== String(expect.runId)) return { ok: false, code: 'APP_SIGNAL_STALE_RUN', detail: `run ${sig.runId} != ${expect.runId}` };
+  if (expect.attempt && Number(sig.runAttempt) !== Number(expect.attempt)) return { ok: false, code: 'APP_SIGNAL_STALE_ATTEMPT', detail: `attempt ${sig.runAttempt} != ${expect.attempt}` };
+  if (expect.appSha && String(sig.sha) !== String(expect.appSha)) return { ok: false, code: 'APP_SIGNAL_SHA_MISMATCH', detail: `${sig.sha} != ${expect.appSha}` };
+  const issued = Date.parse(sig.publishedAt || sig.startedAt || '');
+  const expires = Date.parse(sig.expiresAt || '');
+  if (!Number.isFinite(expires)) return { ok: false, code: 'APP_SIGNAL_NO_EXPIRY', detail: 'expiresAt missing' };
+  if (expires <= now) return { ok: false, code: 'APP_SIGNAL_EXPIRED', detail: `expired at ${sig.expiresAt}` };
+  if (expires - now > MAX_TTL_MS + CLOCK_SKEW_MS) return { ok: false, code: 'APP_SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
+  if (Number.isFinite(issued) && issued - now > CLOCK_SKEW_MS) return { ok: false, code: 'APP_SIGNAL_FROM_FUTURE', detail: `publishedAt ${sig.publishedAt}` };
+  if (expect.keyId && String((sig.credential.envelope || {}).keyId) !== String(expect.keyId)) {
+    return { ok: false, code: 'APP_SIGNAL_UNKNOWN_KEY', detail: `keyId ${(sig.credential.envelope || {}).keyId} != ${expect.keyId}` };
+  }
+  return { ok: true, host, endpoint, expiresAt: new Date(expires).toISOString() };
+}
+
+/**
+ * The published AAD is the identity the ciphertext is bound to. It is NOT
+ * trusted as evidence of identity on its own (the run API is), but a mismatch
+ * between the AAD and the published identity means the credential was sealed
+ * for a different run/attempt/sha and must never be used.
+ */
+function verifyAppAad(sig) {
+  const env = sig.credential && sig.credential.envelope;
+  if (!env || !env.aadB64) return { ok: false, code: 'APP_SIGNAL_AAD_MISSING', detail: 'envelope.aadB64 missing' };
+  let aad;
+  try { aad = JSON.parse(Buffer.from(String(env.aadB64), 'base64').toString('utf8')); }
+  catch (e) { return { ok: false, code: 'APP_SIGNAL_AAD_MALFORMED', detail: String(e.message || e).slice(0, 120) }; }
+  const want = {
+    schema: APP_SCHEMA,
+    repository: String(sig.repository || ''),
+    runId: String(sig.runId || ''),
+    runAttempt: Number(sig.runAttempt || 0),
+    sha: String(sig.sha || ''),
+    keyId: String(env.keyId || '')
+  };
+  for (const k of Object.keys(want)) {
+    if (aad[k] !== want[k]) return { ok: false, code: 'APP_SIGNAL_AAD_MISMATCH', detail: `${k}: ${JSON.stringify(aad[k])} != ${JSON.stringify(want[k])}` };
+  }
+  return { ok: true, aad };
+}
+
+/** Decrypt the hybrid envelope. Returns the plaintext credential (memory only). */
+function openAppCredential(env, privateKeyPem) {
+  if (!privateKeyPem) return { ok: false, code: 'SIGNAL_NO_PRIVATE_KEY', detail: 'the lab signal private key is not configured' };
+  if (!env || env.v !== 1) return { ok: false, code: 'APP_SIGNAL_ENVELOPE_VERSION', detail: `envelope.v ${env && env.v}` };
+  if (env.alg === APP_ALG_X25519) {
+    return { ok: false, code: 'APP_SIGNAL_UNSUPPORTED_ALG', detail: 'the publisher sealed to an x25519 key; this reader holds an RSA lab key' };
+  }
+  if (env.alg !== APP_ALG_RSA) return { ok: false, code: 'APP_SIGNAL_UNKNOWN_ALG', detail: `alg ${JSON.stringify(env.alg)}` };
+  try {
+    const cek = crypto.privateDecrypt(
+      { key: privateKeyPem, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
+      Buffer.from(String(env.wrappedKey || ''), 'base64')
+    );
+    const decipher = crypto.createDecipheriv('aes-256-gcm', cek, Buffer.from(String(env.nonce), 'base64'));
+    decipher.setAAD(Buffer.from(String(env.aadB64 || ''), 'base64'));
+    decipher.setAuthTag(Buffer.from(String(env.tag), 'base64'));
+    const out = Buffer.concat([decipher.update(Buffer.from(String(env.ct), 'base64')), decipher.final()]).toString('utf8');
+    if (!out) return { ok: false, code: 'APP_SIGNAL_KEY_EMPTY' };
+    return { ok: true, key: out.replace(/\s+$/, '') };
+  } catch (e) {
+    return { ok: false, code: 'APP_SIGNAL_UNDECRYPTABLE', detail: String(e.message || e).slice(0, 140) };
+  }
+}
+
+/**
+ * Full application-format read. Same contract as `resolveSignal`:
+ * the trusted identity is the caller's (run API), the plaintext never leaves
+ * this process, and every failure is a named code.
+ */
+function resolveAppSignal(text, expect = {}, privateKeyPem) {
+  const parsed = parseAppSignal(text);
+  if (!parsed.ok) return parsed;
+  const sig = parsed.signal;
+  const valid = validateAppSignal(sig, expect);
+  if (!valid.ok) return { ...valid, format: APP_SCHEMA };
+  const aad = verifyAppAad(sig);
+  if (!aad.ok) return { ...aad, format: APP_SCHEMA };
+  const opened = openAppCredential(sig.credential.envelope, privateKeyPem);
+  if (!opened.ok) return { ...opened, format: APP_SCHEMA };
+  // The application seals a JSON credential object, not a bare token:
+  //   { dashTokenQueryParam, dashToken, issuedAt, repository, runId,
+  //     runAttempt, sha }
+  // Using the raw plaintext as the credential both breaks authentication and
+  // makes the descriptor's token fingerprint change on every heartbeat
+  // (issuedAt moves), which is exactly how a live origin looked "changed"
+  // (measured 2026-10-23: BLOCKED_DESCRIPTOR_CHANGED on lab run 39958850298).
+  // The embedded identity must ALSO match the run API expectation - a sealed
+  // credential for another run/attempt/sha is refused.
+  let key = opened.key;
+  let meta = null;
+  try {
+    const p = JSON.parse(opened.key);
+    if (p && typeof p.dashToken === 'string' && p.dashToken) {
+      const checks = [];
+      if (expect.repo && String(p.repository || '') !== String(expect.repo)) checks.push(`repository ${p.repository} != ${expect.repo}`);
+      if (expect.runId && String(p.runId || '') !== String(expect.runId)) checks.push(`runId ${p.runId} != ${expect.runId}`);
+      if (expect.attempt && Number(p.runAttempt) !== Number(expect.attempt)) checks.push(`runAttempt ${p.runAttempt} != ${expect.attempt}`);
+      if (expect.appSha && String(p.sha || '') !== String(expect.appSha)) checks.push(`sha ${p.sha} != ${expect.appSha}`);
+      if (checks.length) return { ok: false, code: 'APP_SIGNAL_CREDENTIAL_IDENTITY_MISMATCH', detail: checks.join('; '), format: APP_SCHEMA };
+      key = p.dashToken;
+      meta = { schema: 'app-credential', queryParam: String(p.dashTokenQueryParam || 'key'), embeddedIdentity: true };
+    }
+  } catch (e) { /* a bare-string credential is valid too */ }
+  return {
+    ok: true,
+    format: APP_SCHEMA,
+    envelope: {
+      v: 1,
+      repo: String(sig.repository),
+      runId: Number(sig.runId),
+      attempt: Number(sig.runAttempt),
+      appSha: String(sig.sha),
+      uiBuild: sig.ui && sig.ui.sha ? `ui-dist-${sig.ui.sha}` : null,
+      endpoint: valid.endpoint,
+      issuedAt: sig.publishedAt || sig.startedAt || null,
+      expiresAt: valid.expiresAt,
+      enc: { alg: sig.credential.envelope.alg, keyId: sig.credential.envelope.keyId }
+    },
+    key,
+    credentialMeta: meta,
+    host: valid.host,
+    expiresAt: valid.expiresAt,
+    aad: aad.aad
+  };
+}
+
+/**
+ * Accept EITHER published format. The base64 format is tried first so its
+ * refusals stay authoritative when it is present; a genuinely absent marker
+ * falls through to the application format instead of reporting NOT_FOUND for a
+ * signal that is demonstrably on the check run.
+ */
+function resolveAnySignal({ summary, text } = {}, expect = {}, privateKeyPem) {
+  const lab = resolveSignal(summary, expect, privateKeyPem);
+  if (lab.ok) return { ...lab, format: 'MC-SIGNAL v1' };
+  if (!['SIGNAL_NOT_FOUND', 'SIGNAL_MALFORMED'].includes(lab.code)) return lab;
+  const app = resolveAppSignal(text || summary, expect, privateKeyPem);
+  if (app.ok) return app;
+  if (['APP_SIGNAL_NOT_FOUND', 'APP_SIGNAL_SCHEMA'].includes(app.code)) {
+    return { ...lab, detail: `${lab.detail}; application format: ${app.detail}`, appCode: app.code };
+  }
+  return app;
+}
+
 module.exports = {
-  SIGNAL_NAME, SIGNAL_PREFIX, MAX_TTL_MS,
-  buildSignal, parseSignal, validateSignal, decryptKey, resolveSignal, pickCheckRun, keyFingerprint
+  SIGNAL_NAME, SIGNAL_PREFIX, MAX_TTL_MS, APP_SCHEMA, APP_ALG_RSA, APP_ALG_X25519,
+  buildSignal, parseSignal, validateSignal, decryptKey, resolveSignal, pickCheckRun, keyFingerprint,
+  parseAppSignal, validateAppSignal, verifyAppAad, openAppCredential, resolveAppSignal, resolveAnySignal
 };

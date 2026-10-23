@@ -60,9 +60,16 @@ async function waitForReady(baseUrl, { timeoutMs = 120000, intervalMs = 2000, ex
     else if (r.status !== 200) verdict = { ready: false, terminal: false, code: 'READINESS_HTTP_ERROR', detail: `HTTP ${r.status}` };
     else if (r.json === null) verdict = { ready: false, terminal: false, code: 'READINESS_SCHEMA_INVALID', detail: `invalid JSON: ${r.jsonError}` };
     else verdict = evaluateReadiness(r.json, { expectPid, expectPort });
-    last = { at: new Date().toISOString(), code: verdict.code, detail: verdict.detail, body: r.json };
-    if (!history.length || history[history.length - 1].code !== verdict.code) {
-      history.push({ at: last.at, code: verdict.code, detail: verdict.detail });
+    last = { at: new Date().toISOString(), code: verdict.code, detail: verdict.detail, body: r.json, transport: r.transport, status: r.status };
+    // Record EVERY DISTINCT OBSERVATION, not every distinct code: the detail
+    // carries the address/errno, so 'READINESS_TIMEOUT' four times is four
+    // different failures and the evidence must say which one (measured
+    // 2026-10-23: the run reported only the last code and the address that was
+    // actually contacted was unrecoverable from the annotations).
+    const prev = history[history.length - 1];
+    const key = `${verdict.code}|${verdict.detail}`;
+    if (!prev || prev.key !== key) {
+      history.push({ at: last.at, key, code: verdict.code, detail: verdict.detail, transport: r.transport, status: r.status });
       log(`${verdict.code}: ${verdict.detail}`);
     }
     if (verdict.ready || verdict.terminal) return { ...verdict, history, last };

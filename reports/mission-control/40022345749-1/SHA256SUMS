@@ -1,0 +1,16 @@
+07ba0b0856930adb3f55dcac2d6621a63cdc7ed50d8ff47f8b6d399ba89b68ab  ./MAIN-REPOSITORY-HANDOFF.md
+90e6f46b87ed345a4e27578642fd9166bb3ae2935326177d8f4b1dfa19c5fc74  ./README-si.md
+0023a8841e545eedc4f03b51a0a673537241dd4e3c6ca3b5082529e26332a10f  ./app-patches/0001-F201-probe-honesty.patch
+0bc90127c8ed634ecb4be76712de7bec0f0ee8ec07cf99cd4c71bc8d8cc2989f  ./control-coverage.csv
+7479ae23801c2b737614f66f6fdc61df5763a822fc6edc8d7e92d836139bb2a7  ./data-lineage.csv
+72e3039eec222f1488f13bf6ba26b84ad4dbf9a2617ab738162f1fc8863f20e5  ./defects/APPLICATION-DEFECTS.md
+04a73c916b1339b5f5e96ff334c9968c60a7ac6b0338d709c201f533cf99adfb  ./defects/AUTHORIZATION-NOT-RUN.md
+9bb2dbbaaf22f5720b8112fde7c4f03d58aee2e0d4839ddbe2ed9f2a9d36fb2e  ./defects/LAB-HARNESS-DEFECTS.md
+0e23f78d9c16f79b317329325452983b78fef0b4323cc3da7eceba4d070e5024  ./evidence/cleanup-postflight.json
+a4d5235d0db1b20aef40167de78a5d2dfd0f66960c1891010bbb508c777b07e1  ./evidence/listeners.json
+9c180c5b1ae5a8f02835ba159fc0554bbf47cfcb377f994da9c8281eb435a5da  ./evidence/live-run-report.json
+48bcdb8ca1f8799e44dbd597b77781f8c4f566e6cfca9312cc312b0e3f8c7ba1  ./evidence/repro-f201.test.tsx
+7f6f53f048b591f97fe3a9db2ab9bebb69e941c64509d296b7dd43c31d1e3810  ./manifest.json
+0237b9e22f48030f0491204fe528e38eb775ddf09ff979a1dbbe22b5f4fac4fd  ./reproduce.sh
+18c258ebb4c1f2cd8d57b72fd705b2b8e09cc53b6695f64650a17907cc3ba3e5  ./series.txt
+badc27b705b183b34b467a01b9626ca4af42d4981b40a8ce2db0da0ee2f6b9fc  ./verify.sh

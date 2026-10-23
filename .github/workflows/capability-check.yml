@@ -28,6 +28,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -403,7 +404,14 @@ jobs:
     needs: static
     if: >-
       !(github.event_name == 'workflow_dispatch' && (inputs.mode == 'auth-diagnostic' || inputs.mode == 'live-origin')) &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name != 'pull_request' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.label.name == 'capability-run'))
+    # ONE DESKTOP OWNER AT A TIME. The client VM has a single interactive
+    # session; a pull_request event used to queue this 25-minute client job on
+    # the same desktop every time any branch was pushed, so a live-run
+    # verification (label `live-verify`) queued behind it. A pull request now has
+    # to ask for this job explicitly with the `capability-run` label.
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
     timeout-minutes: 25
     env:

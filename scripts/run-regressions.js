@@ -1833,6 +1833,45 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== public-only MC-SIGNAL identity binding (no private key) =====
+  {
+    const register = require('./test/signal-binding-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
+  // ===== application-format signal (mc-signal/v1, hybrid envelope) =====
+  {
+    const register = require('./test/app-signal-regressions');
+    await register({ test, assert, crypto, tmpRoot });
+  }
+
+  // ===== workflow YAML (GitHub refuses the file, not the step) =====
+  {
+    const register = require('./test/workflow-yaml-regressions');
+    await register({ test, assert });
+  }
+
+  // ===== queue claim path (poll-records -> pick-record) =====
+  {
+    const register = require('./test/pick-record-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+    if (typeof register.requeue === 'function') await register.requeue({ test, assert });
+    if (typeof register.inconsistent === 'function') await register.inconsistent({ test, assert });
+    if (typeof register.staleClaim === 'function') await register.staleClaim({ test, assert });
+  }
+
+  // ===== workflow ownership + evidence order (H-04, H-05) =====
+  {
+    const register = require('./test/workflow-ownership-regressions');
+    await register({ test, assert });
+  }
+
+  // ===== evidence publish gate (the lab is public; refusals are security) =====
+  {
+    const register = require('./test/publish-evidence-regressions');
+    await register({ test, assert });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');
