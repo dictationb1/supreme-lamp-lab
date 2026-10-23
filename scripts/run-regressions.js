@@ -1851,6 +1851,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== evidence persistence (L-14: an explicit dir is honoured, a failed write is never silent) =====
+  {
+    const register = require('./test/evidence-persistence-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
   // ===== workflow YAML (GitHub refuses the file, not the step) =====
   {
     const register = require('./test/workflow-yaml-regressions');

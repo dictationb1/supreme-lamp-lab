@@ -831,9 +831,37 @@ async function cmdLive(a) {
     if (!report.authorization) report.authorization = { outcome: 'NOT_MEASURED', code: 'AUTHORIZATION_NOT_REACHED', subcode: 'AUTHORIZATION_NOT_REACHED', proof: null };
     const family = (report.authorization && report.authorization.family) || (TRANSIENT_CODES.has(code) ? 'TRANSPORT' : 'OTHER');
     const retryable = TRANSIENT_CODES.has(code) || family === 'TRANSPORT';
-    try { writeLiveEvidence(out, report); } catch (e) { annotate.warning('partial evidence', `capabilities bundle not written: ${redact(String(e.message || e)).slice(0, 160)}`); }
-    try { fs.writeFileSync(path.join(out, 'live-run-report.json'), JSON.stringify(redactObject(report), null, 2), { mode: 0o600 }); } catch (e) { }
-    try { fs.writeFileSync(path.join(out, 'live-run-report.md'), renderMarkdown(report), 'utf8'); } catch (e) { }
+    // [L-14] No silent evidence failures. Every write is verified and reported:
+    // a run that leaves nothing behind must SAY so in the annotations, because
+    // the annotations are the one channel that survives an empty artifact
+    // upload. (Measured 2026-10-23, probe run 39977560128: the readiness block
+    // ran persistPartial, the job printed its verdict, and the upload found zero
+    // files - with two empty catch blocks in this function as the only place the
+    // reason could have been swallowed.)
+    const written = [];
+    try { written.push(writeLiveEvidence(out, report)); } catch (e) { annotate.warning('partial evidence', `capabilities bundle not written: ${redact(String(e.message || e)).slice(0, 160)}`); }
+    try {
+      const p = path.join(out, 'live-run-report.json');
+      fs.writeFileSync(p, JSON.stringify(redactObject(report), null, 2), { mode: 0o600 });
+      if (fs.existsSync(p)) written.push(p); else throw new Error(`write did not land: ${p}`);
+    } catch (e) { annotate.warning('partial evidence', `live-run-report.json not written: ${redact(String(e.message || e)).slice(0, 160)}`); }
+    try {
+      const p = path.join(out, 'live-run-report.md');
+      fs.writeFileSync(p, renderMarkdown(report), 'utf8');
+      if (fs.existsSync(p)) written.push(p); else throw new Error(`write did not land: ${p}`);
+    } catch (e) { annotate.warning('partial evidence', `live-run-report.md not written: ${redact(String(e.message || e)).slice(0, 160)}`); }
+    // Verify by LISTING, not by trusting the writes: this is what an operator
+    // reads when the artifact comes back empty.
+    try {
+      const found = listEvidence(out);
+      const bytes = found.reduce((n, f) => n + (fs.statSync(f).size || 0), 0);
+      report.artifacts = { outDir: out, files: found.map(f => ({ path: f.split(/[\\/]/).pop(), bytes: fs.statSync(f).size })), expectedWritten: written.length };
+      if (found.length === 0) {
+        annotate.error('EVIDENCE_NOT_PERSISTED', `nothing on disk under ${out} after ${written.length} attempted write(s); the artifact upload WILL be empty. First write error above is the cause.`);
+      } else {
+        annotate.notice('evidence inventory', `${found.length} file(s) ${bytes} bytes under ${out}: ${found.map(f => f.split(/[\\/]/).pop()).join(', ')}`);
+      }
+    } catch (e) { annotate.warning('evidence inventory', `could not list ${out}: ${redact(String(e.message || e)).slice(0, 160)}`); }
     if (process.env.GITHUB_OUTPUT) {
       // The ack step prefers these over its job-level guess, and the viewer-hold
       // step is gated on viewer_active: a run that never opened an authenticated
@@ -884,7 +912,16 @@ async function cmdLive(a) {
     };
     report.stage = stageName;
     // The write is queued and awaited by done(); nothing is fire-and-forget.
-    report.__persist = persistPartial(stageName === 'COMPLETED' ? 'REPORTED_FAILED' : stageName, code, detail).catch(() => { });
+    // [L-14] The `.catch(() => {})` that used to sit here was the last silent
+    // path: if persistPartial threw anywhere outside its own try blocks, the
+    // rejection was discarded and the run still printed a confident verdict
+    // while leaving zero evidence behind. A persistence failure is now an ERROR
+    // annotation, because the annotations are the only channel that survives an
+    // empty artifact upload.
+    report.__persist = persistPartial(stageName === 'COMPLETED' ? 'REPORTED_FAILED' : stageName, code, detail).catch(e => {
+      try { annotate.error('EVIDENCE_NOT_PERSISTED', `persistPartial threw before it could write: ${redact(String((e && e.message) || e)).slice(0, 240)}`); } catch (e2) { /* the annotation channel itself is gone; nothing left to do */ }
+      report.artifacts = { ...(report.artifacts || {}), persistError: redact(String((e && e.message) || e)).slice(0, 240) };
+    });
     return report;
   }
   async function done(code, obj) {
@@ -1658,13 +1695,24 @@ function writeLiveEvidence(dir, report) {
   });
   const f = report.features || { rows: [] };
   const by = id => (f.rows || []).find(r => r.id === id) || {};
-  capSet.set('live_origin_verified', STATUS.PASS, `descriptor ${report.identity && report.identity.originVerification ? 'verified' : 'not verified'}`, { checks: report.identity && report.identity.originVerification ? report.identity.originVerification.checks : null });
+  // [L-15] This used to be an unconditional STATUS.PASS whose REASON said
+  // "descriptor not verified" - a capability bundle that claimed the origin was
+  // verified on a run that never reached verification. The status is now derived
+  // from the recorded result: no measurement is NOT_RUN, a failed check is FAIL.
+  const ov = (report.identity && report.identity.originVerification) || null;
+  capSet.set('live_origin_verified',
+    ov ? (ov.ok ? STATUS.PASS : STATUS.FAIL) : STATUS.NOT_RUN,
+    ov ? `descriptor verification ${ov.ok ? 'ok' : 'refused'} (${ov.code || 'n/a'})` : 'the run never reached descriptor verification',
+    { checks: ov ? ov.checks : null });
   capSet.set('live_authorization', report.authorization.outcome === 'PROVEN' ? STATUS.PASS : STATUS.BLOCKED, report.authorization.detail);
   capSet.set('live_identity', by('nav.build_provenance').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.build_provenance').status), by('nav.build_provenance').reason || null);
   capSet.set('live_ui_rendered', by('nav.routes_reachable').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.routes_reachable').status), by('nav.routes_reachable').reason || (report.browser ? `profile ${report.browser.profile || 'n/a'}` : 'browser not used'));
   capSet.set('live_features', f.accepted ? STATUS.PASS : STATUS.FAIL, `${f.mandatoryPass}/${f.mandatoryTotal} mandatory features PASS; vetoing=${(f.vetoing || []).join(',') || 'none'}`, { counts: f.counts });
   capSet.set('live_credential_hygiene', mapStatus(by('connection.credential_hygiene').status) || STATUS.NOT_RUN, by('connection.credential_hygiene').reason || null);
-  writeCapabilities('live', capSet, { origin: report.origin, scope: report.scope });
+  // [L-14] honour the caller's directory. This function used to take `dir` and
+  // ignore it, so evidence was written wherever artifactDir() pointed and no
+  // caller could tell the difference.
+  return writeCapabilities('live', capSet, { origin: report.origin, scope: report.scope }, { dir });
 }
 function mapStatus(s) { return [STATUS.PASS, STATUS.FAIL, STATUS.BLOCKED, STATUS.NOT_RUN, STATUS.SIMULATED, STATUS.SKIPPED].includes(s) ? s : STATUS.NOT_RUN; }
 
@@ -1783,4 +1831,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };
+module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, writeLiveEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };

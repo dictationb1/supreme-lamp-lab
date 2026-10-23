@@ -171,11 +171,59 @@ jobs:
           if ($code -eq 0 -or $code -eq 4 -or $code -eq 5 -or $code -eq 7 -or $code -eq 8 -or $code -eq 9) { exit 0 }
           exit 1
 
+      # [L-14] The first probe (run 39977560128) exited 4 with a measured
+      # READINESS_TIMEOUT and the upload then reported "No files were found with
+      # the provided path". The annotations are the only channel that survives an
+      # empty artifact, so this step turns "we do not know what was written" into
+      # a measurement: it lists every file under the runner temp tree (NAMES AND
+      # SIZES ONLY - never contents, which could carry a credential), states
+      # which ARTIFACT_DIR the probe was given, and always leaves at least one
+      # file for the upload to carry.
+      - name: Evidence inventory (always runs - names and sizes only, never contents)
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = $env:RUNNER_TEMP
+          $want = Join-Path $root 'artifacts'
+          Write-Host "::notice title=evidence dirs::RUNNER_TEMP=$root ARTIFACT_DIR=$env:ARTIFACT_DIR artifactsRootExists=$(Test-Path -LiteralPath $want)"
+          $files = @()
+          if (Test-Path -LiteralPath $root) {
+            $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue)
+          }
+          Write-Host "::notice title=evidence inventory::$($files.Count) file(s) under RUNNER_TEMP"
+          foreach ($f in ($files | Select-Object -First 40)) {
+            $rel = $f.FullName.Substring($root.Length).TrimStart([char[]]@('\','/'))
+            Write-Host "::notice title=evidence file::$rel bytes=$($f.Length)"
+          }
+          # Always leave something for the uploader, so an empty artifact from now
+          # on means "the writer produced nothing", never "the path was wrong".
+          if (-not (Test-Path -LiteralPath $want)) { New-Item -ItemType Directory -Path $want -Force | Out-Null }
+          $inv = [ordered]@{
+            kind = 'probe-evidence-inventory/1'
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            runner = $env:RUNNER_NAME
+            runnerTemp = $root
+            artifactDirEnv = $env:ARTIFACT_DIR
+            artifactsRootExists = (Test-Path -LiteralPath $want)
+            probeExitCode = '${{ steps.probe.outputs.exit_code }}'
+            fileCount = $files.Count
+            totalBytes = ($files | Measure-Object -Property Length -Sum).Sum
+            files = @($files | Select-Object -First 200 | ForEach-Object {
+              [ordered]@{ path = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\','/')); bytes = $_.Length }
+            })
+            writtenAt = (Get-Date).ToString('o')
+          }
+          $inv | ConvertTo-Json -Depth 6 | Out-File -FilePath (Join-Path $want 'probe-evidence-inventory.json') -Encoding utf8
+          Write-Host "::notice title=evidence inventory written::probe-evidence-inventory.json fileCount=$($files.Count) probeExit=${{ steps.probe.outputs.exit_code }}"
+          exit 0
+
       - name: Upload the sanitized probe evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: auth-probe-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/artifacts/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
