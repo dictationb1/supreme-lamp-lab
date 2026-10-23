@@ -240,19 +240,50 @@ node scripts\rdp-consent-bootstrap.js --host 100.x.y.z --user slabrdp --open
 * **Unsigned `.rdp` → the per-connection review (dialog B) on every launch.**
   This is a *different* protection and step A does not remove it. If it blocks
   an unattended run, the capability FAILs with
-  `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays `NOT_VERIFIED`; the
-  honest next step is an **organization-trusted `.rdp` publisher path** (a
-  signed `.rdp` + a trusted-publisher policy). That is a machine-wide trust
-  change: **scope** = the client-runner VM's certificate/publisher trust store
-  and the lab's `.rdp` signing identity; **bootstrap** = an operator decision to
-  create/install that identity and re-sign the launcher's `.rdp`. The lab does
-  not do this silently, does not trust every publisher, and does not suppress
-  certificate validation. A manually clicked dialog never proves auto-login.
+  `RDP_FILE_SECURITY_REVIEW_BLOCKING` and the run stays `NOT_VERIFIED`.
+
+  **This is now solved and measured** (§2.5), not an open operator decision: a
+  `.rdp` signed by one lab identity and trusted by thumbprint opens with no
+  review. Dialog B must never be answered by hand to obtain a PASS.
 * **Persistence.** Windows shows the one-time consent **once per account per
   device**. This lab has *not* verified that it survives a re-image, a profile
   reset or a runner re-provision on this VM, and it has *not* verified it for any
   other account. Treat it as "one-time per account, per device, until the device
   or profile changes" and re-run the SETUP procedure if dialog A reappears.
+
+#### 2.5 Signed `.rdp` publisher: what actually works (measured on `rdp-lab-client`)
+
+Evidence: workflow `rdp-signing` run **39878430536** (bootstrap+probe, success) and
+capability run **39879458404** (all nine capabilities PASS, `VERIFIED`).
+
+| Fact | Measured value | Why it matters |
+| --- | --- | --- |
+| Signing identity | `7434A62F998EC25ECF899848AEC0881959B7BAA0`, `CN=supreme-lamp RDP file signing (lab client)`, notAfter `2028-10-23T00:09:01Z` | the single identity this VM trusts; nothing else is trusted |
+| Store the key must live in | `Cert:\CurrentUser\My` (the runner account `WIN-NFU1JG4VESE\User`) | a key in `LocalMachine\My` alone fails `rdpsign` with `0x80092004` ("Unable locate the certificate specified"), because `rdpsign` resolves from the calling account |
+| Public cert trust | imported into `Cert:\LocalMachine\Root` for that thumbprint only | "valid publishers" is judged against the machine trust store; no chain-wide weakening, no disabled validation |
+| Working policy shape | `TrustedCertThumbprints` (REG_SZ, 64-hex SHA-2 print) directly under `HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services` — recorded as `value-plain` | a numbered value (`...\1`) under the same key was tried first and did **not** suppress the review |
+| ADMX on this VM | `admxPolicyFound=True` but empty `admxKey` / `valuePrefix` | the local ADMX has no usable key template; do not "fix" this by guessing a subkey — the empirical shape is recorded |
+| Signature command | `rdpsign /sha256 <thumb> <file>` → exit 0 (`/sha1` also available) | Authenticode signature is only a second opinion; `rdpsign` is what the client evaluates |
+| Unsigned-publisher policies | `AllowUnsignedFiles` / `AllowSignedFiles` left unset | the lab never enables "unknown publishers"; it narrows trust to one identity instead |
+
+**Rollback** (removes only what the lab added):
+`powershell -File scripts\ps\Initialize-RdpFileSigning.ps1 -Mode Rollback` deletes
+the `CurrentUser\My` identity, removes the pinned public cert from
+`LocalMachine\Root`, and clears the `TrustedCertThumbprints` value it wrote
+(unrelated entries under the same key are preserved — the bootstrap annotation
+prints how many it kept).
+
+**Two defects this produced, both fixed** — worth knowing because both look like
+"signing is not configured" while the certificate and policy are fine:
+
+* The identity record is `%ProgramData%\supreme-lamp-lab\rdp-signing\identity.json`.
+  PowerShell 5.1's `Set-Content -Encoding UTF8` writes a **BOM**; the Node reader's
+  `JSON.parse` then threw and the launcher reported *"rdp file signing: NOT
+  CONFIGURED on this client"* on a VM whose `Status` step said `rootPinned=True`.
+  The script now writes UTF-8 without BOM and the reader tolerates a BOM.
+* The read-only `Status` step must never fail the job: it now enumerates both
+  certificate stores with per-store guards and reports `code`/`detail` in its
+  annotation instead of dying silently.
 
 #### 2.4.4 The only proof
 
