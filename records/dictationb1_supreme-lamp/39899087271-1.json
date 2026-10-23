@@ -20,12 +20,18 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "AWAITING_LAB_ACCEPTANCE",
+  "state": "FAILED",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
       "state": "AWAITING_LAB_ACCEPTANCE",
       "by": "origin"
+    },
+    {
+      "at": "2026-10-23T04:31:33.609Z",
+      "state": "FAILED",
+      "by": "dictationb1/supreme-lamp-lab@dictationb1",
+      "detail": "job-level write-back: verify job result=failure (the verify job exited without an in-process report)"
     }
   ],
   "envelopeTransport": {
@@ -38,5 +44,6 @@
   "branch": {
     "exists": true,
     "created": true
-  }
+  },
+  "updatedAt": "2026-10-23T04:31:33.609Z"
 }
