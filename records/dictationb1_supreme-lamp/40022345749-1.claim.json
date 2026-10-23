@@ -1,14 +1,12 @@
 {
   "kind": "slab-live-run-claim/1",
-  "claimedAt": "2026-10-23T22:09:11.711Z",
+  "claimedAt": "2026-10-23T22:18:56.338Z",
   "claimant": {
-    "labRunId": "40031337241",
+    "labRunId": "40032463802",
     "labAttempt": "1"
   },
-  "descriptorId": "f99255885ff7d545",
+  "descriptorId": "91558ee13354e3b9",
   "correlationId": "lr-40022345749-1",
-  "superseded": "claimant run 40030104565 is completed/success",
-  "nonce": "b88cb4ae7d02e0cf",
-  "supersededAt": "2026-10-23T22:18:54.719Z",
-  "supersededReason": "claimant run 40031337241 is completed/success"
+  "superseded": "claimant run 40031337241 is completed/success",
+  "nonce": "f8f6e25b4991a870"
 }
