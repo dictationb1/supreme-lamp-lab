@@ -138,7 +138,7 @@ module.exports = async function register({ test, assert, tmpRoot }) {
     assert.strictEqual(viaApp.format, 'mc-signal/v1');
     assert.strictEqual(viaApp.key, app.plaintext);
 
-    const labText = ls.buildSignal({ repo: REPO, runId: Number(RUN_ID), attempt: 1, appSha: SHA, endpoint: 'http://100.87.91.3:7331', expiresAt: new Date(NOW + 3600000).toISOString(), key: 'lab-sealed' }, pubPem);
+    const labText = ls.buildSignal({ repo: REPO, runId: Number(RUN_ID), attempt: 1, appSha: SHA, endpoint: 'http://100.87.91.3:7331', issuedAt: new Date(NOW - 30000).toISOString(), expiresAt: new Date(NOW + 3600000).toISOString(), key: 'lab-sealed' }, pubPem);
     const viaLab = ls.resolveAnySignal({ summary: labText, text: '' }, expect, privPem);
     assert.strictEqual(viaLab.ok, true);
     assert.strictEqual(viaLab.format, 'MC-SIGNAL v1');

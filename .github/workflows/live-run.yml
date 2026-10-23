@@ -407,16 +407,16 @@ jobs:
           if [ "${MODE:-live-origin}" = "origin-selftest" ]; then
             # The lab's own server job is the origin for this harness; its
             # record was published by that job, so select it explicitly.
-            node scripts/live-run.js poll-records > records.txt || true
-            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.txt)
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
+            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.json)
           else
-            node scripts/live-run.js poll-records > records.txt || true
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
             PICK=$(node scripts/pick-record.js \
               --correlation "${DISPATCH_CORRELATION:-${INPUT_CORRELATION:-}}" \
               --origin "${DISPATCH_ORIGIN_REPO:-${INPUT_ORIGIN_REPO:-}}" \
               --run "${DISPATCH_ORIGIN_RUN:-${INPUT_ORIGIN_RUN:-}}" \
               --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" \
-              --records records.txt)
+              --records records.json)
           fi
           echo "$PICK" | tee -a "$GITHUB_STEP_SUMMARY"
           {
@@ -431,7 +431,7 @@ jobs:
             echo "endpoint=$(echo "$PICK" | jq -r '.descriptor.authorizedEndpoint // ""')"
             echo "expires_at=$(echo "$PICK" | jq -r '.descriptor.expiresAt // ""')"
             echo "mode=$(echo "$PICK" | jq -r '.descriptor.mode // "live-origin"')"
-            pending=$(jq -r '.pending // 0' records.txt 2>/dev/null || echo 0)
+            pending=$(jq -r '.pending // 0' records.json 2>/dev/null || echo 0)
             case "$pending" in (*[!0-9]*|'') pending=0;; esac
             echo "pending=$pending"
           } >> "$GITHUB_OUTPUT"

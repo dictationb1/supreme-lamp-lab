@@ -1152,6 +1152,10 @@ async function cmdPoll(a) {
     .sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)))
     .slice(0, 1);
   fs.writeFileSync(path.join(artifactDir(), 'records.json'), JSON.stringify(out, null, 2));
+  // `--json-out` is the clean file the workflow consumes (`--records` for
+  // pick-record.js and `jq .pending`): stdout keeps its human header plus the
+  // workflow-command annotations, which are not valid JSON.
+  if (a.jsonOut) fs.writeFileSync(a.jsonOut, JSON.stringify(out, null, 2), { mode: 0o600 });
   print('poll-records', EXIT.OK, out);
   return process.exit(EXIT.OK);
 }
@@ -1424,7 +1428,6 @@ function classifyError(e) {
 function print(cmd, code, obj) {
   const compact = { cmd, exit: code, ...obj };
   const text = JSON.stringify(redactObject(compact), null, 2);
-  console.log(`\n===== ${cmd} result (exit ${code}) =====\n${text}\n`);
   const stage = obj && obj.stage;
   const objCode = (obj && (obj.code || (obj.verdict && obj.verdict.code))) || '';
   const msg = `${code === EXIT.OK ? 'verified' : 'exit ' + code}${stage ? ' at ' + stage : ''}: ${objCode}${obj && obj.detail ? ' — ' + redact(obj.detail).slice(0, 240) : ''}`;
@@ -1436,6 +1439,12 @@ function print(cmd, code, obj) {
   if (code === EXIT.OK) annotate.notice('live-run ' + cmd, msg);
   else if (benign.has(objCode)) annotate.notice('live-run ' + cmd + ' (nothing to attach)', msg);
   else annotate.error('live-run ' + cmd, msg);
+  // The machine-readable payload is printed LAST on purpose: `poll-records` is
+  // redirected straight into records.txt and consumed by pick-record.js / jq,
+  // and a trailing `[NOTICE]`/`::notice` line after the JSON made the queue look
+  // unreadable (measured: claim job answered RECORDS_UNREADABLE while a
+  // pickable record existed). Commands that print for humans keep the header.
+  console.log(`\n===== ${cmd} result (exit ${code}) =====\n${text}\n`);
 }
 function redactObject(o) { const { redactDeep } = require('./lib/redact'); return redactDeep(o); }
 function printExit(code, obj) { print('ack', code, obj); return code; }

@@ -53,13 +53,82 @@ function out(proceed, reason, descriptor) {
   process.exit(0);
 }
 
+/**
+ * Extract the first BALANCED JSON object from a mixed stream.
+ *
+ * `poll-records` writes a human header and workflow-command annotations
+ * (`::notice`/`[NOTICE]`) around its payload, so a `... }$` regex matched only
+ * when nothing trailed the JSON. Measured 2026-10-23: the claim job answered
+ * RECORDS_UNREADABLE - "no verification was attempted" - while a pickable,
+ * unexpired record for a live run was sitting in the queue. Braces inside
+ * strings are handled; a truncated object is reported, never guessed.
+ */
+function extractJsonObject(text) {
+  const start = String(text || '').indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return text.slice(start, i + 1); }
+  }
+  return null;
+}
+
 function loadRecords(file) {
   let text = '';
   try { text = file ? fs.readFileSync(file, 'utf8') : ''; } catch (e) { return { error: `records file unreadable: ${e.message}` }; }
-  // live-run.js poll-records prints a fenced JSON block; accept bare JSON too.
-  const m = text.match(/\{[\s\S]*\}\s*$/);
-  if (!m) return { error: 'no JSON payload in the records listing' };
-  try { return { doc: JSON.parse(m[0]) }; } catch (e) { return { error: `records JSON unparseable: ${e.message}` }; }
+  const sliced = extractJsonObject(text);
+  if (!sliced) return { error: 'no JSON payload in the records listing' };
+  try { return { doc: JSON.parse(sliced) }; } catch (e) { return { error: `records JSON unparseable: ${e.message}` }; }
+}
+
+/**
+ * Pure selector (exported for regressions). `readFull(path)` must resolve to the
+ * record FILE as the store returns it: `{ json, sha }`. The selector used to
+ * read `rec.descriptor` off that wrapper, so every candidate died with
+ * "Cannot read properties of undefined (reading 'clientTailnetIp')" and the
+ * claim job reported NO_PICKABLE_RECORD while a live record was waiting
+ * (measured 2026-10-23, run 39952421153).
+ */
+async function selectRecord({ rows, a, allow, now = Date.now(), readFull }) {
+  const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
+  let candidates = [];
+  if (a.correlation) {
+    candidates = rows.filter(r => String(r.correlationId) === String(a.correlation));
+    if (!candidates.length) return { proceed: 'no', reason: `CORRELATION_NOT_FOUND: no record for ${a.correlation} (queue holds: ${rows.map(r => r.correlationId).join(', ') || 'none'}) — a requested correlation is never substituted` };
+  } else if (a.origin && a.run) {
+    candidates = rows.filter(r => String(r.origin).startsWith(`${a.origin}#${a.run}/`) && String(r.origin).endsWith(`/${a.attempt}`));
+    if (!candidates.length) return { proceed: 'no', reason: `RECORD_NOT_FOUND: no record for ${a.origin}#${a.run}/${a.attempt} — it may already have been consumed, expired, or never published` };
+  } else {
+    // FIFO by issuedAt: the oldest still-valid origin is served first, because
+    // its server is the one that is alive and waiting.
+    candidates = rows.slice().sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)));
+  }
+
+  const skipped = [];
+  for (const r of candidates) {
+    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
+    if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
+    if (String(r.origin).split('#')[0] && !allow.includes(String(r.origin).split('#')[0])) { skipped.push(`${r.correlationId}: origin ${r.origin} not allowlisted`); continue; }
+    const file = await readFull(r.path);
+    const rec = file && file.json ? file.json : null;
+    if (!rec || !rec.descriptor) { skipped.push(`${r.correlationId}: record body unavailable`); continue; }
+    let d = null;
+    try { d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now }); }
+    catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
+    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) return { proceed: 'yes', reason: `SELECTED ${detail(r)}`, descriptor: d };
+    skipped.push(`${r.correlationId}: state=${rec.state}`);
+  }
+  return { proceed: 'no', reason: `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}` };
 }
 
 async function main() {
@@ -74,37 +143,8 @@ async function main() {
   const rows = (loaded.doc && loaded.doc.records) || [];
   if (!rows.length) return out(false, 'EMPTY_QUEUE: no live-run record has been published for any run that is still in progress');
 
-  const now = Date.now();
-  const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
-
-  let candidates = [];
-  if (a.correlation) {
-    candidates = rows.filter(r => String(r.correlationId) === String(a.correlation));
-    if (!candidates.length) return out(false, `CORRELATION_NOT_FOUND: no record for ${a.correlation} (queue holds: ${rows.map(r => r.correlationId).join(', ') || 'none'}) — a requested correlation is never substituted`);
-  } else if (a.origin && a.run) {
-    candidates = rows.filter(r => String(r.origin).startsWith(`${a.origin}#${a.run}/`) && String(r.origin).endsWith(`/${a.attempt}`));
-    if (!candidates.length) return out(false, `RECORD_NOT_FOUND: no record for ${a.origin}#${a.run}/${a.attempt} — it may already have been consumed, expired, or never published`);
-  } else {
-    // FIFO by issuedAt: the oldest still-valid origin is served first, because
-    // its server is the one that is alive and waiting.
-    candidates = rows.slice().sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)));
-  }
-
-  const skipped = [];
-  for (const r of candidates) {
-    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
-    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
-    if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
-    if (String(r.origin).split('#')[0] && !allow.includes(String(r.origin).split('#')[0])) { skipped.push(`${r.correlationId}: origin ${r.origin} not allowlisted`); continue; }
-    const rec = await readFull(r.path);
-    if (!rec) { skipped.push(`${r.correlationId}: record body unavailable`); continue; }
-    let d = null;
-    try { d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now }); }
-    catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
-    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) return out(true, `SELECTED ${detail(r)}`, d);
-    skipped.push(`${r.correlationId}: state=${rec.state}`);
-  }
-  return out(false, `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}`);
+  const picked = await selectRecord({ rows, a, allow, now: Date.now(), readFull });
+  return picked.proceed === 'yes' ? out(true, picked.reason, picked.descriptor) : out(false, picked.reason);
 }
 
 async function readFull(p) {
@@ -113,6 +153,6 @@ async function readFull(p) {
   catch (e) { return null; }
 }
 
-main().catch(e => { console.error(`pick-record fatal: ${e.stack || e.message}`); process.exit(64); });
+if (require.main === module) main().catch(e => { console.error(`pick-record fatal: ${e.stack || e.message}`); process.exit(64); });
 
-module.exports = { parseArgs, loadRecords };
+module.exports = { parseArgs, loadRecords, selectRecord, extractJsonObject };

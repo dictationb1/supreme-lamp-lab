@@ -1845,6 +1845,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, crypto, tmpRoot });
   }
 
+  // ===== queue claim path (poll-records -> pick-record) =====
+  {
+    const register = require('./test/pick-record-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');
