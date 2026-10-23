@@ -120,9 +120,11 @@ module.exports = async function registerRdpSigningTests(H) {
     assert.ok(/rdp-signing-bootstrap/.test(wf), 'Bootstrap is opt-in by label');
     assert.ok(/rdp-signing-probe/.test(wf), 'the probe is opt-in by label');
     assert.ok(/Mode Rollback/.test(wf), 'rollback is wired');
-    for (const forbidden of ['RedirectionWarningDialogVersion', 'AllowUnsignedFiles', 'authentication level:i:', 'enablecredsspsupport:i:0']) {
-      const body = wf.split('\n').filter(l => !/^\s*#/.test(l)).join('\n');
-      assert.ok(!body.includes(forbidden), `the workflow must not weaken security (${forbidden})`);
-    }
+    // Security posture is judged by ONE implementation (the committed gate), so
+    // a READ of a policy value (the status notice shows Allow*) is not mistaken
+    // for a WRITE of it - that mistake already cost a red run.
+    const { run } = require('../workflow-structure-check');
+    const findings = run().findings.filter(f => f.file.includes('rdp-signing'));
+    assert.deepStrictEqual(findings, [], JSON.stringify(findings));
   });
 };

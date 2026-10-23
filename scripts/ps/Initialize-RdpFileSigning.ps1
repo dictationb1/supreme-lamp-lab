@@ -642,5 +642,10 @@ switch ($Mode) {
     }
 }
 
-# single-line JSON so a workflow can parse it without secrets or noise
+# single-line JSON so a workflow can parse it without secrets or noise.
+# The explicit `exit` matters: without it the process exit code leaks the last
+# native command's status (measured: a PASSING probe step failed the job with
+# "Process completed with exit code 1" because rdpsign's earlier attempt had
+# left $LASTEXITCODE=1).
 $Result | ConvertTo-Json -Compress -Depth 8
+if ($Result.ok) { exit 0 } else { exit 1 }
