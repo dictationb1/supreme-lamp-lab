@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-23T10:26:00Z",
+  "generatedAt": "2026-10-23T10:19:23Z",
   "upstream": {
     "repository": "dictationb1/supreme-lamp",
     "baselineSha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
@@ -124,15 +124,34 @@
     "rdpJob": {
       "id": 120356350557,
       "runner": "windows-latest",
-      "stateAtValidation": "in progress at step 50/62 (Build and deploy WebRTC server)"
+      "stateAtValidation": "keep-alive running (step 61/62) at signal validation"
     },
     "signal": {
-      "published": false,
-      "observedAt": "2026-10-23T10:26:00Z",
-      "expectedStep": "60 Publish live Mission Control signal (MC-SIGNAL)",
-      "note": "no check-run for this commit carried output.text yet; the lab did NOT attach, so no endpoint/credential/descriptor was derived or reused"
+      "published": true,
+      "checkRunId": 120362814048,
+      "checkRunName": "mission-control-live-signal",
+      "state": "live",
+      "schema": "mc-signal/v1",
+      "runId": "39936058717",
+      "runAttempt": 1,
+      "sha": "15e15ab847ad8672960b1117a51ed17b47386c81",
+      "uiMatchesRunSha": true,
+      "uiBytes": 1269742,
+      "publishedAt": "2026-10-23T10:18:39.554Z",
+      "expiresAt": "2026-10-23T16:18:39.554Z",
+      "heartbeatSec": 60,
+      "heartbeatMaxAgeSec": 180,
+      "heartbeatAgeSecAtRead": 43.7,
+      "endpointTransport": "tailnet-ip",
+      "endpointPort": 7331,
+      "keyId": "rsa:f5ae1689a220835e",
+      "envelopeAlg": "rsa-oaep-sha256+aes-256-gcm",
+      "validatedReadOnly": "resolved from the run's own check-run; no descriptor, claim, IP or credential from any previous run was reused",
+      "notDecrypted": "the lab did not hold the MC-SIGNAL private key in this session, so the sealed credential was not decrypted and no endpoint request was made",
+      "ciphertextNotCopied": true
     },
-    "relationshipToCandidate": "different source identity: the live run is UNPATCHED at 15e15ab8; the candidate is base+3 patches. A candidate PASS is NOT evidence that this live run is fixed."
+    "relationshipToCandidate": "different source identity: the live run is UNPATCHED at 15e15ab8; the candidate is base+3 patches. A candidate PASS is NOT evidence that this live run is fixed.",
+    "note": "signal live and bound to this run/attempt/sha; the endpoint is run-specific and expires with the run"
   },
   "previousOrigin": {
     "runId": 39899087271,

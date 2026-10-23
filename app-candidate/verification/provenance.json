@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:07:46Z",
+  "generatedAt": "2026-10-23T10:19:23Z",
   "executor": {
     "account": "GitHub Actions (lab repository)",
     "repository": "dictationb1/supreme-lamp-lab",
@@ -23,7 +23,9 @@
     "mc_signal_key_reused": true,
     "rdp_signing_identity_untouched": true,
     "secrets_in_artifacts": 0,
-    "token_handling": "probe tokens are generated per run; only sha256[0:8] and length are recorded"
+    "token_handling": "probe tokens are generated per run; only sha256[0:8] and length are recorded",
+    "mc_signal_key_id_observed": "rsa:f5ae1689a220835e",
+    "key_rotation": "none: the observed keyId equals the one recorded for the previous origin, i.e. the existing MC-SIGNAL pair was reused, not regenerated"
   },
   "toolVersions": {
     "node": "v22.x",
@@ -36,5 +38,19 @@
     "sha": "c470531e4739be072daea20425a1de203d0ed326",
     "descriptorExpiry": "2026-10-23T10:12:31Z",
     "use": "read-only evidence only; not re-attached, not reused"
+  },
+  "liveOriginObserved": {
+    "runId": 39936058717,
+    "attempt": 1,
+    "sha": "15e15ab847ad8672960b1117a51ed17b47386c81",
+    "signalCheckRunId": 120362814048,
+    "state": "live",
+    "publishedAt": "2026-10-23T10:18:39.554Z",
+    "expiresAt": "2026-10-23T16:18:39.554Z",
+    "heartbeatAgeSecAtRead": 43.7,
+    "keyId": "rsa:f5ae1689a220835e",
+    "readOnly": true,
+    "decrypted": false,
+    "attached": false
   }
 }

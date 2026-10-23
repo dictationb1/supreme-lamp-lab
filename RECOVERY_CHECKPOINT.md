@@ -46,8 +46,8 @@ payload never writes; **L003** an inverted purge assertion.
 | URL | https://github.com/dictationb1/supreme-lamp/actions/runs/39936058717 |
 | run / attempt | 39936058717 / 1 |
 | SHA | `15e15ab847ad8672960b1117a51ed17b47386c81` |
-| status at validation (10:26Z) | `in_progress`, RDP job `120356350557` at step **50/62** |
-| MC-SIGNAL | **not published** (step 60) → no endpoint/credential derived |
+| status at validation (`2026-10-23T10:19:23Z`) | `in_progress`, RDP job `120356350557` in **keep-alive (step 61/62)** with a live signal |
+| MC-SIGNAL | **live**: check-run `120362814048`, state `live`, heartbeat 43.7 s, expires `2026-10-23T16:18:39.554Z`, `uiMatchesRunSha=true`, keyId `rsa:f5ae1689a220835e` (existing pair, not rotated); not decrypted, not attached |
 | queue applicability to that SHA | **strict OK** for 0001+0002+0003; pinned tests 6/6 |
 | relationship | **unpatched** source identity; a candidate PASS is not its fix |
 

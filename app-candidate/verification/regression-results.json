@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-23T10:26:00Z",
+  "generatedAt": "2026-10-23T10:19:23Z",
   "results": [
     {
       "suite": "lab regressions (scripts/run-regressions.js)",
