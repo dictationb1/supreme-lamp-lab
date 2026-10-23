@@ -1,0 +1,38 @@
+{
+  "kind": "slab-app-patch-bundle/1",
+  "generatedAt": "2026-10-21T14:55:00Z",
+  "basisAppSha": "daf13685d051abf8dea304a2ade82522ae8733ba",
+  "basisRepo": "dictationb1/supreme-lamp",
+  "basisBranch": "main",
+  "why": "The application repository is NOT writable with this session's credential (git push 403, POST /git/refs 403, POST /contents 403, POST /pulls 403, each verified twice on 2026-10-21). The product defect and the workflow integration are therefore delivered as apply-and-PR work in THIS repository, and the application defect is explicitly NOT claimed as fixed or merged.",
+  "patches": [
+    {
+      "file": "supreme-lamp-APP-MAIN-logon-status-matches-clobber.patch",
+      "targetFile": "payloads/ghrdp-server.ps1",
+      "kind": "git-patch",
+      "appliesCleanlyToBasis": true,
+      "basis": "patches/vendor/ghrdp-server.ps1 (exact bytes of the application revision named by basisAppSha; recorded in patches/vendor/.basis-sha)",
+      "defect": "/api/logon-status reads $Matches[1] AFTER a second regex has run. `-notmatch` rewrites $Matches even when it matches, and the user filter has no capture group, so every genuine LogonType-10 event was reported with logonType='' (and the source IP could be taken from a stale match).",
+      "effect": "The logon type and the source network address are captured into locals BEFORE the user filter runs, preserving user/source/time correlation.",
+      "verification": "scripts/test/live-mode-regressions.js re-applies the patch to the vendored basis with `git apply --check` + `git apply`, asserts the ordering property that constitutes the fix, and asserts the basis is genuinely defective (otherwise the test would prove nothing). The behavioural half - real Windows Security-log 4624 events - can only be observed on the Windows client job and is NOT claimed here.",
+      "remainingPrerequisite": "Someone with write access to dictationb1/supreme-lamp must apply this patch there and run the app's Windows verification."
+    },
+    {
+      "file": "app-live-run-signal.snippet.yml",
+      "applier": "apply-live-run-signal.js",
+      "targetFile": ".github/workflows/main.yml",
+      "kind": "anchored-insertion",
+      "appliesCleanlyToBasis": true,
+      "basis": "patches/vendor/main.yml (exact bytes of .github/workflows/main.yml at basisAppSha)",
+      "defect": "The application publishes its authenticated URL into the JOB SUMMARY only. Nothing signals the lab, so no independent verification can start automatically while the ephemeral server is still alive.",
+      "effect": "Adds five steps to the `rdp` job between 'Service Readiness Check (Pre-Keepalive)' and 'Keep-alive 5h30': stage the lab's live runner at the pinned revision, build+publish the non-secret descriptor (with the credential envelope as a 1-day artifact), best-effort wake-up dispatch, and a bounded 25-minute wait for the verdict. No workflow_run trigger, so no dispatch cycle and no dependence on the run having finished.",
+      "why_not_a_git_patch": "main.yml is ~7.3k lines and shifts with every merged PR; a line-number diff would rot quickly and could apply into the wrong job. The applier is anchor-based and refuses to write unless both anchors occur exactly once, the result stays structurally sound, and the handoff is not already present.",
+      "verification": "scripts/test/live-mode-regressions.js applies the snippet to the vendored basis copy, checks the step order, the YAML structure, and that the published handoff contains no credential and never prints the token file.",
+      "remainingPrerequisite": "Applying this to the application repository requires write access there (denied for this session). It also needs ONE repository secret, LAB_RUN_RECORDS_TOKEN (a credential that can write the lab's `run-records` branch), for the queue-record publish and the optional wake-up dispatch; without it the lab's scheduled sweep still serves the run but the record is not written by the origin."
+    }
+  ],
+  "standalonePatchesAlreadyInLabRepo": [
+    "patches/supreme-lamp-978a837-logon-status-matches-clobber.patch (same defect against the pinned 978a837 revision - kept for the standalone pin)",
+    "patches/supreme-lamp-logon-status-matches-clobber.test.patch + .test.js"
+  ]
+}

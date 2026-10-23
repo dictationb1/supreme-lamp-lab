@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+'use strict';
+// QUEUE SELECTOR — decides which live-run record THIS lab run will serve.
+//
+//   node scripts/pick-record.js [--correlation ID] [--origin repo] [--run N]
+//                               [--attempt N] [--records records.txt]
+//
+// Output: one JSON object on stdout:
+//   { proceed: 'yes'|'no', reason, descriptor? }
+//
+// Rules, in order (this is the documented queue policy):
+//   1. An explicit correlation id wins. If that record is missing/expired or
+//      already claimed by a LIVE lab run -> proceed=no with that reason. A
+//      requested correlation is NEVER substituted with another one: attaching an
+//      operator's request to "whatever server is up" is the failure mode this
+//      integration must not have.
+//   2. An explicit (origin repo, run, attempt) wins next — same non-substitution
+//      rule. This is also how a duplicate repository_dispatch dedupes: the second
+//      delivery resolves to the SAME record, sees the live claim, and stands down.
+//   3. Otherwise take the OLDEST unclaimed, unexpired, allowlisted record
+//      (FIFO by issuedAt). Never the newest.
+//   4. Every candidate is validated through lib/run-descriptor before it can be
+//      selected: a malformed or expired descriptor is skipped and reported, and
+//      an origin repo outside the allowlist is refused outright.
+//
+// Exit code is always 0 (a "no" is a normal, reportable outcome); usage errors
+// exit 64.
+
+const fs = require('fs');
+const rd = require('./lib/run-descriptor');
+
+const DEFAULT_ALLOWLIST = ['dictationb1/supreme-lamp'];
+
+function parseArgs(argv) {
+  const a = { correlation: '', origin: '', run: 0, attempt: 1, records: '', allow: process.env.LIVE_RUN_ALLOWED_ORIGINS || DEFAULT_ALLOWLIST.join(',') };
+  for (let i = 2; i < argv.length; i++) {
+    const k = argv[i], v = () => { const n = argv[i + 1]; if (n === undefined) throw new Error(`missing value for ${k}`); i++; return n; };
+    if (k === '--correlation') a.correlation = v();
+    else if (k === '--origin') a.origin = v();
+    else if (k === '--run') a.run = Number(v());
+    else if (k === '--attempt') a.attempt = Number(v());
+    else if (k === '--records') a.records = v();
+    else if (k === '--allow-origins') a.allow = v();
+    else { const e = new Error(`unknown flag ${k}`); e.usage = true; throw e; }
+  }
+  return a;
+}
+
+function out(proceed, reason, descriptor) {
+  const o = { proceed: proceed ? 'yes' : 'no', reason };
+  if (descriptor) o.descriptor = descriptor;
+  process.stdout.write(JSON.stringify(o) + '\n');
+  process.exit(0);
+}
+
+function loadRecords(file) {
+  let text = '';
+  try { text = file ? fs.readFileSync(file, 'utf8') : ''; } catch (e) { return { error: `records file unreadable: ${e.message}` }; }
+  // live-run.js poll-records prints a fenced JSON block; accept bare JSON too.
+  const m = text.match(/\{[\s\S]*\}\s*$/);
+  if (!m) return { error: 'no JSON payload in the records listing' };
+  try { return { doc: JSON.parse(m[0]) }; } catch (e) { return { error: `records JSON unparseable: ${e.message}` }; }
+}
+
+async function main() {
+  let a;
+  try { a = parseArgs(process.argv); } catch (e) { console.error(e.message); return process.exit(64); }
+  const allow = String(a.allow).split(',').map(s => s.trim()).filter(Boolean);
+  if (!allow.length) return out(false, 'NO_ALLOWLIST: refusing to select any record because the origin allowlist is empty');
+  rd.setAllowedOriginRepos(allow);
+
+  const loaded = loadRecords(a.records);
+  if (loaded.error) return out(false, `RECORDS_UNREADABLE: ${loaded.error}`);
+  const rows = (loaded.doc && loaded.doc.records) || [];
+  if (!rows.length) return out(false, 'EMPTY_QUEUE: no live-run record has been published for any run that is still in progress');
+
+  const now = Date.now();
+  const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
+
+  let candidates = [];
+  if (a.correlation) {
+    candidates = rows.filter(r => String(r.correlationId) === String(a.correlation));
+    if (!candidates.length) return out(false, `CORRELATION_NOT_FOUND: no record for ${a.correlation} (queue holds: ${rows.map(r => r.correlationId).join(', ') || 'none'}) — a requested correlation is never substituted`);
+  } else if (a.origin && a.run) {
+    candidates = rows.filter(r => String(r.origin).startsWith(`${a.origin}#${a.run}/`) && String(r.origin).endsWith(`/${a.attempt}`));
+    if (!candidates.length) return out(false, `RECORD_NOT_FOUND: no record for ${a.origin}#${a.run}/${a.attempt} — it may already have been consumed, expired, or never published`);
+  } else {
+    // FIFO by issuedAt: the oldest still-valid origin is served first, because
+    // its server is the one that is alive and waiting.
+    candidates = rows.slice().sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)));
+  }
+
+  const skipped = [];
+  for (const r of candidates) {
+    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
+    if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
+    if (String(r.origin).split('#')[0] && !allow.includes(String(r.origin).split('#')[0])) { skipped.push(`${r.correlationId}: origin ${r.origin} not allowlisted`); continue; }
+    const rec = await readFull(r.path);
+    if (!rec) { skipped.push(`${r.correlationId}: record body unavailable`); continue; }
+    let d = null;
+    try { d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now }); }
+    catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
+    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) return out(true, `SELECTED ${detail(r)}`, d);
+    skipped.push(`${r.correlationId}: state=${rec.state}`);
+  }
+  return out(false, `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}`);
+}
+
+async function readFull(p) {
+  const store = require('./lib/record-store');
+  try { return await store.readRepoFile(process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab', store.RECORDS_BRANCH, p); }
+  catch (e) { return null; }
+}
+
+main().catch(e => { console.error(`pick-record fatal: ${e.stack || e.message}`); process.exit(64); });
+
+module.exports = { parseArgs, loadRecords };

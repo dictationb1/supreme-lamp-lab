@@ -1,0 +1,1 @@
+{"basisAppSha":"daf13685d051abf8dea304a2ade82522ae8733ba","file":"payloads/ghrdp-server.ps1","takenAt":"2026-10-21T14:11:00Z","note":"exact bytes of the application revision the patch was cut against; the regression test re-verifies the defect line is present in this copy"}

@@ -1,0 +1,9 @@
+name: Workflow-parse probe
+on:
+  push:
+    branches: [arena/c9190c4e-supreme-lamp-lab]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "probe ran; this file exists only to tell a frontmatter parse failure apart from an empty job selection"

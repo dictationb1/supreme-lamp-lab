@@ -1,0 +1,158 @@
+      # ---------------------------------------------------------------------
+      # LIVE-RUN HANDOFF (inserted into the application's `rdp` job between the
+      # "Service Readiness Check (Pre-Keepalive)" step and the
+      # "Keep-alive 5h30" step by patches/apply-live-run-signal.js).
+      #
+      # WHY HERE: this is the first point where the dashboard answers, the
+      # tailnet name is known, and the server will stay alive for hours. The
+      # signal must be sent while the server is alive — a "the workflow
+      # finished" trigger (workflow_run) is useless for this integration,
+      # because the ephemeral host is destroyed at the end of this job.
+      #
+      # PRIVACY RULES ENFORCED BELOW (all required):
+      #   * the descriptor published to the lab contains no secret;
+      #   * the credential envelope travels only as an artifact with 1-day
+      #     retention and is never echoed into a log, output, summary or
+      #     status.json;
+      #   * nothing here prints dash-token.txt — the script reads it, not a cat.
+      #
+      # Every step is deliberately non-fatal: a lab that cannot be reached must
+      # end in a stated cause, never in a broken application run and never in
+      # silence.
+      # ---------------------------------------------------------------------
+      - name: Prepare the live-run handoff (stage the lab runner at the advertised revision)
+        id: slab_fetch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $labRepo = 'dictationb1/supreme-lamp-lab'
+          $env:GH_TOKEN = if ($env:GH_TOKEN) { $env:GH_TOKEN } else { '' }
+          # Pair with the lab revision pinned in the application repo, so a run
+          # never silently depends on whatever the lab's default branch happens
+          # to be at the moment of dispatch.
+          $pin = ''
+          try {
+            $cfg = Invoke-RestMethod -UseBasicParsing -Uri "https://raw.githubusercontent.com/$labRepo/main/config/app-source.json"
+            $pin = [string]$cfg.liveRunnerRevision
+          } catch { Write-Host "[slab] pin lookup failed: $($_.Exception.Message)" }
+          if (-not $pin) {
+            try { $pin = (Invoke-RestMethod -UseBasicParsing -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -Uri "https://api.github.com/repos/$labRepo/commits/main").sha } catch { Write-Host "[slab] lab head lookup failed" }
+          }
+          if (-not $pin) {
+            Write-Host '::warning title=Live-run unavailable::the lab repository could not be reached, so this run will NOT be independently verified (nothing here reports a pass)'
+            'available=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          New-Item -ItemType Directory -Force -Path C:\ghrdp\lab | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP 'lab-live-runner.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$labRepo/zip/$pin" -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath C:\ghrdp\lab -Force
+          # Only the lab's scripts are used from here on; this run's own server
+          # stays exactly as staged (the code under test is never swapped).
+          $sha = (git -C (Get-ChildItem C:\ghrdp\lab -Directory | Select-Object -First 1).FullName rev-parse HEAD) 2>$null
+          "available=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lab_repo=$labRepo" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lab_sha=$pin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host ("::notice title=Live-run handoff::lab {0}@{1} staged" -f $labRepo, $pin.Substring(0, [Math]::Min(12, $pin.Length)))
+
+      - name: Signal the verification lab (live run)
+        id: slab_signal
+        if: steps.slab_fetch.outputs.available == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAB_WRITE_TOKEN: ${{ secrets.LAB_RUN_RECORDS_TOKEN }}
+          LAB_SHA: ${{ steps.slab_fetch.outputs.lab_sha }}
+          GHRDP_ROOT: C:\ghrdp
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\live-signal
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Force -Path $env:ARTIFACT_DIR | Out-Null
+          # A cross-repository write to the lab's record branch needs a token with
+          # contents:write on it; the run's own GITHUB_TOKEN does not have that.
+          # Without it the descriptor still travels via the optional dispatch and
+          # the artifact, and the lab reports what it could not verify.
+          if ($env:LAB_WRITE_TOKEN) { $env:GH_TOKEN = $env:LAB_WRITE_TOKEN }
+          $env:LAB_REVISION = $env:LAB_SHA
+          # origin-signal verifies this run's own readiness, builds the signed
+          # descriptor, publishes the queue record, and writes the envelope next to
+          # the artifact name. It reads C:\ghrdp's config.json / dash-token.txt
+          # itself - neither is ever printed.
+          node C:\ghrdp\lab\lab\scripts\live-run.js origin-signal `
+            --mode live-origin --lab-repo dictationb1/supreme-lamp-lab `
+            --envelope-out (Join-Path $env:ARTIFACT_DIR 'envelope.json') `
+            --dispatch-out (Join-Path $env:ARTIFACT_DIR 'dispatch.json') `
+            --ttl-ms 2700000
+          $code = $LASTEXITCODE
+          "exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($code -ne 0) {
+            Write-Host "::warning title=Live-run signal failed::exit $code - this run will not be independently verified; the step log names the specific cause and contains no credential"
+            exit 0
+          }
+          Write-Host "[slab] staged: $((Get-ChildItem $env:ARTIFACT_DIR | Select-Object -ExpandProperty Name) -join ', ')"
+
+      - name: Upload the live-run credential envelope (retention 1 day)
+        if: steps.slab_signal.outputs.exit_code == '0'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: live-run-${{ github.run_id }}-${{ github.run_attempt }}-envelope
+          path: ${{ runner.temp }}/artifacts/live-signal/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Wake the lab workflow (best effort - the lab's sweep is the guaranteed path)
+        if: steps.slab_signal.outputs.exit_code == '0'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.LAB_RUN_RECORDS_TOKEN }}
+          CORRELATION_FILE: ${{ runner.temp }}/artifacts/live-signal/dispatch.json
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $cid = ''
+          try { $cid = [string]((Get-Content $env:CORRELATION_FILE -Raw | ConvertFrom-Json).correlation_id) } catch { }
+          if (-not $env:GH_TOKEN) {
+            Write-Host '::notice title=Dispatch skipped::LAB_RUN_RECORDS_TOKEN is not configured. Not a failure: the lab takes this run from its queue within its sweep interval, and that path needs no secret at all.'
+            exit 0
+          }
+          # Only NON-SECRET fields are dispatched, and only as a wake-up: the lab
+          # re-reads GitHub's own metadata for this run id + attempt and trusts
+          # nothing in this payload.
+          $body = @{ event_type = 'mission-control.live-run'; client_payload = @{ correlation_id = $cid; origin_repo = 'dictationb1/supreme-lamp'; origin_run = '${{ github.run_id }}'; origin_attempt = '${{ github.run_attempt }}' } } | ConvertTo-Json -Compress
+          try {
+            Invoke-RestMethod -Method Post -UseBasicParsing -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -ContentType 'application/json' -Body $body -Uri 'https://api.github.com/repos/dictationb1/supreme-lamp-lab/dispatches' | Out-Null
+            Write-Host '::notice title=Lab woken::dispatched for this run id + attempt'
+          } catch {
+            Write-Host "::warning title=Dispatch refused::$($_.Exception.Response.StatusCode.value__) - expected when this token has no write on the lab repository; the lab's queue sweep still serves this run"
+          }
+
+      - name: Await the lab verdict for this run (bounded)
+        if: steps.slab_signal.outputs.exit_code == '0'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAB_SHA: ${{ steps.slab_fetch.outputs.lab_sha }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Bounded on purpose: the keep-alive window must not be consumed by
+          # waiting, and an unreachable lab must finish with a stated cause
+          # instead of an endless spinner.
+          $deadline = (Get-Date).AddMinutes(25)
+          while ((Get-Date) -lt $deadline) {
+            try {
+              $runs = Invoke-RestMethod -UseBasicParsing -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -Uri 'https://api.github.com/repos/dictationb1/supreme-lamp-lab/actions/runs?per_page=10'
+              $cand = @($runs.workflow_runs | Where-Object { $_.status -ne 'in_progress' -and $_.head_sha -eq $env:LAB_SHA } | Select-Object -First 1)
+              if ($cand) {
+                $arts = Invoke-RestMethod -UseBasicParsing -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } -Uri "https://api.github.com/repos/dictationb1/supreme-lamp-lab/actions/runs/$($cand.id)/artifacts"
+                $art = @($arts.artifacts | Where-Object { $_.name -like "live-run-*-$($cand.id)-*" } | Select-Object -First 1)
+                if ($art) {
+                  "lab_run=$($cand.id)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+                  Write-Host "::notice title=Lab verdict available::lab run $($cand.id), artifact '$($art.name)' ($($art.size_in_bytes) bytes). The sanitized report and evidence download from that run."
+                  exit 0
+                }
+              }
+            } catch { Write-Host "[slab] verdict poll: $($_.Exception.Message)" }
+            Start-Sleep -Seconds 30
+          }
+          Write-Host '::warning title=Lab verdict unavailable::no completed lab report was reachable for this run inside the bounded wait. Causes: the self-hosted client runner is offline, the queue was busy with another run, the lab handler is not on its default branch, or this run could not read the lab repository. THIS RUN IS NOT LAB-VERIFIED.'
+          exit 0

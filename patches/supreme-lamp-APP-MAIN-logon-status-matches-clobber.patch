@@ -1,0 +1,26 @@
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -8463,12 +8463,21 @@
+                     # 2/10/11 set as the F28 collector. \b stops '10' from
+                     # matching inside a longer number.
+                     if ($msg -notmatch 'Logon Type:\s+(2|10|11)\b') { continue }
++                    # [GH-rdp-fix 1/3] $Matches is clobbered by ANY subsequent
++                    # regex evaluation - including a `-notmatch` that SUCCEEDS.
++                    # The user filter on the next line has no capture group, so
++                    # reading the automatic variable after it always yielded '', i.e. every
++                    # genuine type-10 logon was reported with logonType="".
++                    # Capture the group before any other match runs; the source
++                    # address is captured the same way for the same reason.
++                    $ltSeen = [string]$Matches[1]
++                    $ipSeen = ''
++                    if ($msg -match 'Source Network Address:\s+(\S+)') { $ipSeen = [string]$Matches[1] }
+                     if ($userQ -and $msg -notmatch [regex]::Escape($userQ)) { continue }
+                     $connected = $true
+-                    $ltSeen = [string]$Matches[1]
+                     $ts = $ev.TimeCreated.ToUniversalTime().ToString('o')
+                     $ageSec = [int]((Get-Date) - $ev.TimeCreated).TotalSeconds
+-                    if ($msg -match 'Source Network Address:\s+(\S+)') { $ip = $Matches[1] }
++                    $ip = $ipSeen
+                     break
+                 }
+             } catch { }
