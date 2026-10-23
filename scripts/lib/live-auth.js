@@ -190,6 +190,93 @@ function finishEnvelope(json, descriptor, extra) {
  * Failure classes are distinct so an operator can tell a stale key
  * (AUTHORIZATION_REJECTED) from a dead server (LIVE_BACKEND_UNREACHABLE).
  */
+/**
+ * Password-bearing field NAMES in a /api/config answer. Only names are read, so
+ * this can be reported without leaking anything. `creds` itself is NOT one: the
+ * application always returns creds:{fqdn,user,ip} (Remove-CredKeys rebuilds it),
+ * and treating that as a leak refused every real origin once already.
+ */
+function secretFieldsOf(resp) {
+  const j = resp && resp.json;
+  if (!j || typeof j !== 'object') return [];
+  const out = [];
+  const nested = ['creds', 'rdpCreds', 'maskedCreds', 'rawCreds'];
+  const secretNames = ['windowsPass', 'vncPass', 'rdpPass', 'password', 'plainPassword'];
+  const topSecret = ['rdpPass', 'vncPass', 'windowsPass', 'rawCreds', 'rawPass'];
+  for (const k of secretNames) {
+    for (const parent of nested) {
+      const v = j[parent];
+      if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, k)) out.push(`${parent}.${k}`);
+    }
+  }
+  for (const k of topSecret) if (Object.prototype.hasOwnProperty.call(j, k)) out.push(k);
+  return out;
+}
+
+/**
+ * The server's OWN token telemetry, for the question a 401 cannot answer:
+ * "is the credential the application published the one its strict route expects?"
+ * /api/diag/comprehensive publishes a ring of the last token comparisons with a
+ * SHORT hash of the expected value and the two lengths, never a value. Comparing
+ * that hash with the credential the lab decrypted (which the lab already holds)
+ * turns "401" into either "the server expects a different token" or "the
+ * token is right and something else refused us" - without printing either.
+ */
+/**
+ * Locate the server's token-comparison ring inside /api/diag/comprehensive. The
+ * bundle nests it under different keys between builds, so it is found
+ * structurally (an array whose entries carry expectedHash/presentedHash) rather
+ * than by a name that a build can change.
+ */
+function findTokenRing(node, depth = 0) {
+  if (!node || depth > 6) return null;
+  if (Array.isArray(node)) {
+    if (node.some(x => x && typeof x === 'object' && ('expectedHash' in x || 'presentedHash' in x))) return node;
+    for (const v of node) { const r = findTokenRing(v, depth + 1); if (r) return r; }
+    return null;
+  }
+  if (typeof node === 'object') {
+    for (const v of Object.values(node)) { const r = findTokenRing(v, depth + 1); if (r) return r; }
+  }
+  return null;
+}
+
+async function diagTokenEvidence(target, presentedToken) {
+  const r = await request(`${target}/api/diag/comprehensive`, { timeoutMs: 20000 });
+  if (r.transport !== 'ok' || !r.ok || !r.json) return { ok: false, status: r.status, transport: r.transport };
+  const ring = findTokenRing(r.json) || [];
+  const forRoute = ring.filter(t => String((t && t.route) || '') === '/api/rdp-token');
+  const last = forRoute.length ? forRoute[forRoute.length - 1] : (ring.length ? ring[ring.length - 1] : null);
+  if (!last) return { ok: true, status: r.status, entries: ring.length, matched: null };
+  const mine = crypto.createHash('sha256').update(String(presentedToken || ''), 'utf8').digest('hex').slice(0, 8);
+  return {
+    ok: true,
+    entries: ring.length,
+    route: last.route || null,
+    valid: last.valid === true,
+    presentedLen: last.presentedLen === undefined ? null : Number(last.presentedLen),
+    expectedLen: last.expectedLen === undefined ? null : Number(last.expectedLen),
+    // booleans only: the hashes themselves stay inside this function
+    serverExpectedEqualsPublished: String(last.expectedHash || '') === mine,
+    myLength: String(presentedToken || '').length
+  };
+}
+
+/**
+ * The /api/config credential gate, as three distinct outcomes:
+ *   enforced       the password block opens only for the current-run key
+ *   leaked         it opens for an anonymous/forged caller that is not a peer
+ *   tailnet-trust  the caller is inside the tailnet CGNAT range, where the build
+ *                  deliberately trusts the source; inconclusive, never a leak
+ *   unsupported    no password block exists in this build
+ */
+function classifyConfigGate({ anonymous = [], wrongKey = [], ourKey = [], tailnetSource = false } = {}) {
+  const openedForStranger = anonymous.length > 0 || wrongKey.length > 0;
+  if (openedForStranger) return tailnetSource ? 'tailnet-trust' : 'leaked';
+  if (ourKey.length > 0) return 'enforced';
+  return 'unsupported';
+}
+
 async function proveAuthorization({ target, dashboardToken, log = () => {} } = {}) {
   const negative = { ok: false, code: 'PROOF_INCONCLUSIVE' };
   const results = {};
@@ -213,15 +300,30 @@ async function proveAuthorization({ target, dashboardToken, log = () => {} } = {
   const b1 = await request(`${target}/api/config`, { timeoutMs: 15000 });
   const b2 = await request(`${target}/api/config?key=${encodeURIComponent(bogus)}`, { timeoutMs: 15000 });
   const b3 = await request(`${target}/api/config?key=${encodeURIComponent(T)}`, { timeoutMs: 15000 });
-  const gated = r => Boolean(r && r.json && (r.json.rdpCreds || r.json.creds || r.json.rawCreds || r.json.maskedCreds));
-  const hasField = r => Boolean(r && r.json && ('rdpCreds' in r.json || 'creds' in r.json || 'rawCreds' in r.json || 'maskedCreds' in r.json));
-  // Three outcomes, deliberately distinct:
-  //   enforced     the creds block exists and opens ONLY for the current key
-  //   leaked       the creds block is served to an anonymous or forged caller
-  //   unsupported  this server build does not expose the gated block at all
-  const configGate = (!hasField(b1) && !hasField(b2) && !hasField(b3)) ? 'unsupported'
-    : (gated(b3) && !gated(b1) && !gated(b2)) ? 'enforced' : 'leaked';
-  results.config = { anonymous: gated(b1), wrongKey: gated(b2), ourKey: gated(b3), gate: configGate, statuses: [b1.status, b2.status, b3.status] };
+  // MEASURED (run 39906231257): the previous predicate treated the mere
+  // presence of a `creds` object as a leaked credential block. The application
+  // ALWAYS returns `creds:{fqdn,user,ip}` (Remove-CredKeys rebuilds it with no
+  // secrets), so this lab refused every real origin with a security claim that
+  // was simply wrong. What the gate protects is the PASSWORDS
+  // (`creds.windowsPass`, `creds.vncPass`, `rdpPass`, ...), so that is what is
+  // measured - and only key NAMES are ever read, never a value.
+  const anonSecret = secretFieldsOf(b1);
+  const wrongSecret = secretFieldsOf(b2);
+  const ourSecret = secretFieldsOf(b3);
+  // A second, independent policy sits behind the key gate: the application's
+  // Test-CredsAllowed also trusts ANY source inside the tailnet CGNAT range. The
+  // client VM is such a peer, so an anonymous request from here is authorized by
+  // source - not a leak and not a proof of the key gate. That outcome must be
+  // reported as what it is instead of being called either.
+  const sourceIsTailnet = Boolean(clientTailnetIp().ok);
+  const configGate = classifyConfigGate({ anonymous: anonSecret, wrongKey: wrongSecret, ourKey: ourSecret, tailnetSource: sourceIsTailnet });
+  results.config = {
+    gate: configGate,
+    // field NAMES only: this object is written into the sanitized report
+    anonymousFields: anonSecret, wrongKeyFields: wrongSecret, ourKeyFields: ourSecret,
+    sourceIsTailnet,
+    statuses: [b1.status, b2.status, b3.status]
+  };
 
   const allServersDown = [a1, a2, a3, b1, b2, b3].every(r => r.transport !== 'ok' || (r.status && r.status >= 500));
   if (allServersDown) {
@@ -233,29 +335,98 @@ async function proveAuthorization({ target, dashboardToken, log = () => {} } = {
   const accepted = a3.transport === 'ok' && a3.status === 200 && results.ourBearer.hasRid;
   const configGated = configGate === 'enforced';
   // A second gate that LEAKS is not a partial success: an anonymous caller
-  // obtaining the credentials block means the run's authorization is not what
-  // protects them, and a "proof" built on that would be a lie.
+  // obtaining a password means the run's authorization is not what protects it,
+  // and a "proof" built on that would be a lie. A tailnet-source result is NOT
+  // a leak (the build documents that trust) and NOT proof of the key gate: it is
+  // reported as inconclusive for that one gate while the bearer gates above stand
+  // on their own.
   const gateLeaked = configGate === 'leaked';
 
-  log(`auth proof: noBearer=${a1.status} wrongBearer=${a2.status} ourBearer=${a3.status}${accepted ? ' +ticket' : ''} configGate=${gated(b3) ? 'gated-ok' : 'gated-miss'}`);
+  log(`auth proof: noBearer=${a1.status} wrongBearer=${a2.status} ourBearer=${a3.status}${accepted ? ' +ticket' : ''} configGate=${configGate}`);
 
   if (gateLeaked) {
-    return { ok: false, code: 'CREDENTIAL_GATE_LEAKED', detail: `/api/config served its gated credentials block to an anonymous or forged caller — authorization is not enforced on this build`, results };
+    return { ok: false, code: 'CREDENTIAL_GATE_LEAKED', detail: `/api/config served password fields (${anonSecret.concat(wrongSecret).join(', ')}) to an anonymous or forged caller that is NOT a tailnet peer — authorization is not enforced on this build`, results };
   }
   if (accepted && refusedNoBearer && refusedWrong) {
     return {
       ok: true, code: 'AUTHORIZATION_PROVEN', results,
-      detail: `the live server minted a single-use ticket for this token and refused both anonymous and forged bearers` + (configGated ? ' (+ /api/config credential gate opened only for the current-run key)' : ''),
+      detail: `the live server minted a single-use ticket for this token and refused both anonymous and forged bearers`
+        + (configGated ? ' (+ /api/config password block opened only for the current-run key)'
+          : configGate === 'tailnet-trust' ? ' (the /api/config password block could not be distinguished from the documented tailnet-source trust: this client is a tailnet peer)'
+            : configGate === 'unsupported' ? ' (this build exposes no key-gated password block)'
+              : ''),
       ticket: a3.json.rid, ticketTtlSec: Number(a3.json.ttl || 60), configGate, configGateProven: configGated
     };
   }
   if (a3.transport === 'ok' && (a3.status === 401 || a3.status === 403)) {
-    return { ok: false, code: 'AUTHORIZATION_REJECTED', detail: 'the live server refused this token — it is not this run\'s dashboard authorization (stale envelope, wrong run, or rotated key)', results };
+    // A 401 on the strict route cannot tell a stale credential from a server whose
+    // boot-time snapshot differs from the credential it publishes. Ask the server's
+    // own telemetry before blaming the envelope.
+    const diag = await diagTokenEvidence(target, T).catch(() => null);
+    if (diag) results.diag = diag;
+    const tail = diag && diag.ok && diag.serverExpectedEqualsPublished === false
+      ? ` — the server's own telemetry shows it expects a DIFFERENT token (expectedLen=${diag.expectedLen}, publishedLen=${diag.myLength}): the application published a credential its strict route does not accept`
+      : diag && diag.ok && diag.serverExpectedEqualsPublished === true
+        ? ' — the server\'s telemetry shows it expects EXACTLY the published credential, so the refusal is not a token mismatch'
+        : '';
+    return { ok: false, code: 'AUTHORIZATION_REJECTED', detail: `the live server refused this token — it is not this run's dashboard authorization (stale envelope, wrong run, or rotated key)${tail}`, results };
   }
   if (accepted && !(refusedNoBearer && refusedWrong)) {
     return { ok: false, code: 'AUTHORIZATION_GATE_UNENFORCED', detail: `the server's authorization gate cannot be demonstrated (noBearer=${a1.status} wrongBearer=${a2.status}) — the run is not provably authorized, it merely happens to work`, results };
   }
   return { ok: false, code: 'AUTHORIZATION_UNPROVEN', detail: `unexpected gate outcome (noBearer=${a1.status} wrong=${a2.status} ours=${a3.status})`, results };
+}
+
+/**
+ * Is the run's credential CURRENT for the application, as distinct from
+ * "accepted by the strict ticket route"?
+ *
+ * Measured (runs 39906231257 .. 39910994515): the serving process booted 77s
+ * after the origin run began, its strict POST /api/rdp-token compares the
+ * dashboard token against the value read ONCE at boot, and it answered 401 for
+ * the exact credential the application itself published - while the same build
+ * compares the refresh-aware way (snapshot UNION dash-token.txt UNION
+ * config.json) everywhere else.
+ *
+ * GET /api/search/status is such a route: read-only, X-Dash-Token header only
+ * (query credentials are refused by design), it records each comparison in the
+ * F99 telemetry ring, and it answers 403 when the token is not current. With an
+ * anonymous and a forged baseline it therefore separates three states:
+ *   current     200 for ours, 403 for both baselines
+ *   rejected    refused for ours as well (the credential really is stale)
+ *   unenforced  the baselines are served too (a gate that proves nothing)
+ */
+async function probeRefreshAwareToken(target, dashboardToken, { timeoutMs = 15000 } = {}) {
+  const T = String(dashboardToken || '');
+  if (!T) return { ok: false, code: 'TOKEN_ABSENT' };
+  const bogus = crypto.randomBytes(16).toString('hex');
+  // A NONEXISTENT search id is deliberate: the route authenticates BEFORE it
+  // validates, so a token that passes the gate answers 404 UNKNOWN_SOURCE while
+  // a refused one answers 403. MEASURED on the first attempt: calling the route
+  // with no parameter at all answers 400 ("searchId required"), which is also
+  // post-auth but indistinguishable from a validation error raised earlier.
+  const probeId = `lab-probe-${crypto.randomBytes(6).toString('hex')}`;
+  const url = `${target}/api/search/status?searchid=${encodeURIComponent(probeId)}`;
+  const ours = await request(url, { timeoutMs, headers: { 'X-Dash-Token': T } });
+  const anon = await request(url, { timeoutMs });
+  const forged = await request(url, { timeoutMs, headers: { 'X-Dash-Token': bogus } });
+  const codeOf = r => (r && r.json && r.json.code) || null;
+  const results = {
+    probe: 'searchid sentinel (post-auth answer expected)',
+    ours: { status: ours.status, transport: ours.transport, code: codeOf(ours) },
+    anonymous: { status: anon.status, transport: anon.transport },
+    forged: { status: forged.status, transport: forged.transport }
+  };
+  if (ours.transport !== 'ok') return { ok: false, code: 'REFRESH_AWARE_UNREACHABLE', results };
+  // 200 = the route served; 404 UNKNOWN_SOURCE = the token passed and only the
+  // sentinel id was unknown. Both mean "the credential is current".
+  const oursAccepted = ours.status === 200 || (ours.status === 404 && codeOf(ours) === 'UNKNOWN_SOURCE');
+  const refusedAnon = anon.status === 401 || anon.status === 403;
+  const refusedForged = forged.status === 401 || forged.status === 403;
+  if (oursAccepted && refusedAnon && refusedForged) return { ok: true, code: 'REFRESH_AWARE_CURRENT', results };
+  if (!oursAccepted && (ours.status === 401 || ours.status === 403)) return { ok: false, code: 'REFRESH_AWARE_REJECTED', results };
+  if (oursAccepted && !(refusedAnon && refusedForged)) return { ok: false, code: 'REFRESH_AWARE_UNENFORCED', results };
+  return { ok: false, code: 'REFRESH_AWARE_UNPROVEN', results };
 }
 
 /**
@@ -371,6 +542,7 @@ function clientTailnetIp() {
 
 module.exports = {
   DASH_TOKEN_STORAGE_KEY, registerSecret, isCgnat, resolveTransport, fetchEnvelope, proveAuthorization,
+  secretFieldsOf, classifyConfigGate, diagTokenEvidence, findTokenRing, probeRefreshAwareToken,
   storageInitScript, clearBrowserToken, resolveProtocolHandler,
   productionRdpUrl, mintTraceId, launchProductionHandler, clientTailnetIp, fp
 };

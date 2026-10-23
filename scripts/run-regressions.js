@@ -1827,6 +1827,24 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== queue selection (claim step) =====
+  {
+    const register = require('./test/queue-selection-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
+  // ===== the /api/config credential gate as the application implements it =====
+  {
+    const register = require('./test/live-auth-gate-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
+  // ===== merged application signal (mc-signal/v1) compatibility =====
+  {
+    const register = require('./test/app-signal-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
   // ===== supported RDP-file signing / trust path =====
   {
     const register = require('./test/rdp-signing-regressions');

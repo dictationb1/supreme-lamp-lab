@@ -1,113 +1,128 @@
-# RECOVERY CHECKPOINT — PR #18 follow-up (2026-10-21)
+# RECOVERY CHECKPOINT — live Mission Control verification (2026-10-23)
 
-If this session ends early, this file is the resume point.
+If this session ends early, this file is the resume point. It replaces the older
+PR #18 checkpoint; that history stays in git.
 
 ## Where the work is
 
 | item | value |
 |---|---|
 | lab repository | `dictationb1/supreme-lamp-lab` |
-| session branch (this work) | `arena/44280da4-supreme-lamp-lab`, based on PR #18's head `a22353a` |
-| PR #18 branch (other session, **not writable from here**) | `arena/ba4f2d55-supreme-lamp-lab` @ `a22353a` |
-| this session's PR | **#19** → base `arena/ba4f2d55-supreme-lamp-lab`, head `arena/44280da4-supreme-lamp-lab` @ `913696e` |
-| stack | #16 (`arena/f823d76d`) → #17 (`arena/efe7639f`) → #18 (`arena/ba4f2d55`) → this branch |
-| application repository | `dictationb1/supreme-lamp` @ `978a837` pinned; `main` `daf13685` differs only in `docs/status.json` |
+| branch (this session) | `arena/00ac3814-supreme-lamp-lab` |
+| PR | **#23** (labels `live-verify`, `rdp-signing-probe`) |
+| HEAD at the last full verification | `3be2680` + the latency commit on top |
+| application repository | `dictationb1/supreme-lamp` (`main` `c470531e` at the time of the run) |
+| attached origin | **run 39899087271 / attempt 1**, sha `c470531e4739be072daea20425a1de203d0ed326` |
+| last full lab run | `39913711978` (client job `120282471443`) |
+| queue record | `run-records: records/dictationb1_supreme-lamp/39899087271-1.json` → `REPORTED_FAILED` (in-process report, 3/14 mandatory PASS) |
+| local suite | `node scripts/run-regressions.js` → **228 tests: 220 passed, 0 failed, 8 skipped** |
 
-## Latest measured result (run 39605267051, head `913696e`)
+## Where the evidence lives (this environment cannot download artifacts)
 
-* static job: **100 tests, 100 passed, 0 failed, 0 skipped** — the real-PowerShell
-  `$Matches` reproduction ran under **pwsh 7**.
-* client job (self-hosted, `rdp-lab-client`, **WIN-NFU1JG4VESE\User session 1,
-  PS 5.1.20348.5756**): **100 tests, 100 passed, 0 failed, 0 skipped** — the same
-  reproduction ran under **Windows PowerShell 5.1**, the production shell.
-* capabilities: `browser_synthetic` PASS, `native_screenshot` PASS,
-  `backend_readiness_server_local` PASS, `dashboard_server_local` PASS,
-  `tailnet_connectivity` PASS, `backend_readiness_remote` PASS,
-  `dashboard_client` PASS, `web_desktop` **BLOCKED**, `rdp_auto_login`
-  **BLOCKED (RDP_FILE_CONSENT_REQUIRED)** → `verdict=NOT_VERIFIED`.
-* the new SETUP step was correctly **skipped** in this full run (mode gating works).
-* the live manual action now names the SETUP procedure and the exact account, with
-  no `<server-ip>` placeholder.
+`gh run download` and `blob.core.windows.net` are unreachable here, and Windows
+runner step logs are not retrievable either. **Everything verdict-relevant is
+therefore emitted as a check-run annotation** (`GET
+/repos/.../check-runs/<job id>/annotations`). Read them with:
 
-## What is DONE in this branch
+```bash
+gh api repos/dictationb1/supreme-lamp-lab/actions/runs/<run>/jobs \
+  --jq '.jobs[]|select(.name|startswith("client"))|.id'          # job id
+gh api repos/dictationb1/supreme-lamp-lab/check-runs/<job id>/annotations
+```
 
-1. **SETUP procedure for the one-time RDP-file consent** (bounded, explicitly not
-   a verification run): `workflow_dispatch` `mode=consent-setup`,
-   `setup_timeout_ms` ≤ 900000, step `timeout-minutes: 16`,
-   `scripts/rdp-consent-setup.js`, `scripts/lib/consent-state.js`,
-   `scripts/setup-summary.js` (`verdict: NO_VERDICT_SETUP_MODE` — a SETUP run can
-   never be reported as `VERIFIED`).
-2. **Bootstrap made safely executable**: `scripts/lib/rdp-target.js` refuses
-   placeholders/loopback/documentation/URL/CIDR/bare-hostname targets, strict
-   argument parsing (unknown flag ⇒ exit 64), and the operator text prints the
-   account, session, checkout directory and target. `lib/dialogs.js` no longer
-   ships a `<server-ip>` placeholder.
-3. **Logon contract tightened**: intended-user echo required, attempt window
-   bounded at both ends, cross-check cannot confirm through another account's
-   event (`scripts/lib/logon.js`, verified by new tests).
-4. **RUNBOOK §2.4 rewritten**: verified CVE-2026-26151 attribution (MSRC + NVD),
-   the two dialog families kept separate, exact account/session, checkout
-   directory, checkbox/button, how to confirm the setup finished, bounded SETUP
-   vs manual fallback, and the honest limits (Cancel == OK cosmetically;
-   `NO_DIALOG_SEEN` is not consent; consent persistence across re-image is
-   unverified).
-5. **Regression suite 100 tests** (was 92): 92 pass / 0 fail / 8 platform-skips on
-   Linux (7 browser-e2e need Chromium; 1 is the real-PowerShell test that runs
-   on the Windows client job). New gates cover target validation, bootstrap
-   strictness, the consent state machine, SETUP-verdict separation, the user-echo
-   / time-window / cross-check identity rules, and a real-PowerShell
-   reproduction of the `$Matches` clobber (Windows-only).
-6. **Application defect: patch + test delivered, still PENDING.**
-   `patches/` holds the 2-line fix and the test; measured locally
-   (3/3 pass with the fix, 2/3 fail unpatched). **It could not be landed**: this
-   credential can read `dictationb1/supreme-lamp` but not write to it
-   (`git push` → 403, API ref creation → `Resource not accessible by
-   integration`). The observer defect is **not fixed**.
+## What the lab did in this session (all pushed, all with regressions)
 
-## What is NOT done (and why)
+Chain of measured defects, each one hiding the next:
 
-- **The account consent itself.** Run 39598371464 (attempt 1, `a22353a`)
-  conclusively shows the dialog on screen, ungranted, for
-  `WIN-NFU1JG4VESE\User` (session 1). Only a human at that desktop can check the
-  box. Until then `rdp_auto_login=BLOCKED / RDP_FILE_CONSENT_REQUIRED`,
-  `web_desktop=BLOCKED` behind it, verdict `NOT_VERIFIED` — correctly.
-- **A fresh unattended acceptance run** (all nine capabilities) — needs the
-  consent first. Do not launch repeated full runs against this known block.
-- **Merging the stack** — requires a passing candidate; see above.
+1. `45752ae` the merged application publishes `mc-signal/v1` in check-run
+   **output.text**, not `output.summary`.
+2. `6a94924` the claim step read a record envelope instead of the record.
+3. `cf1bdb0` cleanup bookkeeping killed the verification step.
+4. `fe872fe` that step could not even report why (PowerShell stderr folding).
+5. `33bd21d`/`0a3f2b9` the client VM had **no node** (and setup-node's 7zr failed):
+   the cleanup silently no-op'd. The job now provisions node itself.
+6. `49ab054`/`f350b76` a lab failure wrote `FAILED` and poisoned the queue entry;
+   `retryable` is honoured from the record body and the row.
+7. `3cba0b4`/`4c3640c` a claim left by a terminal lab run made the origin
+   unattachable (`labRunStatus` was not exported).
+8. `565d2f6` the job-level ack minted `REPORTED_VERIFIED` for a run that verified
+   nothing; the verdict is now annotated and only a VERIFIED exit is green.
+9. `19f0690` `acquireLock({name})` — every live run died at `LOCK_DIR_REQUIRED`;
+   it now takes `registry.sessionLockDir()`.
+10. `7e468da` the app's normal `creds:{fqdn,user,ip}` was called a credential
+    leak; the gate now measures password fields only, and a tailnet peer's
+    receipt is `tailnet-trust` (inconclusive), never a leak.
+11. `98831e4`/`a4b209e`/`0db1691`/`804f693`: the server's own telemetry, the
+    envelope provenance and the auth gates are on the run page.
+12. `1db6f28`/`e7f730a` the instance is bound to the **process start time**, not
+    just buildSha.
+13. `dc26d58`/`5f67583` the strict ticket route is told apart from the
+    refresh-aware routes.
+14. `ba797df` the feature pass called a helper that never existed
+    (`ReferenceError: summarizeToCapabilities`) — the first run that ever reached
+    it died there.
+15. `3be2680` every non-PASS feature is annotated with its reason; `/api/version`
+    reporting `dev` is `VERSION_STAMP_ABSENT` (BLOCKED), not "another instance".
+16. `7f041a0` the latency legs are measured and annotated.
 
-## Next concrete action
+## What is VERIFIED (lab side, by real runs)
 
-0. **You must dispatch it — this session cannot.** `gh workflow run` returns
-   `HTTP 403: Resource not accessible by integration` for
-   `capability-check.yml`. Use the Actions UI: *Run workflow* → branch
-   `arena/44280da4-supreme-lamp-lab` → `mode: consent-setup`
-   → `setup_timeout_ms: 600000`.
-1. That opens the bounded SETUP window (≤15 min, labelled SETUP).
-2. While it is open, on `WIN-NFU1JG4VESE\User` session 1: check
-   *"I understand and allow RDP files to open on this device for my account"*,
-   press **OK**.
-3. Confirm the SETUP state is `CONSENT_DIALOG_CLEARED` / `SESSION_CONNECTED`
-   (**not** `…CLOSED_UNCONFIRMED`, which is what Cancel produces, and **not**
-   `NO_DIALOG_SEEN`, which proves nothing).
-4. Dispatch **`mode=full`**. It must pass with no manual clicks and no
-   credential entry. Only that run can be `VERIFIED`.
-5. If a *publisher/security-review* dialog (Caution: Unknown remote connection)
-   blocks it instead: that is `RDP_FILE_SECURITY_REVIEW_BLOCKING`, a different
-   protection. Documented scope: an organization-trusted `.rdp` publisher
-   (signed `.rdp` + trusted-publisher policy) — an operator decision, not a lab
-   change, and never a global warning suppression.
-6. With a passing candidate: integrate #18 → #17's branch, verify updated #17,
-   integrate → #16's branch, verify updated #16, then merge #16 to `main`; then
-   inspect the `main` push run and, if permitted, one manual `workflow_dispatch`
-   full verification.
+| acceptance | state | evidence |
+|---|---|---|
+| A regressions | **PASS** | 228 tests, 0 failed, 8 platform skips (linux); Windows client job runs the same suite |
+| B1 real app run attached | **PASS** | discovery `transport=check-run signalFormat=mc-signal/v1 signalLive=true heartbeatAge=8–57s keyId rsa:f5ae1689a220835e = expected alg=rsa-oaep-sha256+aes-256-gcm uiMatchesRunSha=true fallback=-` |
+| B2 decryption with the lab key | **PASS** | `LAB_SIGNAL_PRIVATE_KEY` decrypts the sealed envelope in-process; keyId matches; the credential is then accepted by the app's refresh-aware routes |
+| B3 exact instance | **PASS for the process** | server boot `2026-10-23T04:13:48.829Z` (route `/api/native-status`), run start `04:12:31Z`, delta −77.8 s → this run's process; `/api/config` buildSha = run head |
+| B4 authenticated visible UI | **FAIL** | `nav.routes_reachable`: `overview=rendered-with-errors`; `1 route(s) did not render cleanly` |
+| B5 unattended native RDP | **BLOCKED (application defect)** | see below |
+| B6 web desktop / features | **FAIL/BLOCKED** | 3/14 mandatory PASS; 7 FAIL, 6 BLOCKED (reasons now annotated per feature) |
+| B7 sanitized report | **PASS** | `live_credential_hygiene=PASS` (4 files scanned, 1 secret, url-key/ticket shapes clean) |
+| C second app run | **NOT_RUN** | needs a fresh `mode=rdp` dispatch (the lab cannot dispatch the app workflow: 403) |
+| D cancellation/expiry/superseded | **unit PASS, live NOT_RUN** | `SIGNAL_STALE_ATTEMPT`, closed-signal, `RUN_ATTEMPT_SUPERSEDED`, expired-record-skipped all covered; a live cancellation needs a fresh origin |
 
-## Evidence pointers
+## The two application-side defects (proven, not inferred)
 
-- run 39598371464 (`a22353a`): `rdp_auto_login=BLOCKED RDP_FILE_CONSENT_REQUIRED`,
-  `web_desktop=BLOCKED DEPENDS_ON_RDP_SESSION`, 7 capabilities PASS, both
-  regression gates 92/92, `native-rdp-dialog.png` captured, `verdict=NOT_VERIFIED`.
-- run 39596760458 (`8c6e01d`): same classification (first run to name the dialog).
-- run 39594245349 (`1af4044`): initial dialog classification calibration.
-- Job logs/artifacts are on the Actions results blob host, which this session's
-  sandbox cannot reach; everything quoted above comes from the check-run
-  annotations API and repository source.
+### 1. `APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE` — blocks unattended native RDP
+
+* the server's own telemetry (`/api/diag/comprehensive` → token ring, read via
+  `/api/native-status`) reports **`expectedLen=0`**, `expectedHash` ≠ published:
+  `$script:Token`, read once at boot from `dash-token.txt`, was empty.
+* `POST /api/rdp-token` answered **401** for the run's own credential, and 401 for
+  anonymous and forged bearers (the gate is real; the snapshot is what it compares).
+* the same credential was **accepted** on the refresh-aware route
+  (`GET /api/search/status` → 404 `UNKNOWN_SOURCE` past the gate;
+  anonymous/forged → 403), i.e. the credential is current.
+* cause in the application workflow: `F92 register user-session server`
+  (`main.yml` ~line 903) registers `GHRDP-Server` and **kicks it immediately**,
+  77 s into the run, while the per-run dashboard token is written much later by
+  `Stage files + write config.json` (~line 2554; `dash-token.txt` at 2831,
+  `dashToken` at 2767). The server never re-reads the file.
+* fix belongs to the application: either start the server after the token exists
+  (and restart it when config changes), or make `/api/rdp-token` compare through
+  `Test-GhrdpDashToken` (the refresh-aware union the other routes already use).
+
+### 2. `VERSION_STAMP_ABSENT` — the UI build cannot be tied to the run
+
+`/api/version` answers `sha:"dev"` while `/api/config.buildSha` matches the run.
+The lab reports BLOCKED (prerequisite), not "a different instance".
+
+## Operator actions, in order
+
+1. **Fix the application boot order** (defect 1). Until then *every* run reports
+   `live_authorization=BLOCKED` and unattended native RDP cannot be verified —
+   the lab will not fake it.
+2. **Start a fresh application run** with `mode=rdp` (Actions → *Windows RDP -
+   Tailscale Mission Control* → Run workflow). This is requirement C: a new run
+   with a new identity. The lab's `*/10` sweep attaches automatically (≤10 min),
+   or add the `live-verify` label to PR #23 for an immediate sweep.
+3. Nothing else. Do not cancel runs; the queue is FIFO and one claim per origin.
+
+## Resume checklist
+
+```bash
+cd /home/user/supreme-lamp-lab
+git log --oneline -3
+node scripts/run-regressions.js                       # 228 tests
+gh run list --workflow live-run.yml -L 3              # find the sweep
+gh api repos/dictationb1/supreme-lamp-lab/contents/records/dictationb1_supreme-lamp/39899087271-1.json?ref=run-records --jq .content | base64 -d | jq .state
+```

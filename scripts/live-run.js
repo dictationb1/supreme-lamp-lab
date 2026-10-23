@@ -46,9 +46,24 @@ const { request } = require('./lib/http');
 const { waitForReady } = require('./lib/readiness');
 const discovery = require('./lib/origin-discovery');
 const serverIdentity = require('./lib/server-identity');
+const registry = require('./lib/registry');
 
 const EXIT = { OK: 0, USAGE: 64, NOT_WINDOWS: 69, BLOCKED: 4, NO_EVIDENCE: 5, UNCONFIRMED: 7, EXPIRED: 8, BUSY: 9 };
 /** The operator-facing pipeline. `stage` in every report is one of these. */
+// A job conclusion is not a verification verdict. MEASURED (run 39904246194):
+// a client job whose live step exited 4 BLOCKED was green at workflow level and
+// this fallback relabelled the origin's record to REPORTED_VERIFIED.
+const ACK_JOB_RESULT_STATES = {
+  success: 'BLOCKED',
+  failure: 'FAILED',
+  cancelled: 'BLOCKED',
+  timed_out: 'BLOCKED',
+  skipped: 'BLOCKED'
+};
+function ackStateForJobResult(jobResult) {
+  return ACK_JOB_RESULT_STATES[String(jobResult || 'unknown').toLowerCase()] || 'BLOCKED';
+}
+
 const STAGES = ['STARTING', 'AWAITING_READINESS', 'CLAIMED', 'CONNECTING_VM', 'AUTHENTICATED', 'TESTING', 'REPORTING', 'COMPLETED', 'BLOCKED', 'FAILED', 'EXPIRED'];
 
 const log = (...a) => console.log(`[live ${new Date().toISOString().slice(11, 23)}]`, ...a.map(x => typeof x === 'string' ? x : JSON.stringify(x).slice(0, 400)));
@@ -59,7 +74,7 @@ function parseArgs(argv) {
     appSha: '', uiBuild: '', backendHostname: '', target: '', port: 7331, correlationId: '',
     labRepo: process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab',
     ttlMs: 45 * 60 * 1000, envelopeOut: '', envelopeInline: '', artifactOnly: false,
-    timeoutMs: 22 * 60 * 1000, readyTimeoutMs: 180000, headless: false,
+    timeoutMs: 26 * 60 * 1000, readyTimeoutMs: 180000, headless: false, featureTimeoutMs: 300000,
     nativeHandoff: 'auto', allowDestructive: false, queueWaitMs: 10 * 60 * 1000,
     claim: true, reportPath: '', skipBrowser: false, clientIp: '', rdpUser: '',
     profileDir: '', outDir: '', ackPollMs: 20000, expectRunning: true,
@@ -96,6 +111,7 @@ function parseArgs(argv) {
     else if (k === '--envelope-inline') a.envelopeInline = v();
     else if (k === '--artifact-only') a.artifactOnly = true;
     else if (k === '--timeout-ms') a.timeoutMs = Number(v());
+    else if (k === '--feature-timeout-ms') a.featureTimeoutMs = Number(v());
     else if (k === '--ready-timeout-ms') a.readyTimeoutMs = Number(v());
     else if (k === '--headless') a.headless = true;
     else if (k === '--native-handoff') a.nativeHandoff = v();
@@ -110,6 +126,8 @@ function parseArgs(argv) {
     else if (k === '--out-dir') a.outDir = v();
     else if (k === '--ack-poll-ms') a.ackPollMs = Number(v());
     else if (k === '--job-result') a.jobResult = v();
+    else if (k === '--reset-to') a.resetTo = v();
+    else if (k === '--reason') a.reason = v();
     else if (k === '--lab-revision') a.labRevision = v();
     else if (k === '--dispatch-out') a.dispatchOut = v();
     else if (k === '--envelope-artifact-repo') a.envelopeArtifactRepo = v();
@@ -300,6 +318,33 @@ async function cmdOriginSignal(a) {
   function finish(code, obj) { print('origin-signal', code, obj); return process.exit(code); }
 }
 
+
+/**
+ * WHERE THE CREDENTIAL COMES FROM (decided once, before any fetch).
+ *
+ *   record    - an explicit `--origin-transport record` artifact handoff
+ *   inline    - a file on this machine (CI self-validation harness)
+ *   artifact  - a lab-hosted artifact (CI self-validation harness)
+ *   discovery - re-derive it IN THIS PROCESS from the origin run's own live
+ *               signal (check-run) or its log
+ *
+ * MEASURED DEFECT this closes: the queue record published by `discover` is a
+ * QUEUE ENTRY, not an envelope. It names the origin artifact transport
+ * generically, but an application run uploads no such artifact. Treating the
+ * queue entry as an envelope source made every automatic attachment fail at
+ * ENVELOPE/ARTIFACT_NOT_FOUND after a successful discovery, so the client never
+ * reached the signal it had just validated. In live-origin mode the credential
+ * is therefore ALWAYS re-derived in process; the queue record is used only for
+ * its identity (run/attempt/stableIdentity) and its claim.
+ */
+function envelopeSource(a) {
+  if (a.originTransport === 'record') return 'record';
+  if (a.envelopeArtifactRepo) return 'artifact';
+  if (a.envelopeInline && fs.existsSync(path.join(path.dirname(a.envelopeInline), 'record.json'))) return 'inline';
+  if (a.envelopeInline && fs.existsSync(a.envelopeInline)) return 'inline';
+  return 'discovery';
+}
+
 // ---------------------------------------------------------------------------
 // live
 // ---------------------------------------------------------------------------
@@ -320,7 +365,14 @@ async function cmdLive(a) {
     timestamps: {}, identity: {}, authorization: {}, capabilities: {}, features: null, manual: { interventionOccurred: false, note: 'a live run that needs any human input is reported BLOCKED, never VERIFIED' },
     verdict: { status: STATUS.NOT_RUN, accepted: false, code: 'NOT_STARTED' }, cleanup: {}, stages: []
   };
-  const setStage = (s, extra = {}) => { stage = s; report.stages.push({ at: new Date().toISOString(), stage: s, ...extra }); log('stage', s, extra.code || ''); };
+  const setStage = (s, extra = {}) => {
+    stage = s;
+    report.stages.push({ at: new Date().toISOString(), stage: s, ...extra });
+    log('stage', s, extra.code || '');
+    // The stage timeline must be visible from the run page: a job that dies at
+    // the job timeout otherwise leaves no trace of where it was.
+    annotate.notice('stage', `${s}${extra.code ? ' ' + extra.code : ''} elapsedSec=${Math.round((Date.now() - t0) / 1000)}`);
+  };
 
   try {
     if (process.platform !== 'win32' && !a.skipBrowser) {
@@ -329,7 +381,9 @@ async function cmdLive(a) {
     // 1. locate + validate the record -----------------------------------
     setStage('AWAITING_READINESS');
     let rec = null;
-    if ((a.originTransport === 'record' || a.originTransport === 'auto') && a.correlationId && a.originRunId && a.originRepo) {
+    const envSource = envelopeSource(a);
+    report.envelopeSource = envSource;
+    if (envSource === 'record' && a.correlationId && a.originRunId && a.originRepo) {
       rec = await store.readRecord({ repo: a.labRepo, originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt });
     } else if (a.envelopeInline && fs.existsSync(a.envelopeInline)) {
       // CI self-validation / local harness: the descriptor sits next to the envelope.
@@ -370,7 +424,7 @@ async function cmdLive(a) {
     // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
     // only names a candidate, and every field is re-derived from the log of the
     // exact attempt before a descriptor exists.
-    if (!rec && a.originTransport !== 'record') {
+    if (!rec && envSource === 'discovery') {
       setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
       const disc = await discovery.discoverOrigin({
         originRepo: a.originRepo || 'dictationb1/supreme-lamp',
@@ -392,6 +446,15 @@ async function cmdLive(a) {
           transport: disc.evidence.transport || null,
           checkRun: disc.evidence.checkRun || null,
           signalLive: disc.evidence.signalLive === true,
+          signalFormat: disc.evidence.signalFormat || null,
+          envelopeAlg: disc.evidence.envelopeAlg || null,
+          signalState: disc.evidence.signalState || null,
+          keyId: disc.evidence.keyId || null,
+          expectedKeyId: disc.evidence.expectedKeyId || null,
+          heartbeatAgeMs: disc.evidence.heartbeatAgeMs === undefined ? null : disc.evidence.heartbeatAgeMs,
+          uiSha: disc.evidence.uiSha || null,
+          uiMatchesRunSha: disc.evidence.uiMatchesRunSha === undefined ? null : disc.evidence.uiMatchesRunSha,
+          signalAttempts: disc.evidence.signalAttempts || null,
           signalFallback: disc.evidence.signalFallback || null,
           ready: disc.evidence.ready,
           endpointKind: disc.evidence.endpointKind,
@@ -405,6 +468,14 @@ async function cmdLive(a) {
           originLogPubliclyReadable: disc.evidence.originLogPubliclyReadable === true
         } : null
       };
+      if (disc.evidence) {
+        // What the credential actually came from, on the run page: a sealed
+        // check-run signal and a plaintext-log fallback must never look alike,
+        // and an operator needs the heartbeat age to judge staleness without
+        // downloading an artifact.
+        const ev = disc.evidence;
+        annotate.notice('discovery', `transport=${ev.transport || '?'} signalFormat=${ev.signalFormat || '-'} signalLive=${ev.signalLive === true} state=${ev.signalState || '-'} heartbeatAgeMs=${ev.heartbeatAgeMs === undefined ? '-' : ev.heartbeatAgeMs} keyId=${ev.keyId || '-'}/${ev.expectedKeyId || '-'} alg=${ev.envelopeAlg || '-'} uiMatchesRunSha=${ev.uiMatchesRunSha} fallback=${ev.signalFallback || '-'}`);
+      }
       if (!disc.ok) return done(EXIT.BLOCKED, setFinal('AWAITING_READINESS', `BLOCKED_${disc.code}`, disc.detail));
       // The queue names a run, not a moment: `issuedAt`/`expiresAt` are
       // re-derived by every sweep, so a changed descriptor id alone is not a
@@ -441,8 +512,17 @@ async function cmdLive(a) {
       const usedSignal = disc.evidence.transport === 'check-run';
       report.transport = {
         kind: usedSignal ? 'origin-live-signal' : `origin-${disc.evidence.transport || 'unknown'}`,
+        signalFormat: usedSignal ? (disc.evidence.signalFormat || null) : null,
+        envelopeAlg: usedSignal ? (disc.evidence.envelopeAlg || null) : null,
+        keyId: usedSignal ? (disc.evidence.keyId || null) : null,
+        expectedKeyId: usedSignal ? (disc.evidence.expectedKeyId || null) : null,
+        signalState: usedSignal ? (disc.evidence.signalState || null) : null,
+        heartbeatAgeMs: usedSignal ? (disc.evidence.heartbeatAgeMs === undefined ? null : disc.evidence.heartbeatAgeMs) : null,
+        uiSha: usedSignal ? (disc.evidence.uiSha || null) : null,
+        uiMatchesRunSha: usedSignal ? (disc.evidence.uiMatchesRunSha === undefined ? null : disc.evidence.uiMatchesRunSha) : null,
+        checkRunSignalAttempts: usedSignal ? (disc.evidence.signalAttempts || null) : null,
         mechanism: usedSignal
-          ? 'MC-SIGNAL v1 in the mission-control-live-signal check-run output, RSA-OAEP-256 ciphertext decrypted in memory'
+          ? `encrypted live signal (${disc.evidence.signalFormat || 'unknown format'}) in the mission-control-live-signal check-run output; envelope ${disc.evidence.envelopeAlg || 'unknown alg'} decrypted in memory`
           : 'the origin run\'s own Actions log (readiness banner + current-run key, PLAINTEXT in that public log)',
         credentialAtRest: usedSignal ? 'encrypted (ciphertext only in a public check-run)' : 'plaintext (public run log)',
         repository: disc.origin.repo,
@@ -478,7 +558,18 @@ async function cmdLive(a) {
     }
 
     // 3. serialize access to the VM desktop itself ------------------------
-    lock = acquireLock({ name: 'rdp-lab-desktop', owner: `${envOr('GITHUB_RUN_ID', 'local')}-${envOr('GITHUB_RUN_ATTEMPT', '1')}`, timeoutMs: 120000, role: 'live-run' });
+    // MEASURED (run 39904982757): this call passed {name, owner} and the lock
+    // helper requires a lockDir, so every live run died at LIVE_RUN_ERROR
+    // LOCK_DIR_REQUIRED after claiming the origin. The desktop lock is the one
+    // browser-check and mission-control-check already use, so a live run cannot
+    // fight either of them for the interactive desktop.
+    lock = acquireLock({
+      lockDir: registry.sessionLockDir(),
+      runId: envOr('GITHUB_RUN_ID', 'local'),
+      runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
+      role: 'live-run',
+      timeoutMs: 120000
+    });
     timings.desktopLockMs = Date.now() - t0;
 
     // 4. verify the origin against GitHub, not against the caller ---------
@@ -508,6 +599,11 @@ async function cmdLive(a) {
     });
     if (!envRes.ok) return done(EXIT.BLOCKED, setFinal('BLOCKED', envRes.code, envRes.detail));
     const envelope = envRes.value;
+    // Fingerprints only, and only the first 8 hex chars: this line is how an
+    // operator tells "the envelope is stale" from "the key is wrong" without any
+    // artifact download. MEASURED (run 39906977464): AUTHORIZATION_REJECTED left
+    // both possibilities open on the run page.
+    annotate.notice('envelope', `transport=${envRes.transport} tokenFp=${String(envelope.tokenFingerprint || '').slice(0, 8)} recordFp=${String(descriptor.dashTokenFingerprint || '').slice(0, 8)} match=${String(envelope.tokenFingerprint || '') === String(descriptor.dashTokenFingerprint || '')} issuedAt=${envelope.issuedAt || '?'} expiresAt=${envelope.expiresAt || '?'}`);
     auth.registerSecret(envelope.dashboardToken, 'DASH_TOKEN');
     if (envelope.rdpPassword) auth.registerSecret(envelope.rdpPassword, 'RDP_PASSWORD');
     report.identity.backend = { endpointHost: new URL(descriptor.authorizedEndpoint).host, backendIdentity: descriptor.backendIdentity, envelopeTransport: envRes.transport, envelopeSha: envRes.archiveSha256 ? envRes.archiveSha256.slice(0, 16) : null };
@@ -539,6 +635,27 @@ async function cmdLive(a) {
     }
     report.identity.instance = { backendIdentity: descriptor.backendIdentity, sessionId: attest.identity.sessionId, buildSha: attest.identity.buildSha };
 
+    // 6c. the process must belong to THIS run, not merely to this commit. A
+    //     server left running from an earlier run answers identically and keeps
+    //     every boot-time value (including the token snapshot its strict
+    //     /api/rdp-token route compares against). Reported, never guessed.
+    const boot = await serverIdentity.serverBootTime({ target }).catch(() => null);
+    const runStartedIso = origin && origin.run ? String(origin.run.run_started_at || origin.run.created_at || '') : '';
+    const bootIso = boot && boot.ok ? boot.boot.startedAt : null;
+    const predatesMs = bootIso && runStartedIso ? Date.parse(runStartedIso) - Date.parse(bootIso) : null;
+    report.identity.process = {
+      bootAt: bootIso, bootSource: boot ? boot.code : 'PROBE_FAILED',
+      uptimeSec: boot && boot.ok ? boot.boot.uptimeSec : null,
+      runStartedAt: runStartedIso || null,
+      predatesRunByMs: predatesMs
+    };
+    if (bootIso) annotate.notice('server process', `bootAt=${bootIso} route=${boot.boot.route} uptimeSec=${report.identity.process.uptimeSec} runStartedAt=${runStartedIso || '-'} predatesRunByMs=${predatesMs === null ? '-' : predatesMs}`);
+    else annotate.warning('server process', `the serving process start time is unavailable (${boot ? boot.code + ' ' + String(boot.detail || '').slice(0, 200) : 'probe failed'}) - the instance binding rests on buildSha+sessionId only`);
+    if (predatesMs !== null && predatesMs > 120000) {
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', 'ORIGIN_INSTANCE_PREDATES_RUN',
+        `the endpoint is served by a process that started ${Math.round(predatesMs / 60000)} min BEFORE origin run ${descriptor.originRunId} began (boot ${bootIso}, run ${runStartedIso}). Every boot-time value it holds belongs to an earlier run - the application's strict /api/rdp-token route compares the dashboard token against that boot snapshot - so a credential published by this run cannot prove THIS instance`));
+    }
+
     // 7. authenticate --------------------------------------------------------
     setStage('AUTHENTICATED');
     const proof = await auth.proveAuthorization({ target, dashboardToken: envelope.dashboardToken, log });
@@ -550,8 +667,35 @@ async function cmdLive(a) {
       proof: 'the live server minted a single-use ticket for this bearer and refused anonymous + forged bearers'
     };
     if (!proof.ok) {
-      const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
-      return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      const r = proof.results || {};
+      const d = r.diag || {};
+      const diagNote = d.ok
+        ? ` diag[entries=${d.entries} route=${d.route} serverExpectsPublished=${d.serverExpectedEqualsPublished} expectedLen=${d.expectedLen} publishedLen=${d.myLength}]`
+        : ` diag[unavailable status=${d.status || '?'}]`;
+      const codes = `noBearer=${(r.noBearer || {}).status} wrongBearer=${(r.wrongBearer || {}).status} ourBearer=${(r.ourBearer || {}).status} configGate=${(r.config || {}).gate}${diagNote}`;
+      annotate.error('auth proof gates', `${proof.code}: ${codes} - ${redact(String(proof.detail || '')).slice(0, 300)}`);
+      // Before blaming the credential, ask whether the application accepts it on
+      // the paths that compare REFRESH-AWARE (snapshot UNION dash-token.txt UNION
+      // config.json). If it does, the credential is current and the refusal is
+      // the application's own boot-snapshot strict route - a named defect, not a
+      // lab-side guess. The UI pass still runs (that is where this credential is
+      // used); the native ticket route stays BLOCKED and no RDP is claimed.
+      const refresh = await auth.probeRefreshAwareToken(target, envelope.dashboardToken).catch(e => ({ ok: false, code: 'REFRESH_AWARE_PROBE_FAILED', detail: e.message }));
+      report.authorization.refreshAware = { code: refresh.code, results: refresh.results || null };
+      annotate.notice('auth refresh-aware', `${refresh.code} ${refresh.results ? JSON.stringify(refresh.results) : ''}`);
+      if (proof.code === 'AUTHORIZATION_REJECTED' && refresh.ok) {
+        report.authorization.outcome = 'PROVEN_FOR_UI_TICKET_ROUTE_STALE';
+        report.authorization.code = 'APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE';
+        report.authorization.ticketRoute = {
+          ok: false, code: 'APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE',
+          detail: `the application accepts this run's credential on its refresh-aware routes (${refresh.code}) and refuses it on its strict POST /api/rdp-token route, which compares only the dashboard token read at server boot (${report.identity.process.bootAt || 'unknown'}). The credential is current; the ticket route is stale. Unattended native RDP must therefore be reported BLOCKED, not verified.`
+        };
+        report.authorization.detail = `${report.authorization.ticketRoute.detail} (strict route: ${redact(String(proof.detail || '')).slice(0, 200)})`;
+        annotate.error('auth ticket route', report.authorization.ticketRoute.code + ': ' + report.authorization.ticketRoute.detail.slice(0, 400));
+      } else {
+        const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
+        return done(EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      }
     }
     timings.authMs = Date.now() - t0;
     report.timestamps.authenticatedAt = new Date().toISOString();
@@ -577,11 +721,30 @@ async function cmdLive(a) {
         browserHolder = context;
         await context.addInitScript({ content: auth.storageInitScript(envelope.dashboardToken) });
         page = context.pages()[0] || await context.newPage();
+        // A page-level default so no locator/navigation waits forever; evaluate()
+        // has no default, which is what the per-feature watchdog is for.
+        page.setDefaultTimeout(20000);
         const pageErrors = { n: 0, samples: [] };
         page.__errors = pageErrors;
-        page.on('pageerror', err => { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(String(err && err.message || err)).slice(0, 160)); });
-        page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(m.text()).slice(0, 160)); } });
-        report.browser = { profile, headed: !a.headless, pageErrors, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
+        // A script dialog (alert/confirm/prompt/beforeunload) BLOCKS every
+        // page.evaluate until it is answered, and Playwright does not answer one
+        // by itself: that alone can hang a pass with no verdict. Each dialog is
+        // recorded (redacted) and dismissed so the page can continue - browser or
+        // OS security prompts are NOT touched here.
+        const dialogs = [];
+        page.on('dialog', async d => {
+          try { dialogs.push({ type: d.type(), message: redact(String(d.message() || '')).slice(0, 200) }); } catch (e) { }
+          try { await d.dismiss(); } catch (e) { }
+        });
+        // Keep the LAST samples, not the first: a per-route delta ("what did THIS
+        // route add") is only readable from the tail, and the first sample is
+        // usually the shell's own startup noise.
+        const pushSample = t => { pageErrors.samples.push(t); if (pageErrors.samples.length > 8) pageErrors.samples.splice(0, pageErrors.samples.length - 8); };
+        const where = m => { try { const u = new URL(m.location().url); return `${u.pathname}${u.hash}`; } catch (e) { return ''; } };
+        page.on('pageerror', err => { pageErrors.n++; pushSample(redact(String(err && err.message || err)).slice(0, 160)); });
+        page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; pushSample((redact(m.text()).slice(0, 140) + (where(m) ? ` @ ${where(m)}` : '')).slice(0, 180)); } });
+        report.timestamps.browserLaunchedAt = new Date().toISOString();
+        report.browser = { profile, headed: !a.headless, pageErrors, dialogs, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
       } catch (e) {
         // NEVER fall back to headless silently (documented lab defect #3).
         results['nav.routes_reachable'] = feat.blocked(`HEADED_LAUNCH_FAILED: ${redact(e.message).split('\n')[0]}`);
@@ -595,19 +758,43 @@ async function cmdLive(a) {
 
     // Evaluate everything that can run without a desktop; RDP/web-desktop are
     // ordered so their dependency stays visible as BLOCKED, not as a fake FAIL.
-    const ctx = { target, descriptor, page, markers, authProof: proof, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, evidence: { out, results } };
+    const ctx = { target, descriptor, page, markers, authProof: proof, authOutcome: report.authorization, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, evidence: { out, results } };
     const order = ['auth.dash_token_gate', 'auth.no_stale_key_reuse', 'nav.build_provenance', 'session.live_binding', 'telemetry.live_stream', 'keys.acl_view', 'errors.classified_not_spinner', 'files.list', 'search.lane', 'mirror.matrix', 'health.readiness_contract', 'connection.native_rdp_launch', 'connection.ticket_single_use', 'webdesktop.frames', 'webdesktop.interaction', 'nav.routes_reachable', 'settings.read_modify_restore', 'files.fixture_roundtrip', 'connection.credential_hygiene', 'lifecycle.teardown'];
     ctx.resultsRef = results;
   const runners = makeRunners(ctx, a, deadline);
+    // WATCHDOG. MEASURED (run 39920375772): one evaluator never returned (its
+    // in-page fetch had no deadline), the feature loop never saw the global
+    // deadline again, and the job was killed at 45 minutes with ZERO feature
+    // verdicts - the run page said nothing about which feature hung. Each
+    // evaluator is now bounded on its own, reported as a FAIL with its name, and
+    // the pass continues; the abandoned promise is left to the process exit.
+    const budgetMs = Number(a.featureTimeoutMs) > 0 ? Number(a.featureTimeoutMs) : 300000;
+    // Only the evaluators that drive the browser or the RDP session can hang for
+    // long; announcing every one of the 20 would crowd the annotation channel
+    // that carries the verdicts.
+    const announce = new Set(['connection.native_rdp_launch', 'webdesktop.frames', 'nav.routes_reachable', 'files.list', 'search.lane', 'errors.classified_not_spinner', 'keys.acl_view']);
     for (const id of order) {
       if (Date.now() > deadline - 20000) { results[id] = feat.blocked('RUN_DEADLINE_REACHED before this feature was attempted'); continue; }
+      if (announce.has(id)) annotate.notice('feature start', `${id} elapsedSec=${Math.round((Date.now() - t0) / 1000)} budgetSec=${Math.round(budgetMs / 1000)}`);
       const fn = runners[id];
-      try { results[id] = fn ? await fn() : feat.notRun('NO_EVALUATOR_REGISTERED'); }
+      let timer = null;
+      try {
+        const guard = new Promise(resolve => { timer = setTimeout(() => resolve(feat.bad(`EVALUATOR_TIMEOUT: ${id} produced no verdict within ${Math.round(budgetMs / 1000)}s — bounded so the pass could continue; the evaluator is reported as FAIL, never as PASS or SKIPPED`)), budgetMs); if (timer.unref) timer.unref(); });
+        results[id] = fn ? await Promise.race([fn(), guard]) : feat.notRun('NO_EVALUATOR_REGISTERED');
+      }
       catch (e) { results[id] = feat.bad(`EVALUATOR_THREW: ${redact(e.message).split('\n')[0]}`); }
+      finally { if (timer) clearTimeout(timer); }
+      if (id === 'nav.routes_reachable') report.timestamps.firstRouteEvaluatedAt = new Date().toISOString();
     }
     const summary = summarizeInventory(inventory, results);
     report.features = summary;
-    report.capabilities = summarizeToCapabilities(summary);
+    // MEASURED (run 39912544252): this line called a function that does not
+    // exist (`summarizeToCapabilities`). It never fired before because no real
+    // run had ever reached the feature pass; the moment one did, the whole
+    // verification died at REPORTING with a ReferenceError. Capabilities are
+    // derived once, in writeLiveEvidence(), from the same evidence - never from a
+    // second, unmaintained mapping.
+    delete report.capabilities;
     timings.featuresMs = Date.now() - t0;
     report.timestamps.testingFinishedAt = new Date().toISOString();
 
@@ -637,11 +824,69 @@ async function cmdLive(a) {
       ? 'SCOPE: the live backend is the real application code at the recorded app SHA, but the ORIGIN is this lab repository\'s own run (the CI self-validation harness), not a run of ' + 'the application repository. This proves the integration mechanism end to end; it does not by itself prove the application workflow dispatches it.'
       : `SCOPE: full live integration against ${descriptor.originRepo} run ${descriptor.originRunId} attempt ${descriptor.originAttempt}.`;
     report.scope = modeNote;
+    // A verdict names the OUTCOME, not just the first symptom: the earlier shape
+    // (code = first vetoing feature id) made `stage= verdict=auth.dash_token_gate`
+    // read like a crash instead of "14 mandatory features, 3 PASS, 11 vetoing".
     report.verdict = accepted
       ? { status: STATUS.PASS, accepted: true, code: 'VERIFIED', scope: modeNote }
-      : { status: report.features.vetoing.length ? STATUS.FAIL : STATUS.BLOCKED, accepted: false, code: accepted ? 'VERIFIED' : (report.features.vetoing[0] || 'NOT_VERIFIED'), vetoing: report.features.vetoing, scope: modeNote };
+      : {
+        status: report.features.vetoing.length ? STATUS.FAIL : STATUS.BLOCKED,
+        accepted: false,
+        code: report.features.vetoing.length ? 'FEATURES_VETOED' : 'NOT_VERIFIED',
+        primaryVeto: report.features.vetoing[0] || null,
+        counts: report.features.counts,
+        vetoing: report.features.vetoing,
+        scope: modeNote
+      };
     report.timings = { totalMs: Date.now() - t0, ...pick(timings, ['authMs', 'featuresMs', 'desktopLockMs']) };
     report.artifacts = { outDir: out, files: listEvidence(out).map(f => ({ path: f.split(/[\\/]/).pop(), bytes: fs.statSync(f).size })) };
+
+    // Every non-PASS mandatory feature, one annotation each: the sanitized JSON
+    // report and the screenshots are artifacts, and artifacts are not reachable
+    // from every automation environment, so the REASONS must also live on the
+    // run page. Reasons are already redacted by annotate.
+    const mandatoryIds = new Set((Array.isArray(inventory) ? inventory : []).filter(f => f.mandatory !== false).map(f => f.id));
+    for (const [id, r] of Object.entries(results)) {
+      if (!r || r.status === STATUS.PASS) continue;
+      const title = `feature ${id}`;
+      const msg = `${r.status}${mandatoryIds.has(id) ? '' : ' (optional)'}: ${String(r.reason || r.code || '').slice(0, 600)}`;
+      if (r.status === STATUS.FAIL) annotate.error(title, msg); else annotate.warning(title, msg);
+    }
+    const routeRows = results['nav.routes_reachable'] && results['nav.routes_reachable'].evidence && results['nav.routes_reachable'].evidence.routes;
+    if (Array.isArray(routeRows)) {
+      const badRoutes = routeRows.filter(x => x.status !== 'rendered');
+      if (badRoutes.length) annotate.warning('ui routes', badRoutes.map(x => `${x.route}=${x.status}${x.newErrors ? `(errors=${x.newErrors})` : ''}`).join(', '));
+    }
+    // LATENCY, as an explicit measurement (the acceptance question is
+    // "readiness -> visible UI", and a 10-minute cron is not "immediate"). Each
+    // leg is stamped by the process that did the work.
+    const tstamp = k => (report.timestamps[k] ? Date.parse(report.timestamps[k]) : null);
+    const firstRoute = tstamp('firstRouteEvaluatedAt');
+    const runStart = report.identity.process && report.identity.process.runStartedAt ? Date.parse(report.identity.process.runStartedAt) : null;
+    const latency = {
+      runStartToAuthMs: runStart && tstamp('authenticatedAt') ? tstamp('authenticatedAt') - runStart : null,
+      authToBrowserMs: tstamp('authenticatedAt') && tstamp('browserLaunchedAt') ? tstamp('browserLaunchedAt') - tstamp('authenticatedAt') : null,
+      browserToFirstRouteMs: tstamp('browserLaunchedAt') && firstRoute ? firstRoute - tstamp('browserLaunchedAt') : null,
+      runStartToFirstRouteMs: runStart && firstRoute ? firstRoute - runStart : null,
+      totalMs: Date.now() - t0,
+      note: 'runStart is the origin run\'s own start; the lab\'s wake-up cadence (schedule */10) is separate and is NOT included in these legs'
+    };
+    report.latency = latency;
+    annotate.notice('latency', Object.entries(latency).filter(([k, v]) => typeof v === 'number').map(([k, v]) => `${k}=${Math.round(v / 1000)}s`).join(' ') + ` note="${latency.note}"`);
+    if (report.browser && Array.isArray(report.browser.dialogs) && report.browser.dialogs.length) {
+      annotate.warning('ui dialogs', `${report.browser.dialogs.length} script dialog(s) appeared and were dismissed: ${report.browser.dialogs.map(d => `${d.type}: ${d.message}`).join(' | ').slice(0, 600)}`);
+    }
+    annotate.notice('verdict', `features ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory PASS; counts=${JSON.stringify(report.features.counts)}; vetoing=${(report.features.vetoing || []).join(',') || 'none'}`);
+
+    // RETRY BOOK-KEEPING: the record must say which verification this was, so a
+    // bounded retry is visible and an exhausted budget is explicit. The earlier
+    // verdict is never overwritten - it stays in the record's history.
+    let prior = null;
+    try { prior = await store.readRecord({ repo: a.labRepo, originRepo: descriptor.originRepo, originRunId: descriptor.originRunId, originAttempt: descriptor.originAttempt }); } catch (e) { annotate.warning('retry', `the previous record could not be read: ${redact(e.message).slice(0, 200)}`); }
+    const prevRec = (prior && prior.record) || null;
+    const attemptNumber = Number((prevRec && prevRec.verificationAttempts) || 0) + 1;
+    report.verificationAttempt = { number: attemptNumber, previousState: prevRec ? prevRec.state : null, previousLabRunId: prevRec && prevRec.report ? prevRec.report.labRunId : null };
+    if (attemptNumber > 1) annotate.notice('retry', `verification attempt ${attemptNumber} for ${descriptor.correlationId} (previous state ${report.verificationAttempt.previousState}, lab run ${report.verificationAttempt.previousLabRunId || 'unknown'}); the earlier verdict remains in the record history`);
 
     writeLiveEvidence(out, report);
     const repPath = a.reportPath || path.join(out, 'live-run-report.json');
@@ -655,7 +900,16 @@ async function cmdLive(a) {
         state: accepted ? 'REPORTED_VERIFIED' : (report.verdict.status === STATUS.BLOCKED ? 'BLOCKED' : 'REPORTED_FAILED'),
         by: `lab:${report.lab.runId}`,
         detail: `${report.verdict.code}; ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory features PASS; correlation ${descriptor.correlationId}`,
-        extra: { report: { labRunId: report.lab.runId, attempt: report.lab.attempt, verdict: report.verdict.code, accepted, counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`, correlationId: descriptor.correlationId } }
+        extra: {
+          report: { labRunId: report.lab.runId, attempt: report.lab.attempt, verdict: report.verdict.code, accepted, counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`, correlationId: descriptor.correlationId },
+          retryable: !accepted,
+          retryableReason: accepted ? null : 'the origin is re-served only while it is still attachable and the retry budget is unspent; every verdict stays in history',
+          verificationAttempts: attemptNumber,
+          attempts: [...((prevRec && Array.isArray(prevRec.attempts)) ? prevRec.attempts.slice(-8) : []), {
+            at: new Date().toISOString(), labRunId: report.lab.runId, verdict: report.verdict.code, accepted,
+            counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`
+          }]
+        }
       });
     } catch (e) { annotate.warning('ack', `the report could not be written back to ${store.RECORDS_BRANCH}: ${redact(e.message).slice(0, 200)}`); report.cleanup.ackError = redact(e.message).slice(0, 200); }
 
@@ -671,11 +925,24 @@ async function cmdLive(a) {
   }
 
   function setFinal(stageName, code, detail) {
-    report.verdict = { status: code === 'BLOCKED' || /BLOCK/.test(String(code)) ? STATUS.BLOCKED : STATUS.FAIL, accepted: false, code, detail: String(detail).slice(0, 500) };
+    // A code that names a BLOCKER is a prerequisite, and the record must say so:
+    // MEASURED (run 39904246194) - BLOCKED_ORIGIN_RUN_LOOKUP_FAILED was written
+    // back as plain FAILED, and the job-level ack then "upgraded" it to
+    // REPORTED_VERIFIED because the step exits 0 for blockers. Both are
+    // relabelling defects. Now the in-process report owns the state, and a run
+    // that verified nothing is always retryable.
+    const blocked = /BLOCK/.test(String(code)) || stageName === 'BLOCKED';
+    report.verdict = { status: blocked ? STATUS.BLOCKED : STATUS.FAIL, accepted: false, code, detail: String(detail).slice(0, 500) };
     report.stage = stageName;
     try { fs.writeFileSync(path.join(out, 'live-run-report.json'), JSON.stringify(report, null, 2), { mode: 0o600 }); } catch (e) { }
     if (descriptor) {
-      store.updateRecordState({ repo: a.labRepo, descriptor, state: stageName === 'BLOCKED' ? 'BLOCKED' : 'FAILED', by: `lab:${report.lab.runId}`, detail: `${code}: ${String(detail).slice(0, 200)}` }).catch(() => { });
+      store.updateRecordState({
+        repo: a.labRepo, descriptor,
+        state: blocked ? 'BLOCKED' : 'FAILED',
+        by: `lab:${report.lab.runId}`,
+        detail: `${code}: ${String(detail).slice(0, 200)}`,
+        extra: { retryable: true, retryableReason: 'this lab attempt produced no verified acceptance; the origin may be served again while it is live' }
+      }).catch(() => { });
     }
     return report;
   }
@@ -727,24 +994,56 @@ async function cmdAckState(a) {
   const descriptor = { originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt, correlationId: a.correlationId };
   if (!descriptor.originRepo || !descriptor.originRunId) return printExit(EXIT.USAGE, { code: 'ACK_TARGET_MISSING' });
   const jobResult = String(a.jobResult || 'unknown').toLowerCase();
-  const map = {
-    success: 'REPORTED_VERIFIED',
-    failure: 'FAILED',
-    cancelled: 'BLOCKED',
-    timed_out: 'BLOCKED',
-    skipped: 'BLOCKED'
-  };
-  // `success` here means only "the verify job exited cleanly", which live-run
-  // already uses for BLOCKED outcomes too — so we never overwrite a report the
-  // verify job itself wrote; we only fill a gap it left.
+  // The job-level write-back can only ever report what the JOB did. It is not a
+  // verification and must never mint REPORTED_VERIFIED: MEASURED (run
+  // 39904246194) a client job that exited 4 BLOCKED at AWAITING_READINESS was
+  // green at workflow level, and this fallback relabelled the origin's record
+  // from FAILED to REPORTED_VERIFIED - a claim nothing had verified.
+  const map = ACK_JOB_RESULT_STATES;
+  // The in-process report is authoritative. It writes BLOCKED / FAILED /
+  // REPORTED_VERIFIED itself, so any terminal state stands this fallback down
+  // (it fills a gap, it never overrides).
   const existing = await store.readRecord({ repo: a.labRepo, ...descriptor }).catch(() => null);
-  if (existing && existing.record && String(existing.record.state).startsWith('REPORTED_')) {
-    return printExit(EXIT.OK, { code: 'ACK_ALREADY_REPORTED', state: existing.record.state, detail: 'the verify job already wrote the authoritative report; the job-level write-back stands down' });
+  const cur = existing && existing.record ? String(existing.record.state || '') : '';
+  // Operator correction lane. A record can be wrong about the LAB's own
+  // outcome (MEASURED: run 39904246194 wrote REPORTED_VERIFIED for an origin
+  // that was never verified). Correcting it must be a sanctioned, history-
+  // preserving write with a mandatory reason - never a hand edit of the file.
+  if (a.resetTo) {
+    const allowed = ['BLOCKED', 'FAILED'];
+    if (!allowed.includes(a.resetTo)) return printExit(EXIT.USAGE, { code: 'ACK_RESET_STATE_INVALID', detail: `--reset-to accepts ${allowed.join('|')}` });
+    if (!a.reason) return printExit(EXIT.USAGE, { code: 'ACK_RESET_REASON_REQUIRED', detail: 'a correction must say why' });
+    const res = await store.updateRecordState({
+      repo: a.labRepo, descriptor, state: a.resetTo,
+      by: `operator@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`,
+      detail: `operator correction of ${cur || 'unknown'}: ${String(a.reason).slice(0, 300)}`,
+      extra: { retryable: true, retryableReason: String(a.reason).slice(0, 300) }
+    });
+    return printExit(EXIT.OK, { code: 'ACK_RESET_WRITTEN', from: cur, state: a.resetTo, updated: Boolean(res && res.updated) });
   }
-  const state = map[jobResult] || 'BLOCKED';
-  const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
-  const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
-  return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
+  if (['BLOCKED', 'FAILED', 'EXPIRED'].includes(cur) || cur.startsWith('REPORTED_')) {
+    return printExit(cur === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, {
+      code: 'ACK_ALREADY_REPORTED', state: cur,
+      detail: 'the verify job already wrote the authoritative outcome; the job-level write-back stands down'
+    });
+  }
+  const state = ackStateForJobResult(jobResult);
+  const detail = `job-level write-back: verify job result=${jobResult} and NO in-process report exists (${state === 'BLOCKED' ? 'nothing was verified; a green job here only means the step exited 0 for a prerequisite blocker' : 'the verify job exited without an in-process report'})`;
+  // A LAB-side failure that produced no in-process report must not poison the
+  // queue entry for an origin whose server is still alive: nothing was verified.
+  // MEASURED: run 39900345165 died in preflight cleanup, this write-back marked
+  // the record FAILED, and the next three sweeps found "no pickable record" —
+  // the still-live application run became unattachable by the lab's own
+  // bookkeeping. `retryable` says exactly that, and pick-record honours it. A
+  // real in-process report (REPORTED_VERIFIED / REPORTED_FAILED) never sets it.
+  const retryable = state !== 'REPORTED_VERIFIED';
+  const res = await store.updateRecordState({
+    repo: a.labRepo, descriptor, state,
+    by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`,
+    detail,
+    extra: retryable ? { retryable: true, retryableReason: 'no in-process report was produced by the lab attempt; the origin run was not verified' } : {}
+  });
+  return printExit(EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +1253,12 @@ async function cmdSignalStatus(a) {
       out.algorithm = priv.asymmetricKeyType || 'unknown';
       out.modulusBits = priv.asymmetricKeyDetails ? priv.asymmetricKeyDetails.modulusLength : null;
       out.privateKeyFingerprint32 = signalLib.keyFingerprint(pubPem);
+      // The APPLICATION's keyId is a different (shorter) fingerprint of the same
+      // key material: rsa:<hex16> / x25519:<hex16>. Reporting both lets an
+      // operator prove which envelope a published signal was sealed to without
+      // either half leaving its repository.
+      out.privateKeyType = priv.asymmetricKeyType || 'unknown';
+      out.appKeyId = signalLib.appKeyId(priv);
       out.code = 'LAB_SIGNAL_KEY_PRESENT';
       // Round-trip against the real application evidence, if any exists.
       const disc = await discovery.discoverOrigin({
@@ -966,10 +1271,18 @@ async function cmdSignalStatus(a) {
       if (disc.ok && ev.transport === 'check-run') {
         out.roundTrip = {
           proven: true,
-          transport: 'check-run (MC-SIGNAL v1)',
+          transport: 'check-run',
+          signalFormat: ev.signalFormat || null,
+          envelopeAlg: ev.envelopeAlg || null,
+          keyId: ev.keyId || null,
+          expectedKeyId: ev.expectedKeyId || out.appKeyId || null,
+          keyIdMatched: Boolean(ev.keyId) && ev.keyId === (ev.expectedKeyId || out.appKeyId),
+          signalState: ev.signalState || null,
+          heartbeatAgeMs: ev.heartbeatAgeMs === undefined ? null : ev.heartbeatAgeMs,
+          uiSha: ev.uiSha || null,
+          uiMatchesRunSha: ev.uiMatchesRunSha === undefined ? null : ev.uiMatchesRunSha,
           checkRunId: ev.checkRun ? ev.checkRun.id : null,
           checkRunLive: ev.checkRun ? ev.checkRun.status === 'in_progress' : null,
-          keyIdMatched: true,
           decrypted: true,
           origin: { runId: disc.origin.runId, attempt: disc.origin.attempt, appSha: disc.origin.appSha },
           note: 'the application signal was validated against GitHub run metadata and decrypted with this private key; the plaintext key was never printed or written'
@@ -1139,16 +1452,21 @@ async function cmdPoll(a) {
     const d = rec.descriptor || {};
     const claim = await store.readClaim({ repo: a.labRepo, descriptor: { originRepo: d.originRepo, originRunId: d.originRunId, originAttempt: d.originAttempt, correlationId: d.correlationId } }).catch(() => null);
     const remaining = Date.parse(rec.descriptor.expiresAt || 0) - Date.now();
+    // `retryable` is carried on the row, not only in the record body, so that a
+    // sweep can decide about a record it did not fetch and so that the pending
+    // count matches what pick-record would actually serve.
+    const retryable = rec.retryable === true && (rec.state === 'FAILED' || rec.state === 'BLOCKED');
+    const serveable = remaining > 0 && !claim && (rec.state === 'AWAITING_LAB_ACCEPTANCE' || retryable);
     rows.push({
       path: p, correlationId: d.correlationId, origin: `${d.originRepo || '?'}#${d.originRunId || '?'}/${d.originAttempt || '?'}`,
-      appSha: String(d.appSha || '').slice(0, 12), mode: d.mode, state: rec.state,
+      appSha: String(d.appSha || '').slice(0, 12), mode: d.mode, state: rec.state, retryable,
       claimedBy: claim && claim.claimant ? claim.claimant.labRunId : null,
-      expiresInSeconds: Math.round(remaining / 1000), pickable: remaining > 0 && !claim
+      expiresInSeconds: Math.round(remaining / 1000), pickable: serveable
     });
   }
   const out = { generatedAt: new Date().toISOString(), branch: store.RECORDS_BRANCH, records: rows, pending: rows.filter(r => r.pickable).length };
   const now = Date.now();
-  out.dispatchable = rows.filter(r => r.pickable && r.state === 'AWAITING_LAB_ACCEPTANCE')
+  out.dispatchable = rows.filter(r => r.pickable && (r.state === 'AWAITING_LAB_ACCEPTANCE' || r.retryable === true))
     .sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)))
     .slice(0, 1);
   fs.writeFileSync(path.join(artifactDir(), 'records.json'), JSON.stringify(out, null, 2));
@@ -1167,40 +1485,72 @@ function sessionId() {
   } catch (e) { return null; }
 }
 
+// Resolve a promise or return a fallback after `ms`. Playwright's page.evaluate
+// has no default timeout, so every evaluate that could block the pass goes
+// through this.
+function withTimeout(promise, ms, fallback) {
+  let timer = null;
+  const guard = new Promise(resolve => { timer = setTimeout(() => resolve(fallback), ms); if (timer.unref) timer.unref(); });
+  return Promise.race([Promise.resolve(promise), guard]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 function makeMarkers() {
   return {
     async gateCleared(page) {
       try {
-        await page.goto(`${page.__slabTarget || ''}/#/overview`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        // The shipped dashboard is one page (payloads/ui.html): its root is the
+        // only real address. A hash-fragment route was the lab's invention.
+        await page.goto(`${page.__slabTarget || ''}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       } catch (e) { /* a nav failure is reported by the marker outcome, not swallowed */ }
-      const gate = await page.evaluate(() => {
+      // page.evaluate has NO default timeout: on a page whose main thread is
+      // blocked it never returns. Bounded here as well as by the feature
+      // watchdog, because this is the FIRST feature of the pass.
+      const gate = await withTimeout(page.evaluate(() => {
         const t = (document.body.innerText || '');
         const looksLikeGate = /dashboard permission missing|paste the key|authorization required|DashTokenGate|enter the key/i.test(t);
         const hasShell = Boolean(document.querySelector('#topbar, [data-testid="app-shell"], header'));
         return { looksLikeGate, hasShell, textLen: t.length };
-      }).catch(() => ({ error: true }));
-      if (gate.error) return { cleared: false, detail: 'DOM unreadable' };
+      }), 10000, { error: true, detail: 'DOM unreadable: page.evaluate did not return within 10s (blocked main thread or an unhandled dialog)' }).catch(() => ({ error: true }));
+      if (gate.error) return { cleared: false, detail: gate.detail || 'DOM unreadable' };
       if (gate.looksLikeGate) return { cleared: false, via: 'dom', detail: 'the token gate is still rendered' };
       return { cleared: Boolean(gate.hasShell), via: 'dom', detail: gate.hasShell ? 'app shell rendered without the gate' : 'no shell marker found' };
     },
     async routeMarker(page, r) {
       if (r.testid) { try { await page.locator(`[data-testid="${r.testid}"]`).first().waitFor({ state: 'visible', timeout: 6000 }); return { found: true, via: `testid:${r.testid}` }; } catch (e) { } }
       if (r.text) { try { await page.getByText(r.text, { exact: false }).first().waitFor({ state: 'visible', timeout: 6000 }); return { found: true, via: `text:${r.text}` }; } catch (e) { } }
-      const generic = await page.evaluate(() => {
+      const generic = await withTimeout(page.evaluate(() => {
         const bad = /cannot read|404|not found|unauthorized/i.test(document.title);
         return { title: document.title, body: (document.body && document.body.innerText || '').length, bad };
-      }).catch(() => null);
+      }), 10000, null).catch(() => null);
       return { found: Boolean(generic && generic.body > 200 && !generic.bad), via: 'fallback:non-empty body' };
     },
     async buildStamp(page) {
-      const s = await page.evaluate(() => {
+      const s = await withTimeout(page.evaluate(() => {
         const m = document.querySelector('meta[name="ghrdpBuild"], meta[name="ghrdp-build"], #ghrdpBuild');
         const prov = Array.from(document.querySelectorAll('[data-testid*="provenance"], .build-stamp')).map(e => e.textContent).join(' ').slice(0, 80);
         return { stamp: (m && (m.getAttribute('content') || m.textContent)) || prov.match(/[0-9a-f]{7,40}/)?.[0] || '', found: Boolean(m || prov) };
-      }).catch(() => ({ found: false }));
+      }), 10000, { found: false, detail: 'page.evaluate timed out' }).catch(() => ({ found: false }));
       return s;
     },
-    errorCount(page) { return (page.__errors && page.__errors.n) || 0; }
+    errorCount(page) { return (page.__errors && page.__errors.n) || 0; },
+    // Which named surfaces does the SHIPPED page actually declare? Read from the
+    // DOM, never assumed from a route list the application does not have.
+    async pageSections(page, ids = []) {
+      const out = {};
+      for (const id of ids) {
+        try {
+          out[id] = await withTimeout(page.evaluate(sel => {
+            const el = document.querySelector(sel);
+            if (!el) return { found: false };
+            const r = el.getBoundingClientRect();
+            return { found: true, visible: r.width > 0 && r.height > 0, textLen: (el.innerText || el.textContent || '').trim().length };
+          }, id), 10000, { found: false, detail: 'page.evaluate timed out' });
+        } catch (e) { out[id] = { found: false, error: String(e.message || e).slice(0, 80) }; }
+      }
+      return out;
+    },
+    // the newest `n` collected samples: exactly the errors this route added
+    errorSamples(page, n) { const a = (page.__errors && page.__errors.samples) || []; return n > 0 ? a.slice(-n) : []; }
   };
 }
 
@@ -1208,31 +1558,35 @@ async function readUiContract(target, descriptor) {
   const cfg = await request(`${target}/api/config`, { timeoutMs: 15000 });
   const j = (cfg && cfg.json) || {};
   const flag = (...names) => { for (const n of names) { if (j[n] !== undefined) return j[n]; } return undefined; };
-  const routes = defaultRoutes(descriptor);
+  // Declared routes win ONLY if the build actually publishes them. The shipped
+  // dashboard (payloads/ui.html) publishes none: it is one page with named
+  // sections, so a hardcoded route list would have invented URLs. Surfaces can
+  // be overridden by the build (`uiSections`) for a future router.
+  const declared = Array.isArray(j.uiRoutes) ? j.uiRoutes.filter(r => r && r.id && r.url) : [];
+  const routes = declared.length ? declared : [];
+  const surfaces = defaultSurfaces(descriptor, flag('uiSections', 'dashboardSections'));
   return {
     routes,
+    surfaces,
     searchEnable: flag('searchEnabled', 'search_enable', 'searchEnable') ?? true,
     mirror: flag('mirror', 'mirrorEnabled') ?? false,
     raw: { keys: Object.keys(j).slice(0, 60) }
   };
 }
 
-function defaultRoutes(descriptor) {
+// The shipped dashboard's own anchors (payloads/ui.html, measured at c470531e):
+// five <section id="sec-*"> blocks, the files table body and the connection chip.
+// `nav.routes_reachable` verifies these because they are what the app declares.
+function defaultSurfaces(descriptor, override) {
   const base = descriptor.authorizedEndpoint;
-  return [
-    { id: 'overview', url: `${base}/#/overview`, testid: 'topbar', text: 'Mission Control' },
-    { id: 'sessions', url: `${base}/#/sessions`, text: 'session' },
-    { id: 'files', url: `${base}/#/files`, text: 'file' },
-    { id: 'search', url: `${base}/#/search`, text: 'search' },
-    { id: 'web-desktop', url: `${base}/#/web-desktop`, text: 'web desktop' },
-    { id: 'keys', url: `${base}/#/keys`, text: 'key' },
-    { id: 'telemetry', url: `${base}/#/telemetry`, text: 'telemetry' },
-    { id: 'settings', url: `${base}/#/settings`, text: 'setting' }
-  ];
+  const fallback = ['#pillConn', '#sec-conn', '#sec-keys', '#sec-native-rdp', '#sec-mirror', '#sec-log', '#fileRows'];
+  const list = Array.isArray(override) && override.length ? override.map(x => (typeof x === 'string' ? x : x && x.id)).filter(Boolean) : fallback;
+  return list.map(x => ({ id: x, selector: x, required: true, page: `${base}/` }));
 }
 
+
 function makeRunners(ctx, a, deadline) {
-  const { target, descriptor, page, markers, authProof, forgedToken, envelope, clientIp, contract } = ctx;
+  const { target, descriptor, page, markers, authProof, authOutcome, forgedToken, envelope, clientIp, contract } = ctx;
   const results = ctx.resultsRef || {};
   // the live browser's navigation target is stashed on the page so markers can
   // build origin-relative URLs without re-deriving them from a string.
@@ -1244,11 +1598,11 @@ function makeRunners(ctx, a, deadline) {
     return r.json;
   };
   return {
-    'auth.dash_token_gate': () => feat.evalAuthGate({ authProof, page, markers }),
+    'auth.dash_token_gate': () => feat.evalAuthGate({ authProof, page, markers, authOutcome }),
     'auth.no_stale_key_reuse': () => feat.evalStaleKey({ target, forgedToken }),
     'nav.build_provenance': () => feat.evalProvenance({ target, descriptor, page, markers }),
-    'session.live_binding': () => feat.evalLiveBinding({ target, descriptor }),
-    'health.readiness_contract': () => feat.evalLiveBinding({ target, descriptor }),
+    'session.live_binding': () => feat.evalLiveBinding({ target, descriptor, originRunStartedAt: report.identity.process && report.identity.process.runStartedAt }),
+    'health.readiness_contract': () => feat.evalReadinessContract({ target, descriptor }),
     'telemetry.live_stream': () => feat.evalTelemetryDelta({ target, sampleMs: 6000 }),
     'keys.acl_view': () => feat.evalKeysMasked({ page, secrets: [envelope.dashboardToken, envelope.rdpPassword] }),
     'errors.classified_not_spinner': () => feat.evalErrorSurface({ page, target, forgedToken }),
@@ -1283,18 +1637,34 @@ function makeRunners(ctx, a, deadline) {
     },
     'webdesktop.frames': () => feat.evalWebDesktop({ target, page, sampleMs: 5000, rdpStatus: results['connection.native_rdp_launch'] && results['connection.native_rdp_launch'].status }),
     'webdesktop.interaction': () => feat.na('NO_SUPPORTED_INPUT_ROUTE: this build exposes no documented input endpoint for the web desktop; asserting a synthetic keypress would be a mock, so it is reported NOT_APPLICABLE'),
-    'nav.routes_reachable': () => feat.evalRoutes({ page, routes: contract.routes, markers }),
+    'nav.routes_reachable': () => feat.evalDashboardSurfaces({ page, markers, surfaces: contract.surfaces, routes: contract.routes, target: descriptor.authorizedEndpoint }),
     'files.list': async () => {
       const idx = await request(`${target}/api/progress`, { timeoutMs: 15000 });
       const total = idx.json && (idx.json.filesTotal ?? (idx.json.progress && idx.json.progress.agg && idx.json.progress.agg.total));
       let dom = null;
       if (page) {
-        try { await page.goto(`${descriptor.authorizedEndpoint}/#/files`, { waitUntil: 'domcontentloaded', timeout: 20000 }); dom = await page.evaluate(() => document.querySelectorAll('[data-testid="file-row"], tbody tr').length); } catch (e) { dom = `nav-error: ${e.message.slice(0, 60)}`; }
+        try {
+          await page.goto(`${descriptor.authorizedEndpoint}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          // `#fileRows` is the shipped table body. Its placeholder row ("waiting
+          // for watcher...") is NOT a file, so it is excluded: a table that only
+          // shows the placeholder is an EMPTY list, not one row of evidence.
+          dom = await withTimeout(page.evaluate(() => {
+            const tb = document.querySelector('#fileRows');
+            if (!tb) return 'no-table';
+            const rows = Array.from(tb.querySelectorAll('tr')).filter(tr => tr.children.length > 2);
+            return rows.length;
+          }), 10000, 'dom-timeout');
+        } catch (e) { dom = `nav-error: ${e.message.slice(0, 60)}`; }
       }
       const evidence = { serverFilesTotal: total ?? null, domRows: dom };
       if (!page) return feat.blocked('DEPENDS_ON_BROWSER');
       if (typeof dom === 'number' && dom > 0) return feat.ok(`${dom} rows rendered against a server index of ${total}`, evidence);
-      return feat.bad(`FILES_LIST_EMPTY_OR_MISMATCH: dom=${JSON.stringify(dom)} server=${JSON.stringify(total)}`, evidence);
+      // Three different facts, three different labels (a placeholder is not a
+      // file row, and an absent table is not an empty one).
+      if (dom === 'no-table') return feat.bad(`FILES_TABLE_ABSENT: the shipped dashboard has no #fileRows table body`, evidence);
+      if (dom === 'dom-timeout') return feat.blocked(`FILES_DOM_UNREADABLE: page.evaluate did not return within 10s`, evidence);
+      if (dom === 0 && (!total || Number(total) === 0)) return feat.na(`EMPTY_RUN: this run's watcher indexed nothing, so there is nothing to list (server total=${total ?? 'unknown'})`, evidence);
+      return feat.bad(`FILES_LIST_EMPTY_OR_MISMATCH: dom=${JSON.stringify(dom)} server=${JSON.stringify(total)} — the server reports files that the table does not render`, evidence);
     },
     'files.fixture_roundtrip': () => feat.na('NO_WRITE_ROUTE_IN_LIVE_MODE: the app exposes no run-owned file-write API that the lab may use without touching operator data; writing through the mirror lane would mutate real storage, so this is NOT_APPLICABLE rather than simulated'),
     'search.lane': async () => {
@@ -1356,7 +1726,9 @@ function writeLiveEvidence(dir, report) {
   const f = report.features || { rows: [] };
   const by = id => (f.rows || []).find(r => r.id === id) || {};
   capSet.set('live_origin_verified', STATUS.PASS, `descriptor ${report.identity && report.identity.originVerification ? 'verified' : 'not verified'}`, { checks: report.identity && report.identity.originVerification ? report.identity.originVerification.checks : null });
-  capSet.set('live_authorization', report.authorization.outcome === 'PROVEN' ? STATUS.PASS : STATUS.BLOCKED, report.authorization.detail);
+  capSet.set('live_authorization',
+    report.authorization.outcome === 'PROVEN' ? STATUS.PASS : STATUS.BLOCKED,
+    report.authorization.ticketRoute ? `${report.authorization.ticketRoute.code}: ${report.authorization.detail}` : report.authorization.detail);
   capSet.set('live_identity', by('nav.build_provenance').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.build_provenance').status), by('nav.build_provenance').reason || null);
   capSet.set('live_ui_rendered', by('nav.routes_reachable').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.routes_reachable').status), by('nav.routes_reachable').reason || (report.browser ? `profile ${report.browser.profile || 'n/a'}` : 'browser not used'));
   capSet.set('live_features', f.accepted ? STATUS.PASS : STATUS.FAIL, `${f.mandatoryPass}/${f.mandatoryTotal} mandatory features PASS; vetoing=${(f.vetoing || []).join(',') || 'none'}`, { counts: f.counts });
@@ -1464,4 +1836,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };
+module.exports = { EXIT, STAGES, ACK_JOB_RESULT_STATES, ackStateForJobResult, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultSurfaces, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };

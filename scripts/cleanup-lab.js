@@ -194,7 +194,11 @@ async function main() {
     else if (summary.survivors.length) code = 2;
   } catch (err) {
     summary = { mode: args.mode, error: err.message };
-    code = /REGISTRY_CORRUPT|LOCK_ACQUISITION_FAILED/.test(err.message) ? 3 : 1;
+    // 3 = registry bookkeeping (nothing was killed, the desktop is unchanged):
+    // a corrupt registry, a lock we could not take, or an atomic rename the OS
+    // refused. The workflow distinguishes this from 2 (survivors) and 4
+    // (unreadable process table), which are the two that describe real danger.
+    code = /REGISTRY_CORRUPT|REGISTRY_WRITE_FAILED|LOCK_ACQUISITION_FAILED/.test(err.message) ? 3 : 1;
   }
   const json = JSON.stringify(summary, null, 2);
   console.log(json);

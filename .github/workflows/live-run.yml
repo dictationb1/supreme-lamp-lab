@@ -49,9 +49,9 @@ name: Live-Run Integration (Mission Control -> client VM)
 #     would need an app-side `repository_dispatch` carrying a token that can
 #     write to this private repository; that token does not exist today
 #     (app-repo secret writes are refused). Measured fallback: the `*/10` cron,
-#     i.e. up to ~10 minutes from publication to a queued claim, plus runner
-#     pickup. docs/live-signal.md records the measurement; do not call it
-#     immediate.
+#     which in practice ran at 06:52, 07:41 and 08:21 on 2026-10-23 - gaps of
+#     48.9 and 40.1 minutes, not ten. docs/live-signal.md records the measurement;
+#     never call it immediate, and never quote 10 minutes as a maximum.
 #   * `workflow_run` (run-completed) is deliberately NOT used: by then the
 #     ephemeral server is gone, which is exactly this file's reason to exist.
 #   * Discovery is per (run id, attempt) and requires the run to still be
@@ -472,7 +472,7 @@ jobs:
     needs: [discover, claim]
     if: needs.claim.outputs.proceed == 'yes'
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: write
       actions: read
@@ -510,17 +510,253 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Provision Node.js on the client VM (no tool-cache dependency)
+        run: |
+          # MEASURED (run 39903491430): actions/setup-node died extracting its own
+          # tarball ("7zr.exe ... exit code 2") - a tool-cache/disk/AV problem, not
+          # a network one. MEASURED (run 39902940714): without that action this job
+          # has no `node` on PATH at all, so the owned-process cleanup silently
+          # no-ops and the verification cannot start.
+          #
+          # The job therefore provisions node itself, deterministically:
+          #   1. an existing node (PATH, Program Files, LOCALAPPDATA, tool cache);
+          #   2. otherwise the official Windows zip expanded into RUNNER_TEMP, which
+          #      bypasses the 7zr/tool-cache path entirely.
+          # Failure is a named prerequisite (exit 4, BLOCKED) with disk and PATH
+          # diagnostics in the uploaded evidence - never a silent skip.
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $diagPath = Join-Path $dir 'node-provision.txt'
+          $diag = New-Object System.Collections.Generic.List[string]
+          function Note($t) { Write-Host $t; $diag.Add([string]$t) }
+
+          $drive = Get-PSDrive C -ErrorAction SilentlyContinue
+          if ($drive) { Note ("disk C: free=" + [math]::Round(($drive.Free / 1GB), 2) + "GB") }
+          Note ("PATH entries mentioning node: " + ((($env:PATH -split ';') | Where-Object { $_ -match 'node' }) -join ' | '))
+
+          $cands = New-Object System.Collections.Generic.List[string]
+          $cmd = Get-Command node -ErrorAction SilentlyContinue
+          if ($cmd) { $cands.Add($cmd.Source) }
+          foreach ($p in @("$env:ProgramFiles\nodejs\node.exe", "${env:ProgramFiles(x86)}\nodejs\node.exe", "$env:LOCALAPPDATA\Programs\nodejs\node.exe", "$env:ProgramData\chocolatey\bin\node.exe")) {
+            if ($p -and (Test-Path -LiteralPath $p)) { $cands.Add($p) }
+          }
+          if ($env:RUNNER_TOOL_CACHE) {
+            $toolNode = Join-Path $env:RUNNER_TOOL_CACHE 'node'
+            if (Test-Path -LiteralPath $toolNode) {
+              Get-ChildItem -LiteralPath $toolNode -Recurse -Filter node.exe -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object { $cands.Add($_.FullName) }
+            }
+          }
+          Note ("node candidates: " + (($cands | Select-Object -Unique) -join ' | '))
+
+          $nodeDir = $null
+          $fallbackDir = $null
+          foreach ($c in ($cands | Select-Object -Unique)) {
+            try {
+              $v = ((& $c -v 2> $null) -join '').Trim()
+              if ($v -match '^v(\d+)\.') {
+                $major = [int]$Matches[1]
+                Note ("candidate $c -> $v")
+                if ($major -ge 22) { $nodeDir = Split-Path -Parent $c; break }
+                if ($major -ge 18 -and -not $fallbackDir) { $fallbackDir = Split-Path -Parent $c }
+              }
+            } catch { Note ("candidate $c -> unusable: " + $_.Exception.Message) }
+          }
+          if (-not $nodeDir -and $fallbackDir) {
+            Note ("no node 22+ found; using an older interpreter at $fallbackDir (the run still names the version it used)")
+            $nodeDir = $fallbackDir
+          }
+
+          if (-not $nodeDir) {
+            $ver = '22.23.3'
+            $zip = Join-Path $env:RUNNER_TEMP "node-v$ver-win-x64.zip"
+            $dst = Join-Path $env:RUNNER_TEMP "node-portable"
+            Note ("downloading https://nodejs.org/dist/v$ver/node-v$ver-win-x64.zip")
+            try {
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Invoke-WebRequest -Uri "https://nodejs.org/dist/v$ver/node-v$ver-win-x64.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 300
+              Note ("downloaded bytes=" + (Get-Item -LiteralPath $zip).Length)
+              if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force -ErrorAction SilentlyContinue }
+              Expand-Archive -LiteralPath $zip -DestinationPath $dst -Force
+              $exe = Join-Path $dst "node-v$ver-win-x64\node.exe"
+              if (Test-Path -LiteralPath $exe) { $nodeDir = Split-Path -Parent $exe } else { Note 'the expanded archive has no node.exe' }
+            } catch {
+              Note ("portable node failed: " + $_.Exception.Message)
+            }
+          }
+
+          if (-not $nodeDir) {
+            $diag | Out-File -LiteralPath $diagPath -Encoding utf8
+            if ($env:GITHUB_STEP_SUMMARY) { $diag | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
+            Write-Host ("::error title=NO NODE ON CLIENT VM::no usable node and the portable download failed - the owned-process cleanup and the headed verification cannot run. Prerequisite (BLOCKED), not a product regression. Diagnostics: " + $diagPath)
+            exit 4
+          }
+
+          $env:PATH = $nodeDir + ';' + $env:PATH
+          $nodeDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Note ("node dir: " + $nodeDir)
+          Note ("node -v: " + ((& node -v) -join ''))
+          Note ("npm -v: " + ((& npm -v) -join ''))
+          $diag | Out-File -LiteralPath $diagPath -Encoding utf8
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Node.js on the client VM') + ($diag | ForEach-Object { '- ' + $_ })
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          Write-Host ("::notice title=client node::" + ((& node -v) -join '') + " from " + $nodeDir)
+          exit 0
+
       - name: Preflight owned-process cleanup
         run: |
-          node scripts/cleanup-lab.js --mode preflight
-          exit $LASTEXITCODE
+          # MEASURED DEFECTS (runs 39900345165 and 39902230571, 2026-10-23): this
+          # step exited 1 twice and SKIPPED the whole live verification, although
+          # discovery had attached the real application run and the claim had
+          # selected it.
+          #
+          # Two independent causes, both fixed here:
+          #  1. The runner wraps a PowerShell step with $ErrorActionPreference =
+          #     'stop'. Redirecting a native command's stderr into the pipeline
+          #     (node ... stderr folded into the pipeline) turns every stderr line into a
+          #     terminating NativeCommandError, so the step died at the call and
+          #     none of the classification below ever ran. stderr now goes to a
+          #     FILE, and the JSON summary comes from --out, not from console text.
+          #  2. The runner also exits with $LASTEXITCODE when it is set, so a
+          #     classified warning still failed the step. Every path ends with an
+          #     explicit exit.
+          #
+          # Classification (unchanged safety contract):
+          #   2 = owned processes survived termination -> fatal
+          #   4 = the process snapshot could not be taken -> fatal (never guess)
+          #   1/3 = registry bookkeeping only, nothing was killed and the desktop
+          #         state is unchanged -> warning, verification proceeds
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $jsonPath = Join-Path $dir 'cleanup-preflight.json'
+          $errPath = Join-Path $dir 'cleanup-preflight.stderr.txt'
+          & node scripts/cleanup-lab.js --mode preflight --out $jsonPath 1> $null 2> $errPath
+          $code = $LASTEXITCODE
+          $body = if (Test-Path $jsonPath) { Get-Content -LiteralPath $jsonPath -Raw } else { '(cleanup wrote no summary)' }
+          $errBody = if (Test-Path $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- cleanup stderr ---'; Write-Host $errBody }
+          $detail = ''
+          try { if ($body.Trim().StartsWith('{')) { $o = $body | ConvertFrom-Json; if ($o.error) { $detail = [string]$o.error } } } catch { $detail = 'summary not parseable' }
+          if ($detail.Length -gt 600) { $detail = $detail.Substring(0, 600) }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Preflight owned-process cleanup (exit ' + $code + ')')
+            if ($detail) { $md += ('error: ' + $detail) }
+            $md += ('artifact: ' + $jsonPath)
+            $md += '```json'
+            $md += $body
+            $md += '```'
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          if ($code -eq 2) {
+            Write-Host "::error title=preflight cleanup::exit 2 - owned processes survived termination; refusing to start a verification on a desktop another attempt may still be driving"
+          } elseif ($code -eq 4) {
+            Write-Host "::error title=preflight cleanup::exit 4 - the process table could not be read, so no process was touched; a cleanup that cannot see the desktop must not guess"
+          } elseif ($code -ne 0) {
+            Write-Host "::warning title=preflight cleanup::exit $code - registry bookkeeping only; no process was killed and the verification proceeds"
+          } else {
+            Write-Host '::notice title=preflight cleanup::exit 0'
+          }
+          if ($detail) { Write-Host ("::warning title=preflight cleanup detail::" + $detail) }
+          # HOST CAPACITY, on the run page. MEASURED (run 39926882469): the
+          # self-hosted runner "lost communication with the server" ten minutes
+          # into a verification, and the run page could not say whether the VM
+          # was starved (two Chromium profiles had been driven by earlier
+          # attempts). This costs milliseconds and makes that diagnosis possible
+          # next time instead of a guess.
+          try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            $freeMb = [math]::Round($os.FreePhysicalMemory / 1024)
+            $totalMb = [math]::Round($os.TotalVisibleMemorySize / 1024)
+            $diskGb = [math]::Round((Get-PSDrive C -ErrorAction Stop).Free / 1GB, 1)
+            $chrome = @(Get-Process chrome -ErrorAction SilentlyContinue).Count
+            $node = @(Get-Process node -ErrorAction SilentlyContinue).Count
+            Write-Host ("::notice title=host capacity::freeMb=" + $freeMb + " totalMb=" + $totalMb + " freeDiskGb=" + $diskGb + " chromeProcs=" + $chrome + " nodeProcs=" + $node)
+            if ($freeMb -lt 700 -or $diskGb -lt 2) {
+              Write-Host ("::warning title=host capacity::the client VM is low on resources before the pass (freeMb=" + $freeMb + " freeDiskGb=" + $diskGb + ") - a lost runner is likely; the pass continues and this is recorded, not treated as a product failure")
+            }
+          } catch {
+            Write-Host ("::warning title=host capacity::unreadable: " + $_.Exception.Message)
+          }
+          exit 0
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
-          npx playwright install chromium
-          if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+          # MEASURED (run 39902940714): this step failed with a bare exit 1 and
+          # nothing retrievable. It now logs both commands to the uploaded
+          # evidence, prints the tail on failure, and names the command that
+          # failed. A cold Playwright download is a prerequisite problem (BLOCKED),
+          # not a product failure.
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $log = Join-Path $dir 'deps-install.log'
+          '== npm ci ==' | Out-File -LiteralPath $log -Encoding utf8
+          & cmd /c ('npm ci --no-audit --no-fund > "' + $log + '" 2>&1')
+          $ciCode = $LASTEXITCODE
+          '== npx playwright install chromium (exit ' + $ciCode + ') ==' | Out-File -LiteralPath $log -Append -Encoding utf8
+          Get-Content -LiteralPath $log -Tail 20 | ForEach-Object { Write-Host $_ }
+          if ($ciCode -ne 0) {
+            $tail = (Get-Content -LiteralPath $log -Tail 30) -join ' | '
+            if ($tail.Length -gt 900) { $tail = $tail.Substring($tail.Length - 900) }
+            if ($env:GITHUB_STEP_SUMMARY) {
+              $md = @('### npm ci failed (exit ' + $ciCode + ')', 'artifact: ' + $log, '```', $tail, '```')
+              $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+            Write-Host ("::error title=npm ci::exit " + $ciCode + " - dependencies could not be installed on the client VM (prerequisite, BLOCKED): " + $tail)
+            exit 4
+          }
+          & cmd /c ('npx --yes playwright install chromium > "' + $log + '" 2>&1')
+          $pwCode = $LASTEXITCODE
+          '== npx playwright install chromium (exit ' + $pwCode + ') ==' | Out-File -LiteralPath $log -Append -Encoding utf8
+          Get-Content -LiteralPath $log -Tail 20 | ForEach-Object { Write-Host $_ }
+          if ($pwCode -ne 0) {
+            $tail = (Get-Content -LiteralPath $log -Tail 30) -join ' | '
+            if ($tail.Length -gt 900) { $tail = $tail.Substring($tail.Length - 900) }
+            if ($env:GITHUB_STEP_SUMMARY) {
+              $md = @('### playwright install failed (exit ' + $pwCode + ')', 'artifact: ' + $log, '```', $tail, '```')
+              $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+            Write-Host ("::error title=playwright install::exit " + $pwCode + " - the headed browser could not be installed (prerequisite, BLOCKED): " + $tail)
+            exit 4
+          }
+          Write-Host '::notice title=deps::npm ci + chromium ready'
+          exit 0
+
+      - name: Origin signal probe (no credential, no browser, no VM takeover)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Without this the probe reports LAB_SIGNAL_PRIVATE_KEY_MISSING and the
+          # warning would blame the credential path for a missing step env.
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
+        run: |
+          # MEASURED (run 39904246194): the live step stopped at
+          # BLOCKED_ORIGIN_RUN_LOOKUP_FAILED and the reason lived only inside an
+          # artifact the operator could not download. This probe runs the SAME
+          # discovery in this job and prints the refusal code, its detail and the
+          # HTTP status into the step summary, so a blocked origin is diagnosed
+          # from the run page. It never prints key material or a credential.
+          $ErrorActionPreference = 'Continue'
+          $dir = $env:ARTIFACT_DIR
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $outPath = Join-Path $dir 'signal-status.txt'
+          $errPath = Join-Path $dir 'signal-status.stderr.txt'
+          & node scripts/live-run.js signal-status --origin-repo $env:ORIGIN_REPO --origin-run $env:ORIGIN_RUN --origin-attempt $env:ORIGIN_ATTEMPT 1> $outPath 2> $errPath
+          $code = $LASTEXITCODE
+          $body = if (Test-Path -LiteralPath $outPath) { Get-Content -LiteralPath $outPath -Raw } else { '(no output)' }
+          $errBody = if (Test-Path -LiteralPath $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- signal-status stderr ---'; Write-Host $errBody }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Origin signal probe (exit ' + $code + ')', '```', $body, '```')
+            if ($errBody.Trim()) { $md += @('stderr:', '```', $errBody, '```') }
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          if ($code -ne 0) { Write-Host ("::warning title=signal probe::exit " + $code + " - the credential path is not healthy for " + $env:ORIGIN_REPO + "#" + $env:ORIGIN_RUN + "/" + $env:ORIGIN_ATTEMPT + "; the verification below will report the exact refusal") }
+          exit 0
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
@@ -547,7 +783,11 @@ jobs:
             '--origin-run', $env:ORIGIN_RUN,
             '--origin-attempt', $env:ORIGIN_ATTEMPT,
             '--correlation-id', $env:ORIGIN_CORRELATION,
-            '--timeout-ms', '1500000',
+            '--timeout-ms', '1800000',
+            # Per-evaluator bound: one hanging evaluator must cost its own budget,
+            # never the run. MEASURED (run 39920375772) a 45-minute job died with
+            # zero feature verdicts because one evaluator never returned.
+            '--feature-timeout-ms', '300000',
             '--ready-timeout-ms', '240000',
             '--native-handoff', 'handler'
           )
@@ -566,7 +806,28 @@ jobs:
           & node @argv
           $code = $LASTEXITCODE
           "exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
+          # The verdict must be readable from the run page, not only from an
+          # artifact: MEASURED (run 39904246194) a BLOCKED result surfaced as a
+          # bare "exit 4 at AWAITING_READINESS" with the cause in a downloadable
+          # file that this environment cannot fetch.
+          $rep = Join-Path $env:ARTIFACT_DIR 'live-run-report.json'
+          if (Test-Path -LiteralPath $rep) {
+            try {
+              $j = Get-Content -LiteralPath $rep -Raw | ConvertFrom-Json
+              $v = $j.verdict
+              $m = 'stage=' + $j.stage + ' verdict=' + $v.code + ' accepted=' + $v.accepted
+              if ($v.detail) { $m = $m + ' detail=' + $v.detail }
+              if ($m.Length -gt 900) { $m = $m.Substring(0, 900) }
+              if ($v.accepted) { Write-Host ("::notice title=live-run verdict::" + $m) } else { Write-Host ("::error title=live-run verdict::" + $m) }
+              if ($env:GITHUB_STEP_SUMMARY) { @('### Live verdict', $m) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
+            } catch { Write-Host '::warning title=live-run verdict::live-run-report.json is not parseable' }
+          } else {
+            Write-Host ('::error title=live-run verdict::no report was written (exit ' + $code + '); nothing is reported as verified')
+          }
+          # A green step means VERIFIED, and nothing else. A prerequisite blocker
+          # (exit 4) therefore fails this step; the record it wrote says BLOCKED
+          # and stays retryable, which is how the queue keeps the origin serveable.
+          if ($code -eq 0) { exit 0 }
           exit 1
 
       - name: Keep the authorized viewer open (bounded, default useful)
@@ -593,10 +854,48 @@ jobs:
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
         if: always()
-        shell: powershell
         run: |
-          node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
-          exit $LASTEXITCODE
+          # Same two runner mechanics as the preflight step (see there): stderr to a
+          # file, JSON from --out, explicit exit. Postflight kills only processes
+          # whose live (pid, createTime) equals the recorded identity for THIS
+          # run+attempt; a survivor or an unreadable process table stays fatal,
+          # because otherwise a leftover would silently poison the next attempt.
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $jsonPath = Join-Path $dir 'cleanup-postflight.json'
+          $errPath = Join-Path $dir 'cleanup-postflight.stderr.txt'
+          & node scripts/cleanup-lab.js --mode postflight --deadline-ms 60000 --out $jsonPath 1> $null 2> $errPath
+          $code = $LASTEXITCODE
+          $body = if (Test-Path $jsonPath) { Get-Content -LiteralPath $jsonPath -Raw } else { '(cleanup wrote no summary)' }
+          $errBody = if (Test-Path $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- cleanup stderr ---'; Write-Host $errBody }
+          $detail = ''
+          try { if ($body.Trim().StartsWith('{')) { $o = $body | ConvertFrom-Json; if ($o.error) { $detail = [string]$o.error } } } catch { $detail = 'summary not parseable' }
+          if ($detail.Length -gt 600) { $detail = $detail.Substring(0, 600) }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Postflight cleanup (exit ' + $code + ')')
+            if ($detail) { $md += ('error: ' + $detail) }
+            $md += ('artifact: ' + $jsonPath)
+            $md += '```json'
+            $md += $body
+            $md += '```'
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          if ($code -eq 2) {
+            Write-Host "::error title=postflight cleanup::exit 2 - an owned process survived termination and stays registered; the leftover is named in the summary above"
+            exit 1
+          } elseif ($code -eq 4) {
+            Write-Host "::error title=postflight cleanup::exit 4 - the process table could not be read, so nothing was reclaimed and nothing was guessed"
+            exit 1
+          } elseif ($code -ne 0) {
+            Write-Host "::warning title=postflight cleanup::exit $code - registry bookkeeping only; no process was left running by this step"
+          } else {
+            Write-Host '::notice title=postflight cleanup::exit 0'
+          }
+          if ($detail) { Write-Host ("::warning title=postflight cleanup detail::" + $detail) }
+          exit 0
 
       - name: Upload live-run evidence (sanitized)
         if: always()

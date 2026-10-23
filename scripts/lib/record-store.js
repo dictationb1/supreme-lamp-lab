@@ -282,5 +282,9 @@ module.exports = {
   RECORDS_BRANCH, RECORDS_DIR, recordKey, recordPath, claimPath, originSlug,
   publishRecord, updateRecordState, readRecord, readClaim, claimRecord,
   releaseClaim, listRecords, readRepoFile, writeRepoFile, ensureRecordsBranch,
+  // labRunStatus is how a stale claimant is detected (pick-record, claimRecord).
+  // MEASURED (run 39905994860): it was not exported, pick-record's TypeError was
+  // swallowed as "unreadable claimant", and every sweep refused the origin.
+  labRunStatus,
   TERMINAL_RUN_STATES, sleep
 };

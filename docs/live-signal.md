@@ -1,63 +1,97 @@
-# Live signal — why the automatic link is a check run, not a log scrape
+# Live signal — the automatic link between an application run and the lab
 
-Measured 2026-10-22 against the real application repository (`dictationb1/supreme-lamp`).
+Measured against the **merged** application publisher (`dictationb1/supreme-lamp`,
+`scripts/live-signal-publisher.js`, F200) on 2026-10-23, application run
+`39899087271` / attempt 1 / sha `c470531e4739be072daea20425a1de203d0ed326`.
 
-| Transport | While the run is alive | After the job completes |
-|---|---|---|
-| `GET /repos/{o}/{r}/actions/runs/{id}/logs` | **HTTP 404** (run 39806929005, in progress) | readable zip, but the server is gone |
-| `GET /repos/{o}/{r}/actions/jobs/{jobId}/logs` | **302 → `productionresultssa*.blob.core.windows.net` → HTTP 404**, six attempts, queued *and* in progress, from inside a GitHub runner (runs 39808737164, 39808861040) | readable for successful jobs (11–27 KB measured) |
-| Public check-run `output.summary` | **readable live** — sentinel visible after 12 s, production reader decrypted the envelope while the publisher job was `in_progress` (run 39810624203) | readable, but marked `completed` |
+## Where the payload actually is (this was the defect)
 
-Therefore zero-application-change log discovery **cannot** attach to a live run. The
-lab-side implementation keeps log parsing as a fallback for finished/archival
-evidence, and uses the check-run signal as the primary transport.
+| Question | Answer (measured from the real check run) |
+| --- | --- |
+| check-run name | `mission-control-live-signal` |
+| machine payload | **`output.text`** — a fenced ` ```json ` block (`schema: "mc-signal/v1"`) |
+| human summary | `output.summary` — Markdown, **no** machine payload |
+| endpoint | an **object**: `endpoint.primary = "http://100.124.43.82:7331"` (transport `tailnet-ip`) |
+| credential | `credential.envelope` (mirrored as `credentialEnvelope`) — sealed, never plaintext |
+| envelope algorithm | `rsa-oaep-sha256+aes-256-gcm` (the configured pair) **or** `x25519-hkdf-sha256+aes-256-gcm` |
+| keyId | `rsa:<sha256(SPKI DER) hex[0:16]>` / `x25519:<sha256(raw32) hex[0:16]>` — measured `rsa:f5ae1689a220835e` |
+| AAD | canonical JSON `{schema,repository,runId(string),runAttempt(number),sha,keyId}` with **sorted keys** |
+| liveness | `state:"live"`, `publishedAt`, `heartbeatSec:60`, `heartbeatMaxAgeSec:180`, `expiresAt` (6 h) |
+| UI identity | `ui.sha` + `ui.matchesRunSha` (measured `true` for the run SHA) |
 
-## Signal format
+The lab reader previously looked for its own `MC-SIGNAL v1 <base64url>` prefix in
+`output.summary`. Against these real bytes that could only ever answer
+`SIGNAL_NOT_FOUND`, after which discovery fell back to the run log — a transport
+that cannot see a live run at all. `scripts/lib/live-signal.js` now reads the
+application format from `output.text` first, and keeps the legacy lab prefix as a
+documented backwards-compatible second format for the CI self-validation harness.
 
-```
-MC-SIGNAL v1 <base64url(JSON)>
-```
+## Reader rules (`scripts/lib/live-signal.js`)
 
-```jsonc
-{
-  "v": 1,
-  "repo": "dictationb1/supreme-lamp",
-  "runId": 123456, "attempt": 2,
-  "appSha": "<40 hex>", "uiBuild": "ui-dist-<sha>",
-  "endpoint": "http://100.x.y.z:7331/",
-  "issuedAt": "…", "expiresAt": "…",            // hard-capped at 6 h
-  "enc": { "alg": "RSA-OAEP-256", "keyId": "<sha256(pubkey)[0:32]>", "ciphertext": "<base64>" }
-}
-```
+Accepted, in order: `mc-signal/v1` fenced JSON in `output.text`, then in
+`output.summary`; then the legacy `MC-SIGNAL v1` text. Every refusal has a name:
 
-* Identity fields are public facts; the dashboard key exists **only** as RSA-OAEP
-  ciphertext under the lab public key (`LAB_SIGNAL_PUBKEY`, an app repo variable).
-* The lab decrypts with `LAB_SIGNAL_PRIVATE_KEY` (lab secret) in memory; the key
-  is never written to a descriptor, evidence object, annotation or report.
-* `scripts/lib/live-signal.js` refuses, by name: wrong repo, wrong run, wrong
-  attempt, wrong app sha, expired, TTL > 6 h, issued in the future, non-tailnet
-  endpoint, unknown key id, undecryptable ciphertext.
+| code | meaning |
+| --- | --- |
+| `APP_SIGNAL_NOT_FOUND` / `APP_SIGNAL_SCHEMA` | no fenced JSON / wrong `schema` |
+| `APP_SIGNAL_NOT_LIVE` | `state` is `closed`/`failed` (a cancelled or expired run) |
+| `APP_SIGNAL_STALE` | heartbeat older than `heartbeatMaxAgeSec` (dead publisher) |
+| `SIGNAL_EXPIRED` / `SIGNAL_TTL_TOO_LONG` | expiry in the past / TTL beyond the ephemeral window |
+| `SIGNAL_FOREIGN_REPO` / `SIGNAL_STALE_RUN` / `SIGNAL_STALE_ATTEMPT` / `SIGNAL_SHA_MISMATCH` | identity disagrees with GitHub's run metadata for the exact run+attempt |
+| `SIGNAL_ENDPOINT_NOT_TAILNET` | endpoint is not CGNAT `100.64.0.0/10` or `*.ts.net` |
+| `SIGNAL_UNKNOWN_KEY` | envelope `keyId` is not the configured private key's fingerprint |
+| `APP_SIGNAL_AAD_MISMATCH` | the published AAD is not the canonical identity of this run |
+| `APP_SIGNAL_CREDENTIAL_BINDING` | the decrypted credential's own run/sha fields disagree with the signal |
+| `APP_SIGNAL_UNDECRYPTABLE` | AEAD authentication failed (wrong key or tampered envelope) |
+| `SIGNAL_KEY_ALG_MISMATCH` | envelope algorithm does not match the configured key type |
+| `SIGNAL_NO_PRIVATE_KEY` | `LAB_SIGNAL_PRIVATE_KEY` is not configured for this step |
 
-## Publisher (application side)
+Duplicate / closed / superseded check runs are tried newest-first until one
+resolves; an older signal for a superseded attempt fails `SIGNAL_STALE_ATTEMPT`,
+so a re-run cannot be served with attempt 1's credential.
 
-`patches/app-live-signal-publisher.js` + `patches/app-live-signal-check-run.snippet.yml`.
-It needs `checks: write` on the app workflow and no PAT: it uses the job's own
-`GITHUB_TOKEN`. It waits up to 15 min for the server's key, republishes every
-20 s, republishes again if the app rotates its dashboard key, and never fails
-the RDP job.
+## Keys (never rotated by the lab)
+
+* App repository **VARIABLE** `LAB_SIGNAL_PUBKEY` — public, encryption only.
+* Lab repository **SECRET** `LAB_SIGNAL_PRIVATE_KEY` — decrypt only, read from the
+  environment in every step that decrypts (`discover`, `claim`,
+  `candidate`, and the Windows `live` step).
+* Neither is the per-run dashboard token, the RDP password or the `.rdp` signing
+  certificate. The private key is never passed on a command line and never
+  written to a descriptor, annotation, artifact or report.
+
+`node scripts/live-run.js signal-status` prints presence, key type, the lab
+32-hex fingerprint and the app-form `keyId`, and (when an application signal is
+live) whether that `keyId` matched and the envelope decrypted — without printing
+either key.
+
+## Wake-up, honestly
+
+* The guaranteed path is the `*/10` cron on the default branch. It asks for every
+  10 minutes and does not deliver that. **MEASURED (2026-10-23) on this
+  repository**: scheduled sweeps began at 06:52:20Z, 07:41:17Z and 08:21:20Z —
+  gaps of **48.9 and 40.1 minutes**, not 10. GitHub treats `schedule` as
+  best-effort, delays it under load, and drops it on quiet repositories, so the
+  honest statement is "tens of minutes", never "up to 10 minutes" and never
+  "immediate". Two consequences are deliberate:
+  * the LAB measures its own legs (`latency` annotation: run start → auth →
+    browser → first UI surface) and reports the sweep delay separately, so the
+    scheduler's delay is never presented as the lab's latency;
+  * a push or a `live-verify` label on a PR run starts a sweep in seconds
+    (measured: 10–30 s from push to a queued job), and that is the pre-merge
+    path this repository is validated on.
+* `repository_dispatch` (`mission-control.live-run`) is supported by the workflow
+  but only fires if the application sets `LAB_SIGNAL_LAB_REPO` **and** a
+  cross-repo secret `LAB_SIGNAL_DISPATCH_TOKEN`; an application `GITHUB_TOKEN`
+  cannot write to this repository, and an Actions-created check run does not
+  trigger another workflow. When those are absent the publisher logs
+  `wake-up: skipped` and the schedule remains the mechanism.
+* `workflow_run` is deliberately not used: by then the ephemeral server is gone.
 
 ## Lab side
 
-* `node scripts/live-run.js signal-keygen` → prints the public key (app variable)
-  and the private key (lab secret).
-* `node scripts/live-run.js signal --origin-run <id>` → read/validate/decrypt one
-  run's signal (sanitized output).
-* `discoverOrigin()` tries the signal first, falls back to logs, and records
-  `evidence.transport` + `evidence.signalFallback`.
-
-## Status
-
-The transport, the envelope, the publisher and the reader are implemented and
-covered by regressions (155-test suite). The end-to-end **application** proof is
-still missing because the app-side patch has not been merged (this token gets
-HTTP 403 on writes to `dictationb1/supreme-lamp`).
+* `node scripts/live-run.js discover --origin-repo dictationb1/supreme-lamp` →
+  publishes one queue entry per (run, attempt).
+* `node scripts/live-run.js probe --origin-run <id>` → read-only diagnostics.
+* `node scripts/live-run.js live ...` runs on the interactive Windows client and
+  re-derives the credential **in process** (no job output, no artifact).

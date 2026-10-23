@@ -35,13 +35,13 @@ function buildInventory(contract = {}) {
       expectServer: '401 on /api/rdp-token; /api/config?key=forged must NOT return the gated credentials block'
     },
     {
-      id: 'nav.routes_reachable', area: 'navigation', mandatory: true, evaluator: 'evalRoutes',
-      requirement: 'Every route the current build registers renders with its marker and no new page errors.',
-      source: 'src/App.tsx / src/pages (hash router)',
+      id: 'nav.routes_reachable', area: 'navigation', mandatory: true, evaluator: 'evalDashboardSurfaces',
+      requirement: 'The visible UI reaches every surface the current build actually declares, with no new page errors. The shipped dashboard (payloads/ui.html) is one page with named sections, so the surfaces are its own anchors; a build that publishes `uiRoutes` is walked route by route instead.',
+      source: 'payloads/ui.html (#pillConn, #sec-conn, #sec-keys, #sec-native-rdp, #sec-mirror, #sec-log, #fileRows) · /api/config.uiRoutes when present',
       preconditions: ['authenticated session'],
-      action: 'Navigate the visible browser to each route in the contract list.',
-      expectUi: 'route marker visible, app shell still mounted, zero console errors',
-      expectServer: 'no new 4xx/5xx triggered by the route'
+      action: 'Open the dashboard in the headed browser and verify each declared surface; count new console/page errors.',
+      expectUi: 'every declared surface present, app shell still mounted, zero new page errors',
+      expectServer: 'no new 4xx/5xx triggered by the render'
     },
     {
       id: 'nav.build_provenance', area: 'navigation', mandatory: true, evaluator: 'evalProvenance',
@@ -154,7 +154,7 @@ function buildInventory(contract = {}) {
       expectUi: 'masked shape, never the raw value', expectServer: 'n/a'
     },
     {
-      id: 'health.readiness_contract', area: 'health', mandatory: true, evaluator: 'evalLiveBinding',
+      id: 'health.readiness_contract', area: 'health', mandatory: true, evaluator: 'evalReadinessContract',
       requirement: 'Readiness must satisfy the documented contract in full; a partial answer is not ready.',
       source: 'GET /api/readiness',
       preconditions: [], action: 'Evaluate the contract from the client.',

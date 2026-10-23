@@ -101,6 +101,54 @@ async function attestBackend({ target, appSha, timeoutMs = 15000 } = {}) {
 }
 
 /**
+ * Find the application's published process start time inside any of its
+ * diagnostic documents. `logonCollector.startedAt` / `uptimeSec` is how the
+ * server stamps its own boot; the search is structural because the bundle's
+ * nesting changes between builds.
+ */
+function findServerStart(node, depth = 0) {
+  if (!node || depth > 7) return null;
+  if (Array.isArray(node)) {
+    for (const v of node) { const r = findServerStart(v, depth + 1); if (r) return r; }
+    return null;
+  }
+  if (typeof node === 'object') {
+    const startedAt = node.startedAt || node.serverStartedAt || node.processStartedAt;
+    const uptime = node.uptimeSec === undefined ? null : Number(node.uptimeSec);
+    if (typeof startedAt === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(startedAt)) {
+      return { startedAt: new Date(startedAt).toISOString(), uptimeSec: uptime, source: 'startedAt' };
+    }
+    for (const v of Object.values(node)) { const r = findServerStart(v, depth + 1); if (r) return r; }
+  }
+  return null;
+}
+
+/**
+ * Where the application publishes its process start time. Measured: the F28
+ * logon collector's `startedAt` is emitted on /api/native-status (folded into
+ * rdpListener), the F99 bundle at /api/diag/comprehensive carries the same
+ * collectors, and /diag carries the raw listener. All three are tried and the
+ * one that answered is named, so a moved field is a diagnostic, not a mystery.
+ */
+const BOOT_ROUTES = ['/api/native-status', '/api/diag/comprehensive', '/diag'];
+
+async function serverBootTime({ target, timeoutMs = 20000 } = {}) {
+  const tried = [];
+  for (const route of BOOT_ROUTES) {
+    const r = await request(`${target}${route}`, { timeoutMs }).catch(e => ({ transport: 'error', status: 0, summary: e.message }));
+    tried.push({ route, status: r.status, transport: r.transport });
+    if (r.transport !== 'ok' || r.status !== 200 || !r.json) continue;
+    const hit = findServerStart(r.json);
+    if (hit) return { ok: true, code: 'BOOT_TIME_READ', boot: { ...hit, route }, tried };
+    if (r.json.serverTs && r.json.uptimeSec !== undefined) {
+      const startedAt = new Date(Date.parse(r.json.serverTs) - Number(r.json.uptimeSec) * 1000).toISOString();
+      return { ok: true, code: 'BOOT_TIME_DERIVED', boot: { startedAt, uptimeSec: Number(r.json.uptimeSec), source: 'serverTs-uptimeSec', route }, tried };
+    }
+  }
+  return { ok: false, code: 'BOOT_TIME_UNAVAILABLE', detail: tried.map(t => `${t.route}=${t.status}/${t.transport}`).join(' '), boot: null, tried };
+}
+
+/**
  * Re-read the session stamp later in the run. A changed sessionId means the
  * server was restarted between the readiness proof and the feature pass, so the
  * evidence would describe two different instances and must not be reported as
@@ -127,4 +175,4 @@ function registerIdentitySecrets() {
   registerSecret('', 'IDENTITY_PLACEHOLDER_UNUSED');
 }
 
-module.exports = { attestBackend, reassertSession, stripCredSecrets, registerIdentitySecrets, FQDN_RE, USER_RE };
+module.exports = { attestBackend, reassertSession, stripCredSecrets, registerIdentitySecrets, FQDN_RE, USER_RE, serverBootTime, findServerStart };
