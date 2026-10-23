@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "57d7f4e4713525b8"
   },
-  "state": "BLOCKED",
+  "state": "CLAIMED_BY_LAB",
   "history": [
     {
       "at": "2026-10-23T21:19:17.646Z",
@@ -86,6 +86,12 @@
       "state": "BLOCKED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+    },
+    {
+      "at": "2026-10-23T22:09:13.713Z",
+      "state": "CLAIMED_BY_LAB",
+      "by": "lab:40031337241",
+      "detail": "SUPERSEDED_DEAD_CLAIMANT"
     }
   ],
   "envelopeTransport": {
@@ -98,5 +104,5 @@
   "branch": {
     "exists": true
   },
-  "updatedAt": "2026-10-23T22:06:02.077Z"
+  "updatedAt": "2026-10-23T22:09:13.713Z"
 }
