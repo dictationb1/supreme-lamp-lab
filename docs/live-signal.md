@@ -12,11 +12,17 @@ Therefore zero-application-change log discovery **cannot** attach to a live run.
 lab-side implementation keeps log parsing as a fallback for finished/archival
 evidence, and uses the check-run signal as the primary transport.
 
-## Signal format
+## Signal formats (TWO are implemented)
 
-```
-MC-SIGNAL v1 <base64url(JSON)>
-```
+The reader accepts both; the writer in this lab emits the first, the merged
+application publisher emits the second. **Measured 2026-10-23 (run 39952421153):
+reading only the first format reported `SIGNAL_NOT_FOUND` for a correct, live
+signal**, because the application's `mc-signal/v1` document sits in the check
+run's `output.text` and not in `output.summary`. That is why
+`lib/live-signal.js#resolveAnySignal` tries both, and why
+`scripts/verify-signal-binding.js` audits either.
+
+### A. Lab patch format — `MC-SIGNAL v1 <base64url(JSON)>` (in `output.summary`)
 
 ```jsonc
 {
@@ -38,6 +44,36 @@ MC-SIGNAL v1 <base64url(JSON)>
   attempt, wrong app sha, expired, TTL > 6 h, issued in the future, non-tailnet
   endpoint, unknown key id, undecryptable ciphertext.
 
+### B. Application format — `mc-signal/v1` fenced JSON (in `output.text`)
+
+```jsonc
+{
+  "schema": "mc-signal/v1", "state": "live",
+  "repository": "dictationb1/supreme-lamp",
+  "runId": "39952421153", "runAttempt": 1,
+  "sha": "<40 hex>", "ref": "main",
+  "ui": { "sha": "<40 hex>", "stamped": true, "matchesRunSha": true },
+  "endpoint": { "primary": "http://100.x.y.z:7331", "transport": "tailnet-ip" },
+  "publishedAt": "…", "expiresAt": "…",            // hard cap 6 h
+  "keyId": "rsa:<16 hex>",
+  "credential": { "envelope": {
+      "v": 1, "alg": "rsa-oaep-sha256+aes-256-gcm",
+      "wrappedKey": "<base64>", "nonce": "<base64 12B>",
+      "aadB64": "<base64 stable-stringified identity>",
+      "ct": "<base64>", "tag": "<base64 16B>" } }
+}
+```
+
+* The AAD is the sealed identity (`schema, repository, runId, runAttempt, sha,
+  keyId`). The reader proves the published AAD really names the run it is
+  auditing — a credential sealed for another run/attempt/sha is refused as
+  `APP_SIGNAL_AAD_MISMATCH`.
+* Decryption is RSA-OAEP-SHA256 (unwrap the CEK) + AES-256-GCM (nonce/AAD/tag).
+  `x25519-hkdf-sha256+aes-256-gcm` is a **named refusal** (`APP_SIGNAL_UNSUPPORTED_ALG`)
+  for the lab's RSA key, never a silent "undecryptable".
+* Identity is still compared to the **run API**, never to another field of the
+  document; the AAD check is an additional binding, not the source of truth.
+
 ## Publisher (application side)
 
 `patches/app-live-signal-publisher.js` + `patches/app-live-signal-check-run.snippet.yml`.
@@ -55,9 +91,22 @@ the RDP job.
 * `discoverOrigin()` tries the signal first, falls back to logs, and records
   `evidence.transport` + `evidence.signalFallback`.
 
-## Status
+## Status (measured 2026-10-23, run 39952421153)
 
-The transport, the envelope, the publisher and the reader are implemented and
-covered by regressions (155-test suite). The end-to-end **application** proof is
-still missing because the app-side patch has not been merged (this token gets
-HTTP 403 on writes to `dictationb1/supreme-lamp`).
+* The application repository's **merged** publisher is
+  `scripts/live-signal-publisher.js` (app commit `10cd512a`, deployed by run
+  `39952421153` @ `24ddaa99`). It emits **format B** and only writes it to
+  `output.text`, refreshed every 60 s, `expiresAt` = publish + 6 h.
+* The lab reader used to read only `output.summary` and only format A. On a
+  live, correct signal it therefore answered `SIGNAL_NOT_FOUND` — measured on
+  the real check run (`mission-control-live-signal`, started 12:31:37Z,
+  `external_id = dictationb1/supreme-lamp#39952421153.1`).
+  `resolveAnySignal()` now accepts either format; the app's format is validated
+  (identity vs the run API, published AAD vs identity, tailnet endpoint, 6 h
+  cap) and decrypted with the lab key.
+* `scripts/verify-signal-binding.js` audits the public binding **without** a
+  private key (shape only): on this run it returned `SIGNAL_BOUND`
+  (`run 39952421153/1`, sha `24ddaa99`, endpoint `http://100.87.91.3:7331`,
+  `keyId rsa:f5ae1689a220835e`, AAD bound, expires 18:33:39Z).
+* Regression suite: **194 tests** — 186 pass, 0 fail, 8 platform skips (Linux:
+  7 browser e2e + 1 real-PowerShell); the Windows client job runs all 194.
