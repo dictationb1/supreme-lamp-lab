@@ -105,8 +105,20 @@ jobs:
             Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
             foreach ($p in $patches) {
               Write-Host "::notice title=patch::applying $($p.Name)"
-              & git -C $app.FullName apply --whitespace=nowarn $p.FullName
-              if ($LASTEXITCODE -ne 0) { throw "git apply failed for $($p.Name) (exit $LASTEXITCODE)" }
+              # MEASURED (hosted windows-latest, run 40030656554): plain `git apply`
+              # failed with exit 1 on a patch that applied cleanly on the client VM.
+              # The runner's git defaults are core.autocrlf=true / core.eol=crlf, so
+              # an LF patch is compared against CRLF worktree files. The patch is
+              # line-ending neutral, so the apply is pinned to LF explicitly (and a
+              # --3way retry covers a context shift, never a silent skip).
+              & git -C $app.FullName -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn $p.FullName
+              if ($LASTEXITCODE -ne 0) {
+                & git -C $app.FullName -c core.autocrlf=false -c core.eol=lf apply --3way --whitespace=nowarn $p.FullName
+                if ($LASTEXITCODE -ne 0) {
+                  & git -C $app.FullName -c core.autocrlf=false -c core.eol=lf apply --check -v $p.FullName 2>&1 | Select-Object -First 10 | ForEach-Object { Write-Host "  check: $_" }
+                  throw "git apply failed for $($p.Name) (exit $LASTEXITCODE)"
+                }
+              }
             }
             & git -C $app.FullName status --short | Out-String | Write-Host
             Write-Host "::notice title=patch::series applied to $($app.FullName)"
