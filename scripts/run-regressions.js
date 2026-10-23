@@ -1833,6 +1833,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, tmpRoot });
   }
 
+  // ===== the /api/config credential gate as the application implements it =====
+  {
+    const register = require('./test/live-auth-gate-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
   // ===== merged application signal (mc-signal/v1) compatibility =====
   {
     const register = require('./test/app-signal-regressions');

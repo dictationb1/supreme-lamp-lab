@@ -423,8 +423,13 @@ module.exports = async function registerLiveModeTests(H) {
         res.writeHead(401, { 'content-type': 'text/plain' }); return res.end('dashboard authorization required');
       }
       if (u.pathname === '/api/config') {
+        // Modelled on payloads/ghrdp-server.ps1 /api/config + Remove-CredKeys:
+        // `creds` is ALWAYS present and carries only {fqdn,user,ip}; the password
+        // fields are the gated part and appear only when the caller may see them.
         const key = u.searchParams.get('key') || '';
-        const body = mode === 'ungated' ? { ok: true, rdpCreds: { user: 'x', pass: 'y' } } : (key === token ? { ok: true, rdpCreds: { user: 'x', pass: 'y' } } : { ok: true });
+        const base = { ok: true, creds: { fqdn: 'pc.example.ts.net', user: 'ghrdp', ip: '100.124.43.82' } };
+        const withPass = { ok: true, creds: { fqdn: 'pc.example.ts.net', user: 'ghrdp', ip: '100.124.43.82', windowsPass: 'not-a-real-password', windowsPassMask: '****' } };
+        const body = mode === 'ungated' ? withPass : (key === token ? withPass : base);
         res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(body));
       }
       res.writeHead(404); res.end();
