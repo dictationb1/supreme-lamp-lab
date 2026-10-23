@@ -41,6 +41,17 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/HEAD_BRANCH:\s*\$\{\{\s*github\.event\.pull_request\.head\.ref \|\| github\.ref_name\s*\}\}/.test(block.slice(0, 900)));
   });
 
+  await test('evidence order: the viewer hold requires an authenticated viewer (exit 0)', async () => {
+    const wf = read('.github/workflows/live-run.yml');
+    const block = wf.slice(wf.indexOf('Keep the authorized viewer open'));
+    assert.ok(/steps\.live\.outputs\.exit_code == '0'/.test(block.slice(0, 900)), 'a blocked run must not pay the hold');
+  });
+
+  await test('evidence paths: each lab run publishes into its own directory', async () => {
+    const wf = read('.github/workflows/live-run.yml');
+    assert.ok(/evidence\/lab-run-\$env:GITHUB_RUN_ID/.test(wf), 'two runs must never overwrite one report');
+  });
+
   await test('candidate: the stub is never labelled as the application server', async () => {
     const stub = read('scripts/candidate/stub-server.js');
     assert.ok(/lab-candidate-stub/.test(stub));

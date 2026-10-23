@@ -690,12 +690,22 @@ jobs:
           if (Test-Path (Join-Path $probe 'listeners.json')) { Copy-Item (Join-Path $probe 'listeners.json') (Join-Path $dir 'listeners.json') -Force }
           $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
           $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
-          $dest = "reports/mission-control/$runId-$attempt/evidence"
+          # ONE DIRECTORY PER LAB RUN. Measured 2026-10-23: two consecutive lab
+          # runs published evidence/live-run-report.json and the second replaced
+          # the first, which silently invalidated the bundle's SHA256SUMS and made
+          # "the evidence for run X" ambiguous.
+          $dest = "reports/mission-control/$runId-$attempt/evidence/lab-run-$env:GITHUB_RUN_ID"
           node scripts/publish-evidence.js --dir $dir --dest $dest --branch $env:HEAD_BRANCH --message "evidence: $runId/$attempt lab run $env:GITHUB_RUN_ID [skip ci]"
           exit $LASTEXITCODE
 
       - name: Keep the authorized viewer open (bounded, default useful)
-        if: always() && inputs.keep_viewer_open_minutes != '0'
+        # An authenticated viewer exists only when the live step actually reached
+        # and authenticated the UI (exit 0). Every blocked outcome used to pay the
+        # full hold anyway, which (a) put nothing on the screen, and (b) kept the
+        # single interactive desktop occupied for 15 extra minutes, delaying the
+        # next queued job (measured: lab run 40028824511 held the desk to 22:07Z
+        # after its live step had already ended in READINESS_TIMEOUT).
+        if: always() && inputs.keep_viewer_open_minutes != '0' && steps.live.outputs.exit_code == '0'
         shell: powershell
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
