@@ -200,6 +200,16 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     assert.match(post, /\$code -eq 2/);
     assert.match(post, /\$code -eq 4/);
     assert.match(post, /^\s*exit 0$/m);
+
+    // MEASURED (39902940714): the job had no node on PATH, the cleanup no-op'd
+    // silently and the next step threw an unexplained exit 1.
+    const verifyJob = wf.slice(wf.indexOf('  verify:'), wf.indexOf('  report:'));
+    assert.match(verifyJob, /actions\/setup-node@/, 'the client job provisions node itself');
+    const setupAt = verifyJob.indexOf('actions/setup-node@');
+    assert.ok(setupAt > 0 && setupAt < verifyJob.indexOf('- name: Node.js on the client VM'), 'node is provisioned before it is used');
+    assert.match(verifyJob, /NO NODE ON CLIENT VM/, 'a missing node is named as a prerequisite');
+    assert.match(verifyJob, /deps-install\.log/, 'dependency install output is kept as evidence');
+    assert.match(verifyJob, /title=npm ci::exit/, 'npm ci failure names the command and the code');
   });
 
   await test('workflow: the live step re-derives the credential in process (key in env, signal-first transport)', async () => {

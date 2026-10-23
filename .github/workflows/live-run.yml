@@ -510,6 +510,29 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+
+      - name: Node.js on the client VM (a missing node must be loud, never a silent no-op)
+        run: |
+          # MEASURED (run 39902940714): this job had no actions/setup-node, so
+          # `node` was not on the step PATH. The cleanup wrapper then found no
+          # node, printed nothing, and the preflight "passed" without reading a
+          # single process - while the next step threw 'npm ci failed' with no
+          # explanation. A prerequisite that is missing must be named as one.
+          $ErrorActionPreference = 'Continue'
+          $node = Get-Command node -ErrorAction SilentlyContinue
+          $npm = Get-Command npm -ErrorAction SilentlyContinue
+          if (-not $node -or -not $npm) {
+            $missing = @()
+            if (-not $node) { $missing += 'node' }
+            if (-not $npm) { $missing += 'npm' }
+            Write-Host ("::error title=NO NODE ON CLIENT VM::missing " + ($missing -join ',') + " on PATH - the owned-process cleanup and the headed verification cannot run. This is a prerequisite (BLOCKED), not a product regression.")
+            exit 4
+          }
+          Write-Host ("::notice title=client node::node=" + (& node -v) + " npm=" + (& npm -v) + " path=" + $node.Source)
+
       - name: Preflight owned-process cleanup
         run: |
           # MEASURED DEFECTS (runs 39900345165 and 39902230571, 2026-10-23): this
@@ -570,10 +593,46 @@ jobs:
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
-          npm ci
-          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
-          npx playwright install chromium
-          if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+          # MEASURED (run 39902940714): this step failed with a bare exit 1 and
+          # nothing retrievable. It now logs both commands to the uploaded
+          # evidence, prints the tail on failure, and names the command that
+          # failed. A cold Playwright download is a prerequisite problem (BLOCKED),
+          # not a product failure.
+          $ErrorActionPreference = 'Continue'
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $log = Join-Path $dir 'deps-install.log'
+          '== npm ci ==' | Out-File -LiteralPath $log -Encoding utf8
+          & cmd /c ('npm ci --no-audit --no-fund > "' + $log + '" 2>&1')
+          $ciCode = $LASTEXITCODE
+          '== npx playwright install chromium (exit ' + $ciCode + ') ==' | Out-File -LiteralPath $log -Append -Encoding utf8
+          Get-Content -LiteralPath $log -Tail 20 | ForEach-Object { Write-Host $_ }
+          if ($ciCode -ne 0) {
+            $tail = (Get-Content -LiteralPath $log -Tail 30) -join ' | '
+            if ($tail.Length -gt 900) { $tail = $tail.Substring($tail.Length - 900) }
+            if ($env:GITHUB_STEP_SUMMARY) {
+              $md = @('### npm ci failed (exit ' + $ciCode + ')', 'artifact: ' + $log, '```', $tail, '```')
+              $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+            Write-Host ("::error title=npm ci::exit " + $ciCode + " - dependencies could not be installed on the client VM (prerequisite, BLOCKED): " + $tail)
+            exit 4
+          }
+          & cmd /c ('npx --yes playwright install chromium > "' + $log + '" 2>&1')
+          $pwCode = $LASTEXITCODE
+          '== npx playwright install chromium (exit ' + $pwCode + ') ==' | Out-File -LiteralPath $log -Append -Encoding utf8
+          Get-Content -LiteralPath $log -Tail 20 | ForEach-Object { Write-Host $_ }
+          if ($pwCode -ne 0) {
+            $tail = (Get-Content -LiteralPath $log -Tail 30) -join ' | '
+            if ($tail.Length -gt 900) { $tail = $tail.Substring($tail.Length - 900) }
+            if ($env:GITHUB_STEP_SUMMARY) {
+              $md = @('### playwright install failed (exit ' + $pwCode + ')', 'artifact: ' + $log, '```', $tail, '```')
+              $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            }
+            Write-Host ("::error title=playwright install::exit " + $pwCode + " - the headed browser could not be installed (prerequisite, BLOCKED): " + $tail)
+            exit 4
+          }
+          Write-Host '::notice title=deps::npm ci + chromium ready'
+          exit 0
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
