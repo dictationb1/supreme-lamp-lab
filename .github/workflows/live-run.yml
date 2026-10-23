@@ -707,6 +707,11 @@ jobs:
           exit 0
 
       - name: Origin signal probe (no credential, no browser, no VM takeover)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Without this the probe reports LAB_SIGNAL_PRIVATE_KEY_MISSING and the
+          # warning would blame the credential path for a missing step env.
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
         run: |
           # MEASURED (run 39904246194): the live step stopped at
           # BLOCKED_ORIGIN_RUN_LOOKUP_FAILED and the reason lived only inside an

@@ -46,6 +46,7 @@ const { request } = require('./lib/http');
 const { waitForReady } = require('./lib/readiness');
 const discovery = require('./lib/origin-discovery');
 const serverIdentity = require('./lib/server-identity');
+const registry = require('./lib/registry');
 
 const EXIT = { OK: 0, USAGE: 64, NOT_WINDOWS: 69, BLOCKED: 4, NO_EVIDENCE: 5, UNCONFIRMED: 7, EXPIRED: 8, BUSY: 9 };
 /** The operator-facing pipeline. `stage` in every report is one of these. */
@@ -541,7 +542,18 @@ async function cmdLive(a) {
     }
 
     // 3. serialize access to the VM desktop itself ------------------------
-    lock = acquireLock({ name: 'rdp-lab-desktop', owner: `${envOr('GITHUB_RUN_ID', 'local')}-${envOr('GITHUB_RUN_ATTEMPT', '1')}`, timeoutMs: 120000, role: 'live-run' });
+    // MEASURED (run 39904982757): this call passed {name, owner} and the lock
+    // helper requires a lockDir, so every live run died at LIVE_RUN_ERROR
+    // LOCK_DIR_REQUIRED after claiming the origin. The desktop lock is the one
+    // browser-check and mission-control-check already use, so a live run cannot
+    // fight either of them for the interactive desktop.
+    lock = acquireLock({
+      lockDir: registry.sessionLockDir(),
+      runId: envOr('GITHUB_RUN_ID', 'local'),
+      runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
+      role: 'live-run',
+      timeoutMs: 120000
+    });
     timings.desktopLockMs = Date.now() - t0;
 
     // 4. verify the origin against GitHub, not against the caller ---------

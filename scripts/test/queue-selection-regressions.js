@@ -83,6 +83,17 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     for (const v of Object.values(lr.ACK_JOB_RESULT_STATES)) assert.notStrictEqual(v, 'REPORTED_VERIFIED');
   });
 
+
+  await test('workflow: every step that reads the lab key declares it (the probe was missing it)', async () => {
+    const { readNormalized } = require('../lib/workflow-text');
+    const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
+    const blocks = wf.split(/\n(?=      - )/).filter(b => /node scripts\/live-run\.js (live|signal-status|discover|origin-signal)/.test(b));
+    assert.ok(blocks.length >= 2, 'found the key-consuming steps');
+    for (const b of blocks) {
+      assert.match(b, /LAB_SIGNAL_PRIVATE_KEY: \$\{\{ secrets\.LAB_SIGNAL_PRIVATE_KEY \}\}/, 'a step that reads the key must receive it: ' + b.split('\n')[0].trim());
+    }
+  });
+
   await test('workflow: the client job prints its verdict and its origin probe on the run page', async () => {
     const { readNormalized } = require('../lib/workflow-text');
     const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
