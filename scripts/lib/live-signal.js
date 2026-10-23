@@ -94,7 +94,10 @@ function validateSignal(env, expect = {}) {
   const expires = Date.parse(env.expiresAt);
   if (!Number.isFinite(expires)) return { ok: false, code: 'SIGNAL_NO_EXPIRY', detail: 'expiresAt missing' };
   if (expires <= now) return { ok: false, code: 'SIGNAL_EXPIRED', detail: `expired at ${env.expiresAt}` };
-  if (expires - now > MAX_TTL_MS) return { ok: false, code: 'SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
+  // The publisher stamps expiresAt = publish + 6 h, so the remaining TTL is at the
+  // cap by construction; a consumer whose clock is a few seconds behind the
+  // publisher's must not read that as a longer-than-allowed TTL.
+  if (expires - now > MAX_TTL_MS + CLOCK_SKEW_MS) return { ok: false, code: 'SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
   if (Number.isFinite(issued) && issued - now > CLOCK_SKEW_MS) return { ok: false, code: 'SIGNAL_FROM_FUTURE', detail: `issuedAt ${env.issuedAt}` };
   if (expect.keyId && env.enc.keyId !== expect.keyId) return { ok: false, code: 'SIGNAL_UNKNOWN_KEY', detail: `keyId ${env.enc.keyId} != ${expect.keyId}` };
   return { ok: true, host, expiresAt: new Date(expires).toISOString() };
@@ -211,7 +214,7 @@ function validateAppSignal(sig, expect = {}) {
   const expires = Date.parse(sig.expiresAt || '');
   if (!Number.isFinite(expires)) return { ok: false, code: 'APP_SIGNAL_NO_EXPIRY', detail: 'expiresAt missing' };
   if (expires <= now) return { ok: false, code: 'APP_SIGNAL_EXPIRED', detail: `expired at ${sig.expiresAt}` };
-  if (expires - now > MAX_TTL_MS) return { ok: false, code: 'APP_SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
+  if (expires - now > MAX_TTL_MS + CLOCK_SKEW_MS) return { ok: false, code: 'APP_SIGNAL_TTL_TOO_LONG', detail: `ttl ${Math.round((expires - now) / 60000)} min` };
   if (Number.isFinite(issued) && issued - now > CLOCK_SKEW_MS) return { ok: false, code: 'APP_SIGNAL_FROM_FUTURE', detail: `publishedAt ${sig.publishedAt}` };
   if (expect.keyId && String((sig.credential.envelope || {}).keyId) !== String(expect.keyId)) {
     return { ok: false, code: 'APP_SIGNAL_UNKNOWN_KEY', detail: `keyId ${(sig.credential.envelope || {}).keyId} != ${expect.keyId}` };

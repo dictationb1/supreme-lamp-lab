@@ -623,8 +623,11 @@ async function discoverOrigin({
       }
     };
   }
+  // The final code alone is not enough to act on: when the signal read fails we
+  // fall back to the (usually unreadable) run log, and the collapsed
+  // `LOG_UNAVAILABLE` hides WHY the signal was refused. Name both.
   return fail('NO_LIVE_ORIGIN', rejected.length
-    ? `no attachable live origin (${rejected.map(r => `${r.runId}/${r.attempt}:${r.code}`).join(', ')})`
+    ? `no attachable live origin (${rejected.map(r => `${r.runId}/${r.attempt}:${r.code}${r.signal ? ` signal=${r.signal.code}:${String(r.signal.detail || '').slice(0, 80)}` : ''}`).join(', ')})`
     : `no ${originWorkflow} run is in progress in ${originRepo}`, { evidence: { rejected } });
 }
 
