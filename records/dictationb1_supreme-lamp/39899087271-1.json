@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "BLOCKED",
+  "state": "CLAIMED_BY_LAB",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
@@ -86,6 +86,12 @@
       "state": "BLOCKED",
       "by": "operator@lab",
       "detail": "operator correction of REPORTED_VERIFIED: the 05:12 job-level write-back recorded REPORTED_VERIFIED for an origin the client never verified (exit 4 at AWAITING_READINESS: BLOCKED_ORIGIN_RUN_LOOKUP_FAILED); no acceptance exists"
+    },
+    {
+      "at": "2026-10-23T05:21:14.950Z",
+      "state": "CLAIMED_BY_LAB",
+      "by": "lab:39904982757",
+      "detail": "CLAIMED"
     }
   ],
   "envelopeTransport": {
@@ -99,7 +105,7 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T05:15:12.302Z",
+  "updatedAt": "2026-10-23T05:21:14.950Z",
   "retryable": true,
   "retryableReason": "the 05:12 job-level write-back recorded REPORTED_VERIFIED for an origin the client never verified (exit 4 at AWAITING_READINESS: BLOCKED_ORIGIN_RUN_LOOKUP_FAILED); no acceptance exists"
 }
