@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "CLAIMED_BY_LAB",
+  "state": "FAILED",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
@@ -152,6 +152,12 @@
       "state": "CLAIMED_BY_LAB",
       "by": "lab:39908845127",
       "detail": "SUPERSEDED_DEAD_CLAIMANT"
+    },
+    {
+      "at": "2026-10-23T06:04:58.785Z",
+      "state": "FAILED",
+      "by": "dictationb1/supreme-lamp-lab@dictationb1",
+      "detail": "job-level write-back: verify job result=failure and NO in-process report exists (the verify job exited without an in-process report)"
     }
   ],
   "envelopeTransport": {
@@ -165,7 +171,7 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T06:04:17.545Z",
+  "updatedAt": "2026-10-23T06:04:58.785Z",
   "retryable": true,
   "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified"
 }
