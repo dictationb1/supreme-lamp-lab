@@ -1851,6 +1851,7 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, tmpRoot });
     if (typeof register.requeue === 'function') await register.requeue({ test, assert });
     if (typeof register.inconsistent === 'function') await register.inconsistent({ test, assert });
+    if (typeof register.staleClaim === 'function') await register.staleClaim({ test, assert });
   }
 
   // ===== summary =====

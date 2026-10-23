@@ -98,7 +98,14 @@ function loadRecords(file) {
  * claim job reported NO_PICKABLE_RECORD while a live record was waiting
  * (measured 2026-10-23, run 39952421153).
  */
-async function selectRecord({ rows, a, allow, now = Date.now(), readFull }) {
+async function selectRecord({ rows, a, allow, now = Date.now(), readFull, claimIsLive }) {
+  // A claim is only "claimed" while its claimant lab run is still alive. The
+  // verify job supersedes a dead claimant (lib/record-store claimRecord), but
+  // this selector ran first and skipped the record outright: after the aborted
+  // client run 39957424394 the live origin could never be attached again
+  // (measured 2026-10-23, annotations 'already claimed by live lab run
+  // 39957424394'). Default = treat as live (conservative, no network here).
+  const liveClaim = typeof claimIsLive === 'function' ? claimIsLive : () => true;
   const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
   let candidates = [];
   if (a.correlation) {
@@ -146,7 +153,11 @@ async function selectRecord({ rows, a, allow, now = Date.now(), readFull }) {
 
   const skipped = [];
   for (const r of candidates) {
-    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+    if (r.claimedBy) {
+      const live = await liveClaim(r.claimedBy);
+      if (live) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+      r.claimedByStale = r.claimedBy;
+    }
     // FAILED/BLOCKED rows are inspected (not skipped outright): only the record
     // BODY can prove that no verification was ever attempted, which is the one
     // condition that permits an automatic re-queue.
@@ -181,7 +192,20 @@ async function main() {
   const rows = (loaded.doc && loaded.doc.records) || [];
   if (!rows.length) return out(false, 'EMPTY_QUEUE: no live-run record has been published for any run that is still in progress');
 
-  const picked = await selectRecord({ rows, a, allow, now: Date.now(), readFull });
+  const store = require('./lib/record-store');
+  const statusCache = new Map();
+  const claimIsLive = async labRunId => {
+    const key = String(labRunId);
+    if (statusCache.has(key)) return statusCache.get(key);
+    let live = true;                       // unknown => assume live (never steal)
+    try {
+      const st = await store.labRunStatus(key);
+      live = !store.TERMINAL_RUN_STATES.has(String(st.status));
+    } catch (e) { live = true; }
+    statusCache.set(key, live);
+    return live;
+  };
+  const picked = await selectRecord({ rows, a, allow, now: Date.now(), readFull, claimIsLive });
   return picked.proceed === 'yes' ? out(true, picked.reason, picked.descriptor) : out(false, picked.reason);
 }
 

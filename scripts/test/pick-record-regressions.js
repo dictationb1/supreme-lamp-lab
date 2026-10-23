@@ -211,3 +211,40 @@ module.exports.inconsistent = async function inconsistentTests({ test, assert })
     assert.strictEqual(r.proceed, 'no', r.reason);
   });
 };
+
+// ---- a claim held by a TERMINAL lab run must not block a live origin --------
+module.exports.staleClaim = async function staleClaimTests({ test, assert }) {
+  const { selectRecord } = require('../pick-record');
+  const REPO = 'dictationb1/supreme-lamp';
+  const SHA = '24ddaa9904c92dbbba39e3cc7aba458769e6bbe4';
+  const now = Date.now();
+  const desc = {
+    protocol: 'slab-live-run/1', originRepo: REPO, originWorkflow: '.github/workflows/main.yml',
+    originRunId: 39952421153, originAttempt: 1, appSha: SHA, uiBuild: `ui-dist-${SHA}`,
+    backendIdentity: '100.87.91.3:7331', authorizedEndpoint: 'http://100.87.91.3:7331',
+    issuedAt: new Date(now - 60000).toISOString(), expiresAt: new Date(now + 3600000).toISOString(),
+    labRevision: 'f'.repeat(40), correlationId: 'lr-39952421153-1',
+    dashTokenFingerprint: 'a'.repeat(64), clientTailnetIp: '', mode: 'live-origin'
+  };
+  const rows = [{ path: 'records/x.json', correlationId: 'lr-39952421153-1', origin: `${REPO}#39952421153/1`, appSha: SHA.slice(0, 12), mode: 'live-origin', state: 'REPORTED_VERIFIED', claimedBy: '39957424394', expiresInSeconds: 18000, pickable: false }];
+  const a = { correlation: '', origin: '', run: 0, attempt: 1 };
+  const rec = { descriptor: desc, state: 'REPORTED_VERIFIED', history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, { state: 'CLAIMED_BY_LAB', by: 'lab:39957424394' }, { state: 'REPORTED_VERIFIED', by: 'lab', detail: 'job-level write-back' }] };
+  const readFull = async () => ({ json: rec, sha: 'x' });
+
+  await test('stale claim: a TERMINAL claimant does not block selection (the verify job supersedes it)', async () => {
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull, claimIsLive: async () => false });
+    assert.strictEqual(r.proceed, 'yes', r.reason);
+    assert.match(r.reason, /REQUEUE_NO_VERIFICATION_WAS_ATTEMPTED/);
+  });
+
+  await test('stale claim: a LIVE claimant still blocks (one desktop owner is never stolen)', async () => {
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull, claimIsLive: async () => true });
+    assert.strictEqual(r.proceed, 'no', r.reason);
+    assert.match(r.reason, /already claimed by live lab run 39957424394/);
+  });
+
+  await test('stale claim: with no liveness probe the selector is conservative (treats the claim as live)', async () => {
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull });
+    assert.strictEqual(r.proceed, 'no', r.reason);
+  });
+};

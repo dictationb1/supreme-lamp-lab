@@ -282,5 +282,5 @@ module.exports = {
   RECORDS_BRANCH, RECORDS_DIR, recordKey, recordPath, claimPath, originSlug,
   publishRecord, updateRecordState, readRecord, readClaim, claimRecord,
   releaseClaim, listRecords, readRepoFile, writeRepoFile, ensureRecordsBranch,
-  TERMINAL_RUN_STATES, sleep
+  TERMINAL_RUN_STATES, sleep, labRunStatus
 };
