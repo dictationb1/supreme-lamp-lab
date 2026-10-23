@@ -45,8 +45,12 @@ async function evalAuthGate({ authProof, page, markers, authOutcome }) {
 
 /** B. auth.no_stale_key_reuse — a forged/earlier key must fail everywhere. */
 async function evalStaleKey({ http, target, forgedToken }) {
-  const r1 = await request(`${target}/api/rdp-token`, { method: 'POST', timeoutMs: 15000, headers: { Authorization: `Bearer ${forgedToken}`, 'Content-Type': 'application/json' }, body: '{}' });
-  const r2 = await request(`${target}/api/config?key=${encodeURIComponent(forgedToken)}`, { timeoutMs: 15000 });
+  // The signature already accepted an injected transport; the body ignored it
+  // and imported the module-level `request`, which made this evaluator
+  // untestable and hid the defect below. Honour the injection.
+  const send = typeof http === 'function' ? http : request;
+  const r1 = await send(`${target}/api/rdp-token`, { method: 'POST', timeoutMs: 15000, headers: { Authorization: `Bearer ${forgedToken}`, 'Content-Type': 'application/json' }, body: '{}' });
+  const r2 = await send(`${target}/api/config?key=${encodeURIComponent(forgedToken)}`, { timeoutMs: 15000 });
   // MEASURED (run 39913711978): this line counted the mere PRESENCE of a `creds`
   // object as a leaked credential block, so every real origin failed the same
   // way before the request was even read: the application ALWAYS answers
@@ -56,8 +60,23 @@ async function evalStaleKey({ http, target, forgedToken }) {
   // never disagree about whether a credential leaked.
   const leakedFields = require('./live-auth').secretFieldsOf(r2);
   const gated = leakedFields.length > 0;
-  const refusedTicket = r1.transport === 'ok' && (r1.status === 401 || r1.status === 403);
   const evidence = { ticketStatus: r1.status ?? r1.transport, configStatus: r2.status ?? r2.transport, configLeakedFields: leakedFields, configLeakedCreds: gated };
+  // MEASURED (lab run 39929404780, client job 120333833464): the same job that
+  // reported this feature also reported page.goto timeouts and six other
+  // unreachable-route timeouts, and its artifact upload died with ENOTFOUND -
+  // the runner lost its network. The old predicate computed
+  //   refusedTicket = transport === 'ok' && (401 || 403)
+  // so a TIMEOUT became "the server minted a ticket for a token it should not
+  // know": an unanswered probe was published as an application security
+  // failure. An unanswered probe is not evidence. Report it BLOCKED, with the
+  // transport named, and never let it read as STALE_KEY_ACCEPTED.
+  if (r1.transport !== 'ok') {
+    return blocked(`TICKET_ROUTE_UNREACHABLE: the stale-key probe did not get an answer from POST /api/rdp-token (${r1.transport}${r1.status ? ' ' + r1.status : ''}) - an unanswered probe is not proof that a stale key was accepted`, evidence);
+  }
+  const refusedTicket = r1.status === 401 || r1.status === 403;
+  if (refusedTicket && r2.transport !== 'ok') {
+    return blocked(`CONFIG_UNREACHABLE: the ticket route refused the forged key but GET /api/config did not answer (${r2.transport}); the credential gate could not be checked`, evidence);
+  }
   if (refusedTicket && !gated) return ok('a token that is not this run\'s was refused by the ticket route and did not unlock the gated credentials', evidence);
   if (!refusedTicket) return bad('STALE_KEY_ACCEPTED: the live server minted a ticket for a token it should not know', evidence);
   return bad('STALE_KEY_LEAKED_CREDENTIALS: /api/config returned the gated credentials block for a wrong key', evidence);

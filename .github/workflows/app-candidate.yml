@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout application candidate copy (isolated)
-        if: env.APPLY_PATCHES == 'true'
+        if: ${{ inputs.apply_patches != 'false' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: dictationb1/supreme-lamp
@@ -104,33 +104,45 @@ jobs:
           Write-Host "::notice title=Baseline::supreme-lamp@$base payloads/ghrdp-server.ps1 sha256=$h"
 
       - name: Verify + apply the patch queue (lab-owned copy only)
-        if: env.APPLY_PATCHES == 'true'
+        if: ${{ inputs.apply_patches != 'false' }}
         run: |
-          $series = 'app-candidate/patches/series.txt'
-          if (-not (Test-Path $series)) { throw "SERIES_MISSING: $series" }
-          $names = @(Get-Content $series | Where-Object { $_ -and -not $_.StartsWith('#') })
-          if ($names.Count -eq 0) { throw 'SERIES_EMPTY' }
+          $ErrorActionPreference = 'Stop'
+          function Fail([string]$m) { Write-Host "::error title=app candidate patch queue::$m"; throw $m }
+          $seriesPath = (Resolve-Path -LiteralPath 'app-candidate/patches/series.txt').Path
+          $names = @(Get-Content -LiteralPath $seriesPath | Where-Object { $_ -and -not $_.StartsWith('#') })
+          if ($names.Count -eq 0) { Fail 'SERIES_EMPTY' }
           $applied = @()
           foreach ($n in $names) {
-            $p = Join-Path 'app-candidate/patches' $n
-            if (-not (Test-Path $p)) { throw "PATCH_MISSING: $p" }
-            $sha = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
-            & git -C app-cand apply --check --whitespace=nowarn $p
-            if ($LASTEXITCODE -ne 0) { throw "PATCH_DOES_NOT_APPLY: $n (unexpected base or conflict) - refusing to continue" }
-            & git -C app-cand apply --whitespace=nowarn $p
-            if ($LASTEXITCODE -ne 0) { throw "PATCH_APPLY_FAILED: $n" }
-            $applied += [ordered]@{ patch = $n; sha256 = $sha }
-            Write-Host "::notice title=Patch applied::$n sha256=$sha"
+            $p = (Resolve-Path -LiteralPath (Join-Path 'app-candidate/patches' $n) -ErrorAction SilentlyContinue)
+            if (-not $p) { Fail "PATCH_MISSING: $n" }
+            $patchPath = $p.Path
+            $sha = (Get-FileHash -LiteralPath $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            # Strict apply first. A cross-platform checkout may carry CRLF while the
+            # exported patch is LF; only then retry with whitespace-tolerant context
+            # matching (the applied hunk CONTENT is unchanged) and record the mode.
+            $mode = 'strict'
+            & git -C app-cand apply --check --whitespace=nowarn $patchPath 2>&1 | Out-String | Write-Host
+            if ($LASTEXITCODE -ne 0) {
+              $mode = 'ignore-whitespace'
+              & git -C app-cand apply --check --ignore-whitespace --whitespace=nowarn $patchPath 2>&1 | Out-String | Write-Host
+              if ($LASTEXITCODE -ne 0) { Fail "PATCH_DOES_NOT_APPLY: $n (unexpected base, conflict, or wrong line endings) - refusing to continue" }
+              & git -C app-cand apply --ignore-whitespace --whitespace=nowarn $patchPath
+            } else {
+              & git -C app-cand apply --whitespace=nowarn $patchPath
+            }
+            if ($LASTEXITCODE -ne 0) { Fail "PATCH_APPLY_FAILED: $n" }
+            $applied += [ordered]@{ patch = $n; sha256 = $sha; mode = $mode }
+            Write-Host "::notice title=Patch applied::$n sha256=$sha mode=$mode"
           }
-          $diffSha = (& git -C app-cand diff | ForEach-Object { $_ }) -join "`n"
+          $diffText = (& git -C app-cand diff) -join "`n"
           $diffSha256 = [System.BitConverter]::ToString(
             [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-              [System.Text.Encoding]::UTF8.GetBytes($diffSha))).Replace('-','').ToLowerInvariant()
-          $server = Join-Path $PWD 'app-cand/payloads/ghrdp-server.ps1'
+              [System.Text.Encoding]::UTF8.GetBytes($diffText))).Replace('-','').ToLowerInvariant()
+          $server = (Resolve-Path -LiteralPath 'app-cand/payloads/ghrdp-server.ps1').Path
           $h = (Get-FileHash -LiteralPath $server -Algorithm SHA256).Hash.ToLowerInvariant()
-          $touched = @(& git -C app-cand status --porcelain | ForEach-Object { $_.Substring(3) })
+          $touched = @(& git -C app-cand status --porcelain | ForEach-Object { $_.Substring(3).Trim() })
           $uiTouched = @($touched | Where-Object { $_ -like 'src/*' -or $_ -like 'index.html' -or $_ -like 'vite.config.*' })
-          if ($uiTouched.Count -gt 0) { throw "PATCH_QUEUE_TOUCHES_UI: $($uiTouched -join ',') - the commit-matched UI bundle would no longer describe the candidate" }
+          if ($uiTouched.Count -gt 0) { Fail "PATCH_QUEUE_TOUCHES_UI: $($uiTouched -join ',') - the commit-matched UI bundle would no longer describe the candidate" }
           [ordered]@{
             baseSha = $env:BASE_SHA; patches = $applied; appliedDiffSha256 = $diffSha256
             candidateServerSha256 = $h; touched = $touched
@@ -145,7 +157,7 @@ jobs:
         run: ./scripts/server/Stage-App.ps1 -LabAppDir app-base -LabSha $env:BASE_SHA -LabStageRoot 'C:\ghrdp-base' -LabOut (Join-Path $PWD 'stage-base.json')
 
       - name: Stage the patched candidate (same staging function)
-        if: env.APPLY_PATCHES == 'true'
+        if: ${{ inputs.apply_patches != 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/server/Stage-App.ps1 -LabAppDir app-cand -LabSha $env:BASE_SHA -LabStageRoot 'C:\ghrdp-cand' -LabOut (Join-Path $PWD 'stage-cand.json')
@@ -159,7 +171,7 @@ jobs:
           exit 0
 
       - name: 'Probe the patched candidate (expected: fixed, negatives intact)'
-        if: env.APPLY_PATCHES == 'true'
+        if: ${{ inputs.apply_patches != 'false' }}
         continue-on-error: true
         run: |
           node scripts/lab-candidate/verify-routes.js --root 'C:\ghrdp-cand' --port 7332 --variant candidate --build-sha $env:BASE_SHA --out (Join-Path $PWD 'probe-candidate.json')
@@ -168,7 +180,7 @@ jobs:
           exit 0
 
       - name: Probe the candidate with NO written identity (must still answer dev)
-        if: env.APPLY_PATCHES == 'true'
+        if: ${{ inputs.apply_patches != 'false' }}
         continue-on-error: true
         run: |
           node scripts/lab-candidate/verify-routes.js --root 'C:\ghrdp-cand' --port 7332 --variant candidate --phase no-metadata --out (Join-Path $PWD 'probe-no-metadata.json')

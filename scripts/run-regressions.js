@@ -1839,6 +1839,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, tmpRoot });
   }
 
+  // ===== an unanswered probe is not a security finding (L001) =====
+  {
+    const register = require('./test/stale-key-transport-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+  }
+
   // ===== merged application signal (mc-signal/v1) compatibility =====
   {
     const register = require('./test/app-signal-regressions');
