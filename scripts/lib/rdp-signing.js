@@ -71,7 +71,11 @@ function stateDir(opts = {}) {
 function readIdentity(opts = {}) {
   const file = path.join(stateDir(opts), 'identity.json');
   try {
-    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // Windows PowerShell 5.1's Set-Content -Encoding UTF8 writes a BOM. A BOM
+    // makes JSON.parse throw, which is exactly how a signed, bootstrapped VM was
+    // reported as "no recorded identity" (capability run 39878430507).
+    const raw = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+    const rec = JSON.parse(raw);
     if (!rec || !isValidThumbprint(rec.thumbprint)) return null;
     return {
       thumbprint: normalizeThumbprint(rec.thumbprint),

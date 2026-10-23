@@ -209,7 +209,12 @@ function Write-Identity {
     if (-not (Test-Path -LiteralPath $StateDir)) {
         New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
     }
-    ($Identity | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath $IdentityPath -Encoding UTF8
+    # UTF-8 WITHOUT BOM: Set-Content -Encoding UTF8 emits a BOM on PowerShell 5.1,
+    # and a BOM makes the Node reader's JSON.parse throw - the identity then looks
+    # absent to the launcher even though the certificate and policy exist.
+    $json = $Identity | ConvertTo-Json -Depth 6
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($IdentityPath, $json, $enc)
 }
 
 function Find-SigningCert {
