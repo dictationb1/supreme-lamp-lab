@@ -21,6 +21,16 @@ name: App Candidate (lab-owned Windows)
 #         answers "dev" when no identity was written.
 
 on:
+  # The workflow file only exists on the lab branch, so a workflow_dispatch
+  # path is not registered until it is on the default branch. A narrowly
+  # filtered push trigger lets the lab run it from its own branch without
+  # touching main. Only the queue/runner change; documentation edits do not.
+  push:
+    branches: [arena/77adac0a-supreme-lamp-lab]
+    paths:
+      - 'app-candidate/patches/**'
+      - 'scripts/lab-candidate/**'
+      - '.github/workflows/app-candidate.yml'
   workflow_dispatch:
     inputs:
       base_sha:
