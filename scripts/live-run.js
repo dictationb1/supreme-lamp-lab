@@ -539,7 +539,14 @@ async function cmdLive(a) {
     // 6. the live backend must be ours: same sha, same instance ------------
     const target = descriptor.authorizedEndpoint;
     const ready = await waitForReady(target, { timeoutMs: Math.min(a.readyTimeoutMs, Math.max(5000, deadline - Date.now())) });
-    if (!ready.ready) return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
+    if (!ready.ready) {
+      // What was ACTUALLY contacted belongs in the annotation: "readiness
+      // timeout" alone cannot be distinguished from a wrong host, a tailnet
+      // route that is not up, or a server that never started.
+      const seen = (ready.history || []).slice(-4).map(h => `${h.code}@${h.at ? h.at.slice(11, 19) : '?'}(${String(h.detail || '').slice(0, 120)})`);
+      annotate.error('readiness', `${ready.code} after ${Math.round(a.readyTimeoutMs / 1000)}s against ${target}; history=${seen.join(' | ')}`);
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
+    }
     report.identity.readiness = ready.last && ready.last.body ? { pid: ready.last.body.pid, port: ready.last.body.port, phase: ready.last.body.phase, serverTs: ready.last.body.serverTs } : null;
 
     // 6b. the live process must be THIS run's instance, not merely a server on
