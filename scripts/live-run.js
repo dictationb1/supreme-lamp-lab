@@ -392,6 +392,15 @@ async function cmdLive(a) {
           transport: disc.evidence.transport || null,
           checkRun: disc.evidence.checkRun || null,
           signalLive: disc.evidence.signalLive === true,
+          signalFormat: disc.evidence.signalFormat || null,
+          envelopeAlg: disc.evidence.envelopeAlg || null,
+          signalState: disc.evidence.signalState || null,
+          keyId: disc.evidence.keyId || null,
+          expectedKeyId: disc.evidence.expectedKeyId || null,
+          heartbeatAgeMs: disc.evidence.heartbeatAgeMs === undefined ? null : disc.evidence.heartbeatAgeMs,
+          uiSha: disc.evidence.uiSha || null,
+          uiMatchesRunSha: disc.evidence.uiMatchesRunSha === undefined ? null : disc.evidence.uiMatchesRunSha,
+          signalAttempts: disc.evidence.signalAttempts || null,
           signalFallback: disc.evidence.signalFallback || null,
           ready: disc.evidence.ready,
           endpointKind: disc.evidence.endpointKind,
@@ -441,8 +450,17 @@ async function cmdLive(a) {
       const usedSignal = disc.evidence.transport === 'check-run';
       report.transport = {
         kind: usedSignal ? 'origin-live-signal' : `origin-${disc.evidence.transport || 'unknown'}`,
+        signalFormat: usedSignal ? (disc.evidence.signalFormat || null) : null,
+        envelopeAlg: usedSignal ? (disc.evidence.envelopeAlg || null) : null,
+        keyId: usedSignal ? (disc.evidence.keyId || null) : null,
+        expectedKeyId: usedSignal ? (disc.evidence.expectedKeyId || null) : null,
+        signalState: usedSignal ? (disc.evidence.signalState || null) : null,
+        heartbeatAgeMs: usedSignal ? (disc.evidence.heartbeatAgeMs === undefined ? null : disc.evidence.heartbeatAgeMs) : null,
+        uiSha: usedSignal ? (disc.evidence.uiSha || null) : null,
+        uiMatchesRunSha: usedSignal ? (disc.evidence.uiMatchesRunSha === undefined ? null : disc.evidence.uiMatchesRunSha) : null,
+        checkRunSignalAttempts: usedSignal ? (disc.evidence.signalAttempts || null) : null,
         mechanism: usedSignal
-          ? 'MC-SIGNAL v1 in the mission-control-live-signal check-run output, RSA-OAEP-256 ciphertext decrypted in memory'
+          ? `encrypted live signal (${disc.evidence.signalFormat || 'unknown format'}) in the mission-control-live-signal check-run output; envelope ${disc.evidence.envelopeAlg || 'unknown alg'} decrypted in memory`
           : 'the origin run\'s own Actions log (readiness banner + current-run key, PLAINTEXT in that public log)',
         credentialAtRest: usedSignal ? 'encrypted (ciphertext only in a public check-run)' : 'plaintext (public run log)',
         repository: disc.origin.repo,
@@ -954,6 +972,12 @@ async function cmdSignalStatus(a) {
       out.algorithm = priv.asymmetricKeyType || 'unknown';
       out.modulusBits = priv.asymmetricKeyDetails ? priv.asymmetricKeyDetails.modulusLength : null;
       out.privateKeyFingerprint32 = signalLib.keyFingerprint(pubPem);
+      // The APPLICATION's keyId is a different (shorter) fingerprint of the same
+      // key material: rsa:<hex16> / x25519:<hex16>. Reporting both lets an
+      // operator prove which envelope a published signal was sealed to without
+      // either half leaving its repository.
+      out.privateKeyType = priv.asymmetricKeyType || 'unknown';
+      out.appKeyId = signalLib.appKeyId(priv);
       out.code = 'LAB_SIGNAL_KEY_PRESENT';
       // Round-trip against the real application evidence, if any exists.
       const disc = await discovery.discoverOrigin({
@@ -966,10 +990,18 @@ async function cmdSignalStatus(a) {
       if (disc.ok && ev.transport === 'check-run') {
         out.roundTrip = {
           proven: true,
-          transport: 'check-run (MC-SIGNAL v1)',
+          transport: 'check-run',
+          signalFormat: ev.signalFormat || null,
+          envelopeAlg: ev.envelopeAlg || null,
+          keyId: ev.keyId || null,
+          expectedKeyId: ev.expectedKeyId || out.appKeyId || null,
+          keyIdMatched: Boolean(ev.keyId) && ev.keyId === (ev.expectedKeyId || out.appKeyId),
+          signalState: ev.signalState || null,
+          heartbeatAgeMs: ev.heartbeatAgeMs === undefined ? null : ev.heartbeatAgeMs,
+          uiSha: ev.uiSha || null,
+          uiMatchesRunSha: ev.uiMatchesRunSha === undefined ? null : ev.uiMatchesRunSha,
           checkRunId: ev.checkRun ? ev.checkRun.id : null,
           checkRunLive: ev.checkRun ? ev.checkRun.status === 'in_progress' : null,
-          keyIdMatched: true,
           decrypted: true,
           origin: { runId: disc.origin.runId, attempt: disc.origin.attempt, appSha: disc.origin.appSha },
           note: 'the application signal was validated against GitHub run metadata and decrypted with this private key; the plaintext key was never printed or written'

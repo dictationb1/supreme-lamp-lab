@@ -412,8 +412,17 @@ function buildDescriptor({ originRepo, originWorkflow, run, endpoint, fingerprin
  */
 /**
  * Read the ORIGIN run's live signal from a public check-run output.
- * The identity checked here comes from the RUN API (run id, attempt, head
- * sha), never from the signal itself; the key is decrypted in memory only.
+ *
+ * The payload is the MERGED application publisher's `mc-signal/v1` document in
+ * the check run's **output.text** (human Markdown in output.summary). The lab's
+ * legacy `MC-SIGNAL v1` prefix is still accepted for the CI self-validation
+ * harness. Both are read through lib/live-signal, which refuses, by name:
+ * wrong repo/run/attempt/sha, non-live state, stale heartbeat, expiry, TTL
+ * beyond the ephemeral window, non-tailnet endpoint, unknown keyId, a
+ * non-canonical AAD, and undecryptable ciphertext.
+ *
+ * The identity checked here comes from the RUN API (run id, attempt, head sha),
+ * never from the signal itself; the key is decrypted in memory only.
  */
 async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() } = {}) {
   const headSha = run && run.head_sha;
@@ -421,28 +430,56 @@ async function readRunSignal({ originRepo, run, privateKeyPem, now = Date.now() 
   const r = await apiGet(`/repos/${originRepo}/commits/${headSha}/check-runs?per_page=100`);
   if (r.status === 404) return fail('SIGNAL_LIST_EMPTY', `no check runs for ${headSha.slice(0, 12)}`);
   if (!r.ok || !r.json || !Array.isArray(r.json.check_runs)) return fail('SIGNAL_LIST_FAILED', summarize(r));
-  const pick = ls.pickCheckRun(r.json.check_runs);
-  if (!pick) return fail('SIGNAL_ABSENT', 'the origin run publishes no mission-control-live-signal check run');
-  const resolved = ls.resolveSignal(pick.output && pick.output.summary, {
-    repo: originRepo, runId: run.id, attempt: run.run_attempt || 1, appSha: headSha, now
-  }, privateKeyPem);
-  if (!resolved.ok) return { ...resolved, checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null } };
-  const rawEndpoint = String(resolved.envelope.endpoint);
-  const u = new URL(rawEndpoint);
-  const endpoint = {
-    url: `${u.protocol}//${u.host}${u.pathname}`.replace(/\/$/, ''),
-    host: u.hostname.replace(/^\[|\]$/g, ''),
-    port: Number(u.port || (u.protocol === 'https:' ? 443 : 80))
+  // Key-id identity, computed from the CONFIGURED private key. The app's keyId
+  // is a truncated fingerprint of the key it sealed to, so an envelope sealed
+  // to a different (older/rotated) lab key is refused before decryption.
+  const appKeyId = privateKeyPem ? ls.appKeyId(privateKeyPem) : null;
+  const expect = {
+    repo: originRepo,
+    runId: run.id,
+    attempt: run.run_attempt || 1,
+    appSha: headSha,
+    now,
+    keyId: appKeyId
   };
+  const resolved = ls.resolveAnyCheckRun(r.json.check_runs, expect, privateKeyPem);
+  if (!resolved.ok) {
+    return {
+      ...resolved,
+      evidence: {
+        signalAttempts: resolved.attempts || null,
+        signalTried: resolved.tried || null,
+        checkRun: resolved.checkRun || null
+      }
+    };
+  }
+  const ep = resolved.endpoint || { url: resolved.envelope.endpoint };
+  if (!ep.url || !ep.host) return fail('SIGNAL_ENDPOINT_INVALID', JSON.stringify(resolved.envelope.endpoint || ''));
   return {
     ok: true,
     transport: 'check-run',
-    endpoint,
+    endpoint: {
+      url: ep.url,
+      host: ep.host,
+      port: Number(ep.port || 7331)
+    },
     key: resolved.key,
+    credentialQueryParam: resolved.credentialQueryParam || 'key',
     fingerprint: crypto.createHash('sha256').update(resolved.key, 'utf8').digest('hex'),
-    checkRun: { id: pick.id, status: pick.status, startedAt: pick.started_at || null },
+    checkRun: resolved.checkRun,
     envelope: resolved.envelope,
-    live: pick.status === 'in_progress'
+    signalFormat: resolved.format || null,
+    envelopeAlg: resolved.envelope && resolved.envelope.enc ? resolved.envelope.enc.alg : null,
+    keyId: resolved.envelope && resolved.envelope.enc ? resolved.envelope.enc.keyId : null,
+    expectedKeyId: appKeyId,
+    signalState: resolved.envelope.state || 'live',
+    heartbeatAgeMs: resolved.heartbeatAgeMs === undefined ? null : resolved.heartbeatAgeMs,
+    uiSha: resolved.envelope.uiSha || null,
+    uiMatchesRunSha: resolved.envelope.uiMatchesRunSha === undefined ? null : resolved.envelope.uiMatchesRunSha,
+    endpointTransport: resolved.envelope.endpointTransport || null,
+    live: resolved.checkRun ? resolved.checkRun.status === 'in_progress' : null,
+    signalAttempts: resolved.attempts || null,
+    signalsTried: resolved.tried || null
   };
 }
 
@@ -476,7 +513,8 @@ async function resolveOriginSource(run, { originRepo, privateKeyPem, now = Date.
     fingerprint: parsed.evidence.keyFingerprint,
     evidence: parsed.evidence,
     logJobs: logs.jobs || null,
-    signalCode: signal.code
+    signalCode: signal.code,
+    signalAttempts: (signal.evidence && signal.evidence.signalAttempts) || null
   };
 }
 
@@ -602,6 +640,20 @@ async function discoverOrigin({
         logJobs: source.logJobs || null,
         checkRun: source.checkRun || null,
         signalLive: source.live === true,
+        // Exactly WHICH signal format / algorithm / keyId answered, so the
+        // report can never describe an encrypted run as a plaintext-log run (or
+        // the reverse), and a reader regression is visible as a named code.
+        signalFormat: source.signalFormat || null,
+        envelopeAlg: source.envelopeAlg || null,
+        signalState: source.signalState || null,
+        keyId: source.keyId || null,
+        expectedKeyId: source.expectedKeyId || null,
+        heartbeatAgeMs: source.heartbeatAgeMs === undefined ? null : source.heartbeatAgeMs,
+        uiSha: source.uiSha || null,
+        uiMatchesRunSha: source.uiMatchesRunSha === undefined ? null : source.uiMatchesRunSha,
+        endpointTransport: source.endpointTransport || null,
+        signalAttempts: source.signalAttempts || null,
+        signalsTried: source.signalsTried || null,
         endpoint: source.endpoint,
         // A public origin log is a public credential. Record the fact, not the
         // value, so the report can name the product defect precisely.

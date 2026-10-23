@@ -1827,6 +1827,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
   }
 
+  // ===== merged application signal (mc-signal/v1) compatibility =====
+  {
+    const register = require('./test/app-signal-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
   // ===== supported RDP-file signing / trust path =====
   {
     const register = require('./test/rdp-signing-regressions');
