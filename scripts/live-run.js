@@ -370,7 +370,18 @@ async function cmdLive(a) {
     // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
     // only names a candidate, and every field is re-derived from the log of the
     // exact attempt before a descriptor exists.
-    if (!rec && a.originTransport !== 'record') {
+    // ALWAYS resolve the credential from the ORIGIN'S OWN validated signal when
+    // the transport allows it - also when a queue record exists. The record's
+    // `envelopeTransport` is a lab default (`artifact live-run-<run>-<attempt>-
+    // envelope`), and the merged application publishes no such artifact: it
+    // seals the credential in MC-SIGNAL. Measured 2026-10-23 (lab run
+    // 39958377748): the record was used as-is, origin verification demanded the
+    // artifact, and the run died at BLOCKED ARTIFACT_NOT_FOUND while a valid,
+    // live, run/attempt/sha-bound signal was sitting on the check run.
+    // The signal is the stronger proof (it is bound to the run API identity),
+    // so it wins; the record still supplies the queue identity and is still
+    // where the claim/ack state lives.
+    if (a.originTransport !== 'record' && !a.envelopeInline) {
       setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
       const disc = await discovery.discoverOrigin({
         originRepo: a.originRepo || 'dictationb1/supreme-lamp',
