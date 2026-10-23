@@ -175,10 +175,14 @@ jobs:
           if ($env:APP_CI_EXIT -ne '0') { Write-Host "::warning title=build skipped::npm ci failed (exit $env:APP_CI_EXIT)"; Pop-Location; exit 0 }
           $env:VITE_BUILD_SHA = "cand-$($env:GITHUB_SHA.Substring(0,12))"
           $log = Join-Path $env:RUNNER_TEMP 'app-build.log'
-          npx vite build *> $log
+          npm run build *> $log
           $code = $LASTEXITCODE
           Get-Content $log -Tail 15 | ForEach-Object { Write-Host $_ }
-          if ($code -ne 0) { Write-Host "::error title=vite build::exit $code"; Pop-Location; exit 0 }
+          if ($code -ne 0) {
+            $tail = (Get-Content $log -Tail 6) -join ' | '
+            Write-Host ("::error title=vite build::exit $code :: " + ($tail -replace '[\r\n]+', ' '))
+            Pop-Location; exit 0
+          }
           $bundle = Join-Path $env:APP_DIR 'ui\dist\index.html'
           if (-not (Test-Path $bundle)) { Write-Host '::error title=vite build::ui/dist/index.html missing'; Pop-Location; exit 0 }
           $bytes = (Get-Item $bundle).Length
@@ -202,6 +206,14 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP "artifacts\candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item (Join-Path $env:RUNNER_TEMP 'app-build.log') (Join-Path $out 'app-build.log') -ErrorAction SilentlyContinue
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'app-tests.log') (Join-Path $out 'app-tests.log') -ErrorAction SilentlyContinue
+          foreach ($lf in @('app-tests.log','app-build.log')) {
+            $lp = Join-Path $env:RUNNER_TEMP $lf
+            if (Test-Path $lp) {
+              Write-Host "== tail $lf =="
+              Get-Content $lp -Tail 8 | ForEach-Object { Write-Host ("  " + $_) }
+            }
+          }
           if (-not $env:BUNDLE -or -not (Test-Path $env:BUNDLE)) {
             Write-Host '::error title=candidate sweep::no bundle to serve (build did not produce one)'
             'no bundle: the build step did not produce ui/dist/index.html' | Out-File -FilePath (Join-Path $out 'NO-BUNDLE.txt') -Encoding utf8
