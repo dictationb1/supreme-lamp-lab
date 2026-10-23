@@ -583,6 +583,11 @@ async function cmdLive(a) {
     });
     if (!envRes.ok) return done(EXIT.BLOCKED, setFinal('BLOCKED', envRes.code, envRes.detail));
     const envelope = envRes.value;
+    // Fingerprints only, and only the first 8 hex chars: this line is how an
+    // operator tells "the envelope is stale" from "the key is wrong" without any
+    // artifact download. MEASURED (run 39906977464): AUTHORIZATION_REJECTED left
+    // both possibilities open on the run page.
+    annotate.notice('envelope', `transport=${envRes.transport} tokenFp=${String(envelope.tokenFingerprint || '').slice(0, 8)} recordFp=${String(descriptor.dashTokenFingerprint || '').slice(0, 8)} match=${String(envelope.tokenFingerprint || '') === String(descriptor.dashTokenFingerprint || '')} issuedAt=${envelope.issuedAt || '?'} expiresAt=${envelope.expiresAt || '?'}`);
     auth.registerSecret(envelope.dashboardToken, 'DASH_TOKEN');
     if (envelope.rdpPassword) auth.registerSecret(envelope.rdpPassword, 'RDP_PASSWORD');
     report.identity.backend = { endpointHost: new URL(descriptor.authorizedEndpoint).host, backendIdentity: descriptor.backendIdentity, envelopeTransport: envRes.transport, envelopeSha: envRes.archiveSha256 ? envRes.archiveSha256.slice(0, 16) : null };
@@ -625,6 +630,9 @@ async function cmdLive(a) {
       proof: 'the live server minted a single-use ticket for this bearer and refused anonymous + forged bearers'
     };
     if (!proof.ok) {
+      const r = proof.results || {};
+      const codes = `noBearer=${(r.noBearer || {}).status} wrongBearer=${(r.wrongBearer || {}).status} ourBearer=${(r.ourBearer || {}).status} configGate=${(r.config || {}).gate}`;
+      annotate.error('auth proof gates', `${proof.code}: ${codes} - ${redact(String(proof.detail || '')).slice(0, 300)}`);
       const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
       return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
     }
