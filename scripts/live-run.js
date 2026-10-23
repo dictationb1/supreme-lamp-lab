@@ -631,7 +631,9 @@ async function cmdLive(a) {
     };
     if (!proof.ok) {
       const r = proof.results || {};
-      const codes = `noBearer=${(r.noBearer || {}).status} wrongBearer=${(r.wrongBearer || {}).status} ourBearer=${(r.ourBearer || {}).status} configGate=${(r.config || {}).gate}`;
+      const d = r.diag || {};
+      const diagNote = d.ok ? ` diag[route=${d.route} serverExpectsPublished=${d.serverExpectedEqualsPublished} expectedLen=${d.expectedLen} publishedLen=${d.myLength}]` : '';
+      const codes = `noBearer=${(r.noBearer || {}).status} wrongBearer=${(r.wrongBearer || {}).status} ourBearer=${(r.ourBearer || {}).status} configGate=${(r.config || {}).gate}${diagNote}`;
       annotate.error('auth proof gates', `${proof.code}: ${codes} - ${redact(String(proof.detail || '')).slice(0, 300)}`);
       const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
       return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));

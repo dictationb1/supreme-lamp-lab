@@ -214,6 +214,36 @@ function secretFieldsOf(resp) {
 }
 
 /**
+ * The server's OWN token telemetry, for the question a 401 cannot answer:
+ * "is the credential the application published the one its strict route expects?"
+ * /api/diag/comprehensive publishes a ring of the last token comparisons with a
+ * SHORT hash of the expected value and the two lengths, never a value. Comparing
+ * that hash with the credential the lab decrypted (which the lab already holds)
+ * turns "401" into either "the server expects a different token" or "the
+ * token is right and something else refused us" - without printing either.
+ */
+async function diagTokenEvidence(target, presentedToken) {
+  const r = await request(`${target}/api/diag/comprehensive`, { timeoutMs: 20000 });
+  if (r.transport !== 'ok' || !r.ok || !r.json) return { ok: false, status: r.status, transport: r.transport };
+  const ring = Array.isArray(r.json.dashTokenTelemetry) ? r.json.dashTokenTelemetry : [];
+  const forRoute = ring.filter(t => String((t && t.route) || '') === '/api/rdp-token');
+  const last = forRoute.length ? forRoute[forRoute.length - 1] : (ring.length ? ring[ring.length - 1] : null);
+  if (!last) return { ok: true, entries: ring.length, matched: null };
+  const mine = crypto.createHash('sha256').update(String(presentedToken || ''), 'utf8').digest('hex').slice(0, 8);
+  return {
+    ok: true,
+    entries: ring.length,
+    route: last.route || null,
+    valid: last.valid === true,
+    presentedLen: last.presentedLen === undefined ? null : Number(last.presentedLen),
+    expectedLen: last.expectedLen === undefined ? null : Number(last.expectedLen),
+    // booleans only: the hashes themselves stay inside this function
+    serverExpectedEqualsPublished: String(last.expectedHash || '') === mine,
+    myLength: String(presentedToken || '').length
+  };
+}
+
+/**
  * The /api/config credential gate, as three distinct outcomes:
  *   enforced       the password block opens only for the current-run key
  *   leaked         it opens for an anonymous/forged caller that is not a peer
@@ -310,7 +340,17 @@ async function proveAuthorization({ target, dashboardToken, log = () => {} } = {
     };
   }
   if (a3.transport === 'ok' && (a3.status === 401 || a3.status === 403)) {
-    return { ok: false, code: 'AUTHORIZATION_REJECTED', detail: 'the live server refused this token — it is not this run\'s dashboard authorization (stale envelope, wrong run, or rotated key)', results };
+    // A 401 on the strict route cannot tell a stale credential from a server whose
+    // boot-time snapshot differs from the credential it publishes. Ask the server's
+    // own telemetry before blaming the envelope.
+    const diag = await diagTokenEvidence(target, T).catch(() => null);
+    if (diag) results.diag = diag;
+    const tail = diag && diag.ok && diag.serverExpectedEqualsPublished === false
+      ? ` — the server's own telemetry shows it expects a DIFFERENT token (expectedLen=${diag.expectedLen}, publishedLen=${diag.myLength}): the application published a credential its strict route does not accept`
+      : diag && diag.ok && diag.serverExpectedEqualsPublished === true
+        ? ' — the server\'s telemetry shows it expects EXACTLY the published credential, so the refusal is not a token mismatch'
+        : '';
+    return { ok: false, code: 'AUTHORIZATION_REJECTED', detail: `the live server refused this token — it is not this run's dashboard authorization (stale envelope, wrong run, or rotated key)${tail}`, results };
   }
   if (accepted && !(refusedNoBearer && refusedWrong)) {
     return { ok: false, code: 'AUTHORIZATION_GATE_UNENFORCED', detail: `the server's authorization gate cannot be demonstrated (noBearer=${a1.status} wrongBearer=${a2.status}) — the run is not provably authorized, it merely happens to work`, results };
@@ -431,7 +471,7 @@ function clientTailnetIp() {
 
 module.exports = {
   DASH_TOKEN_STORAGE_KEY, registerSecret, isCgnat, resolveTransport, fetchEnvelope, proveAuthorization,
-  secretFieldsOf, classifyConfigGate,
+  secretFieldsOf, classifyConfigGate, diagTokenEvidence,
   storageInitScript, clearBrowserToken, resolveProtocolHandler,
   productionRdpUrl, mintTraceId, launchProductionHandler, clientTailnetIp, fp
 };
