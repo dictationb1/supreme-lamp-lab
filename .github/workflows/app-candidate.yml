@@ -105,6 +105,14 @@ jobs:
             Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
             foreach ($p in $patches) {
               Write-Host "::notice title=patch::applying $($p.Name)"
+              # The PATCH FILE is the thing that arrives CRLF on a Windows checkout
+              # (git's autocrlf rewrites text files, and .gitattributes now marks
+              # *.patch as -text). Normalise the patch itself to LF before applying,
+              # so the context lines and the worktree agree regardless of host.
+              $lfName = Join-Path $work ('lf-' + $p.Name)
+              $lfText = ([System.IO.File]::ReadAllText($p.FullName)) -replace "`r`n", "`n"
+              [System.IO.File]::WriteAllText($lfName, $lfText, (New-Object System.Text.UTF8Encoding($false)))
+              $p = Get-Item -LiteralPath $lfName
               # MEASURED (hosted windows-latest, run 40030656554): plain `git apply`
               # failed with exit 1 on a patch that applied cleanly on the client VM.
               # The runner's git defaults are core.autocrlf=true / core.eol=crlf, so

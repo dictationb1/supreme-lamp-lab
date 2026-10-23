@@ -1,0 +1,4 @@
+# Keep patch files byte-exact on every checkout: a CRLF-normalised patch cannot
+# apply to LF sources (measured on a hosted Windows runner, run 40030981649).
+*.patch -text
+*.rej -text
