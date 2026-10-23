@@ -8,5 +8,8 @@
   "descriptorId": "f84e1625f1833e85",
   "correlationId": "lr-39899087271-1",
   "superseded": "claimant run 39920375772 is completed/cancelled",
-  "nonce": "f5a539286a6a0986"
+  "nonce": "f5a539286a6a0986",
+  "releasedAt": "2026-10-23T10:09:07.287Z",
+  "releasedBy": "39929404780",
+  "releasedReason": "origin 39899087271 reached a terminal state (completed/failure 2026-10-23T09:51:22Z); cancelled-origin tracking retired by the lab task that owned it"
 }
