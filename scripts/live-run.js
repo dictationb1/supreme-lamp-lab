@@ -518,13 +518,24 @@ async function cmdLive(a) {
     // while the run still exited 0, so the queue recorded a verdict it did not
     // have. One desktop owner is a safety property: it must actually be taken.
     const lockRoot = process.env.LAB_LOCK_DIR || path.join(os.tmpdir(), 'slab-locks');
-    lock = acquireLock({
-      lockDir: path.join(lockRoot, 'rdp-lab-desktop'),
-      runId: envOr('GITHUB_RUN_ID', 'local'),
-      runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
-      timeoutMs: 120000,
-      role: 'live-run'
-    });
+    if (a.probeOnly) {
+      // A bounded probe opens NO browser, dispatches NO protocol handler and
+      // spawns NO mstsc, so it owns nothing on the desktop. Holding the single
+      // desktop lease for it would serialize a diagnostic behind (or in front
+      // of) a real pass for no safety benefit - and releasing it promptly is
+      // exactly what "no viewer/test remains active" requires.
+      report.desktopLock = { taken: false, reason: 'PROBE_ONLY: no desktop-owned work is performed, so the single desktop lease is deliberately not held' };
+      annotate.notice('desktop lock', 'not taken: bounded probe performs no desktop-owned work');
+    } else {
+      lock = acquireLock({
+        lockDir: path.join(lockRoot, 'rdp-lab-desktop'),
+        runId: envOr('GITHUB_RUN_ID', 'local'),
+        runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
+        timeoutMs: 120000,
+        role: 'live-run'
+      });
+      report.desktopLock = { taken: true, lockDir: path.join(lockRoot, 'rdp-lab-desktop') };
+    }
     timings.desktopLockMs = Date.now() - t0;
 
     // 4. verify the origin against GitHub, not against the caller ---------

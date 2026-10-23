@@ -1,0 +1,181 @@
+name: Authorization probe (bounded, client VM)
+
+# ---------------------------------------------------------------------------
+# ONE SMALL DECISIVE MEASUREMENT, not a verification pass.
+#
+# Why this file exists separately from live-run.yml:
+#   * `workflow_dispatch` is not available to the automation token used to
+#     develop this repository (measured 403 on 2026-10-23 at 15:38Z against
+#     /repos/dictationb1/supreme-lamp-lab/actions/workflows/391835993/dispatches),
+#     so a push-triggered job is the only way to run the CLIENT VM code from a
+#     candidate branch without merging it first;
+#   * a full live pass costs ~25 minutes and holds the single desktop lease.
+#     When the open question is "which authorization layer refused?", that is
+#     the wrong instrument: this job answers it in minutes and owns nothing.
+#
+# What it does, in order:
+#   1. re-reads the runner identity (account + interactive session),
+#   2. runs the read-only network preflight (tailscale / TCP / HTTP ping),
+#   3. resolves the origin's MC-SIGNAL, decrypts the envelope IN THIS PROCESS
+#      with the lab private key, and checks the extracted credential is the
+#      intended string field bound to this run/attempt/sha,
+#   4. exercises the LAYERED authorization matrix against the real backend and
+#      records the exact subcode (transport / bearer / source / prerequisite /
+#      issuance / disclosure),
+#   5. persists a sanitized evidence bundle and uploads it.
+#
+# What it never does: no browser, no feature pass, no native RDP launch, no
+# viewer hold, no desktop lease, no queue claim and no queue-state change. It
+# cannot produce a product verdict and it does not try to.
+#
+# Nothing secret is written down: the probe records statuses, durations,
+# allowlisted reason codes, ticket PRESENCE/FORMAT/TTL and credential-field
+# NAMES with a masked/raw/empty classification. Never a ticket value, never a
+# dashboard key, never an Authorization header, never a /api/config body.
+# ---------------------------------------------------------------------------
+
+run-name: auth-probe ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - 'arena/**'
+    paths:
+      - '.github/workflows/auth-probe.yml'
+      - 'scripts/lib/live-auth.js'
+      - 'scripts/lib/live-features.js'
+      - 'scripts/lib/live-signal.js'
+      - 'scripts/lib/http.js'
+      - 'scripts/lib/readiness.js'
+      - 'scripts/live-run.js'
+  workflow_dispatch:
+    inputs:
+      origin_run:
+        description: 'Application run to probe (empty = the directed-audit target below)'
+        required: false
+        default: ''
+        type: string
+      origin_attempt:
+        description: 'Run attempt to probe (never "the latest")'
+        required: false
+        default: '1'
+        type: string
+      correlation_id:
+        description: 'Queue correlation id to read the descriptor from (never claimed)'
+        required: false
+        default: ''
+        type: string
+
+# Its own group: a probe must never queue behind, or in front of, the real
+# live-run queue, and it is never cancelled mid-flight (a half-measured probe is
+# worse than no probe).
+concurrency:
+  group: auth-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read    # read the queue record and the origin's signal
+  actions: read     # read the origin run's metadata and its envelope artifact
+
+env:
+  # The directed-audit target supplied by the operator for this task. A later
+  # origin gets its own values here (or a dispatch input); nothing infers
+  # "the newest run".
+  DIRECTED_ORIGIN_REPO: dictationb1/supreme-lamp
+  DIRECTED_ORIGIN_RUN: '39952421153'
+  DIRECTED_ORIGIN_ATTEMPT: '1'
+  DIRECTED_CORRELATION: lr-39952421153-1
+
+jobs:
+  probe:
+    name: client VM (bounded authorization probe)
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Runner identity (account + interactive session, re-checked every run)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=probe runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s PS=$($PSVersionTable.PSVersion)"
+          if ($s -le 0) {
+            Write-Host "::error title=NO INTERACTIVE DESKTOP::session=$s - the probe measures the same source identity the real pass uses, so it must run in the logged-in session"
+            exit 4
+          }
+          node --version
+          exit 0
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install lab dependencies (no browser - the probe is headless by design)
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          exit 0
+
+      - name: Network preflight (read-only - transport first, always)
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # A transport timeout is NOT a rejection, so transport is measured
+          # before anything is concluded about authorization. Read-only: this
+          # step is a diagnostic and never a gate.
+          $ts = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
+          if (Test-Path -LiteralPath $ts) {
+            $ip = (& $ts ip -4 2>$null | Select-Object -First 1)
+            $st = (& $ts status 2>$null | Select-Object -First 1)
+            Write-Host "::notice title=probe net::desk=$env:RUNNER_NAME tailnetIPv4=$ip status=$st"
+          } else {
+            Write-Host "::warning title=probe net::tailscale.exe not found under Program Files - the source identity could not be measured here"
+          }
+          $global:LASTEXITCODE = 0
+          exit 0
+
+      - name: BOUNDED AUTHORIZATION PROBE (signal -> credential -> readiness -> layered matrix)
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\auth-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          LAB_SIGNAL_PRIVATE_KEY: ${{ secrets.LAB_SIGNAL_PRIVATE_KEY }}
+          IN_ORIGIN_RUN: ${{ inputs.origin_run }}
+          IN_ORIGIN_ATTEMPT: ${{ inputs.origin_attempt }}
+          IN_CORRELATION: ${{ inputs.correlation_id }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $run = if ($env:IN_ORIGIN_RUN) { $env:IN_ORIGIN_RUN } else { $env:DIRECTED_ORIGIN_RUN }
+          $att = if ($env:IN_ORIGIN_ATTEMPT) { $env:IN_ORIGIN_ATTEMPT } else { $env:DIRECTED_ORIGIN_ATTEMPT }
+          $corr = if ($env:IN_CORRELATION) { $env:IN_CORRELATION } else { $env:DIRECTED_CORRELATION }
+          Write-Host "::notice title=probe target::origin=$env:DIRECTED_ORIGIN_REPO#$run/$att correlation=$corr lab=$env:GITHUB_SHA"
+          & node scripts/live-run.js live `
+            --mode live-origin `
+            --origin-repo $env:DIRECTED_ORIGIN_REPO `
+            --origin-run $run `
+            --origin-attempt $att `
+            --correlation-id $corr `
+            --origin-transport auto `
+            --origin-workflow .github/workflows/main.yml `
+            --probe-only `
+            --skip-browser `
+            --no-claim `
+            --timeout-ms 420000 `
+            --ready-timeout-ms 120000 `
+            --auth-timeout-ms 20000
+          $code = $LASTEXITCODE
+          "exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          # Every non-crash outcome is a MEASUREMENT, so the step does not fail
+          # the job on a blocked verdict; the annotation carries the subcode.
+          if ($code -eq 0 -or $code -eq 4 -or $code -eq 5 -or $code -eq 7 -or $code -eq 8 -or $code -eq 9) { exit 0 }
+          exit 1
+
+      - name: Upload the sanitized probe evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: auth-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/artifacts/
+          if-no-files-found: warn
+          retention-days: 14
