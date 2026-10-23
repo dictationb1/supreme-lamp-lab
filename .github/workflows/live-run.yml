@@ -575,6 +575,46 @@ jobs:
           } elseif (-not $tcp) {
             Write-Host "::warning title=net preflight::the endpoint is NOT reachable from this desk; every live check would end in READINESS_TIMEOUT. This is a lab-network/tailnet condition, not a product verdict."
           }
+          # ------------------------------------------------------------------
+          # BOUNDED LISTENER CLASSIFICATION (both ports, structured).
+          # The application has historically served the dashboard on 7331 (the
+          # PowerShell server: single-file UI + /api/*) and a Rust WebSocket
+          # dashboard on 7332. "TCP accepted, no HTTP answer" cannot tell an
+          # operator which of those is wedged, so each route is measured with a
+          # hard 15 s budget and the result is written as JSON for the bundle.
+          # Nothing here uses a credential and no response body is stored.
+          # ------------------------------------------------------------------
+          $probeDir = Join-Path $env:RUNNER_TEMP 'probe'
+          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+          $probePorts = @()
+          if ($port -gt 0) { $probePorts += $port }
+          foreach ($alt in @(7331, 7332)) { if ($probePorts -notcontains $alt) { $probePorts += $alt } }
+          $rows = @()
+          foreach ($p in $probePorts) {
+            foreach ($route in @('/api/ping', '/health', '/api/version', '/')) {
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
+              $c = & curl.exe -s -o NUL -m 15 -w '%{http_code} %{size_download} %{time_total}' ("{0}://{1}:{2}{3}" -f $u.Scheme, $hostName, $p, $route) 2>$null
+              $ce = $LASTEXITCODE
+              $sw.Stop()
+              $parts = ($c -split ' ')
+              $code = if ($parts.Count -ge 1) { $parts[0] } else { 'none' }
+              $rows += [pscustomobject]@{
+                port = $p; route = $route; httpCode = $code; bytes = if ($parts.Count -ge 2) { $parts[1] } else { '' }
+                curlExit = $ce; wallMs = $sw.ElapsedMilliseconds
+                classification = if ($code -eq '200') { 'ANSWERING' } elseif ($code -eq '000') { 'ACCEPTED_NO_HTTP' } elseif ($code -match '^(301|302|401|403|404)$') { 'ANSWERING' } else { 'OTHER' }
+              }
+              $global:LASTEXITCODE = 0
+            }
+          }
+          ($rows | ConvertTo-Json -Depth 4) | Out-File -FilePath (Join-Path $probeDir 'listeners.json') -Encoding utf8
+          $summary = ($rows | Where-Object { $_.route -eq '/api/ping' } | ForEach-Object { "port $($_.port): code=$($_.httpCode) (exit=$($_.curlExit), $($_.wallMs)ms, $($_.classification))" }) -join '; '
+          Write-Host "::notice title=net preflight::listener classification - $summary"
+          $answering = @($rows | Where-Object { $_.httpCode -eq '200' } | ForEach-Object { $_.port } | Select-Object -Unique)
+          if ($answering.Count -gt 0) {
+            Write-Host "::notice title=net preflight::ports answering HTTP: $($answering -join ',')"
+          } else {
+            Write-Host "::warning title=net preflight::NO port answered HTTP within 15s (7331 and 7332 both silent) - the dashboard transport is down even though TCP may accept; every UI/API verdict below is BLOCKED on this, not measured against it"
+          }
           # A diagnostic is never a gate: never let it fail the job (native exit
           # codes propagate as the step's exit code when it is the last command).
           $global:LASTEXITCODE = 0
@@ -654,6 +694,30 @@ jobs:
         shell: powershell
         run: |
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
+          exit $LASTEXITCODE
+
+      - name: Publish sanitized evidence into the repository (artifacts are not retrievable from automation)
+        if: always()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          ORIGIN_RUN_OUT: ${{ needs.claim.outputs.origin_run }}
+          ORIGIN_ATTEMPT_OUT: ${{ needs.claim.outputs.origin_attempt }}
+        run: |
+          # Measured 2026-10-23: the artifact ZIP redirects to
+          # productionresultssa9.blob.core.windows.net and the step log redirects to
+          # results-receiver.actions.githubusercontent.com; both are unreachable from
+          # an automation environment whose egress allowlist is github.com /
+          # api.github.com / codeload / npm / pypi (EOF). Evidence that only exists
+          # as an artifact is therefore UNREADABLE, and its 14-day retention is not
+          # the limiting factor. The report goes into the branch instead.
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (-not (Test-Path $dir)) { Write-Host "::notice title=evidence publish::no artifact dir this run"; exit 0 }
+          $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
+          $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
+          $dest = "reports/mission-control/$runId-$attempt/evidence"
+          node scripts/publish-evidence.js --dir $dir --dest $dest --branch $env:HEAD_BRANCH --message "evidence: $runId/$attempt lab run $env:GITHUB_RUN_ID [skip ci]"
           exit $LASTEXITCODE
 
       - name: Upload live-run evidence (sanitized)

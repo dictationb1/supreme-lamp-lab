@@ -1860,6 +1860,12 @@ $obj | ConvertTo-Json -Compress
     if (typeof register.staleClaim === 'function') await register.staleClaim({ test, assert });
   }
 
+  // ===== evidence publish gate (the lab is public; refusals are security) =====
+  {
+    const register = require('./test/publish-evidence-regressions');
+    await register({ test, assert });
+  }
+
   // ===== summary =====
   const failed = results.filter(r => r.status === 'FAIL');
   const skipped = results.filter(r => r.status === 'SKIPPED');
