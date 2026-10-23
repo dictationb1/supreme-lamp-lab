@@ -715,8 +715,13 @@ async function cmdLive(a) {
         page = context.pages()[0] || await context.newPage();
         const pageErrors = { n: 0, samples: [] };
         page.__errors = pageErrors;
-        page.on('pageerror', err => { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(String(err && err.message || err)).slice(0, 160)); });
-        page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(m.text()).slice(0, 160)); } });
+        // Keep the LAST samples, not the first: a per-route delta ("what did THIS
+        // route add") is only readable from the tail, and the first sample is
+        // usually the shell's own startup noise.
+        const pushSample = t => { pageErrors.samples.push(t); if (pageErrors.samples.length > 8) pageErrors.samples.splice(0, pageErrors.samples.length - 8); };
+        const where = m => { try { const u = new URL(m.location().url); return `${u.pathname}${u.hash}`; } catch (e) { return ''; } };
+        page.on('pageerror', err => { pageErrors.n++; pushSample(redact(String(err && err.message || err)).slice(0, 160)); });
+        page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; pushSample((redact(m.text()).slice(0, 140) + (where(m) ? ` @ ${where(m)}` : '')).slice(0, 180)); } });
         report.timestamps.browserLaunchedAt = new Date().toISOString();
         report.browser = { profile, headed: !a.headless, pageErrors, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
       } catch (e) {
@@ -732,7 +737,7 @@ async function cmdLive(a) {
 
     // Evaluate everything that can run without a desktop; RDP/web-desktop are
     // ordered so their dependency stays visible as BLOCKED, not as a fake FAIL.
-    const ctx = { target, descriptor, page, markers, authProof: proof, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, evidence: { out, results } };
+    const ctx = { target, descriptor, page, markers, authProof: proof, authOutcome: report.authorization, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, evidence: { out, results } };
     const order = ['auth.dash_token_gate', 'auth.no_stale_key_reuse', 'nav.build_provenance', 'session.live_binding', 'telemetry.live_stream', 'keys.acl_view', 'errors.classified_not_spinner', 'files.list', 'search.lane', 'mirror.matrix', 'health.readiness_contract', 'connection.native_rdp_launch', 'connection.ticket_single_use', 'webdesktop.frames', 'webdesktop.interaction', 'nav.routes_reachable', 'settings.read_modify_restore', 'files.fixture_roundtrip', 'connection.credential_hygiene', 'lifecycle.teardown'];
     ctx.resultsRef = results;
   const runners = makeRunners(ctx, a, deadline);
@@ -1424,7 +1429,9 @@ function makeMarkers() {
   return {
     async gateCleared(page) {
       try {
-        await page.goto(`${page.__slabTarget || ''}/#/overview`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        // The shipped dashboard is one page (payloads/ui.html): its root is the
+        // only real address. A hash-fragment route was the lab's invention.
+        await page.goto(`${page.__slabTarget || ''}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       } catch (e) { /* a nav failure is reported by the marker outcome, not swallowed */ }
       const gate = await page.evaluate(() => {
         const t = (document.body.innerText || '');
@@ -1453,7 +1460,25 @@ function makeMarkers() {
       }).catch(() => ({ found: false }));
       return s;
     },
-    errorCount(page) { return (page.__errors && page.__errors.n) || 0; }
+    errorCount(page) { return (page.__errors && page.__errors.n) || 0; },
+    // Which named surfaces does the SHIPPED page actually declare? Read from the
+    // DOM, never assumed from a route list the application does not have.
+    async pageSections(page, ids = []) {
+      const out = {};
+      for (const id of ids) {
+        try {
+          out[id] = await page.evaluate(sel => {
+            const el = document.querySelector(sel);
+            if (!el) return { found: false };
+            const r = el.getBoundingClientRect();
+            return { found: true, visible: r.width > 0 && r.height > 0, textLen: (el.innerText || el.textContent || '').trim().length };
+          }, id);
+        } catch (e) { out[id] = { found: false, error: String(e.message || e).slice(0, 80) }; }
+      }
+      return out;
+    },
+    // the newest `n` collected samples: exactly the errors this route added
+    errorSamples(page, n) { const a = (page.__errors && page.__errors.samples) || []; return n > 0 ? a.slice(-n) : []; }
   };
 }
 
@@ -1461,31 +1486,35 @@ async function readUiContract(target, descriptor) {
   const cfg = await request(`${target}/api/config`, { timeoutMs: 15000 });
   const j = (cfg && cfg.json) || {};
   const flag = (...names) => { for (const n of names) { if (j[n] !== undefined) return j[n]; } return undefined; };
-  const routes = defaultRoutes(descriptor);
+  // Declared routes win ONLY if the build actually publishes them. The shipped
+  // dashboard (payloads/ui.html) publishes none: it is one page with named
+  // sections, so a hardcoded route list would have invented URLs. Surfaces can
+  // be overridden by the build (`uiSections`) for a future router.
+  const declared = Array.isArray(j.uiRoutes) ? j.uiRoutes.filter(r => r && r.id && r.url) : [];
+  const routes = declared.length ? declared : [];
+  const surfaces = defaultSurfaces(descriptor, flag('uiSections', 'dashboardSections'));
   return {
     routes,
+    surfaces,
     searchEnable: flag('searchEnabled', 'search_enable', 'searchEnable') ?? true,
     mirror: flag('mirror', 'mirrorEnabled') ?? false,
     raw: { keys: Object.keys(j).slice(0, 60) }
   };
 }
 
-function defaultRoutes(descriptor) {
+// The shipped dashboard's own anchors (payloads/ui.html, measured at c470531e):
+// five <section id="sec-*"> blocks, the files table body and the connection chip.
+// `nav.routes_reachable` verifies these because they are what the app declares.
+function defaultSurfaces(descriptor, override) {
   const base = descriptor.authorizedEndpoint;
-  return [
-    { id: 'overview', url: `${base}/#/overview`, testid: 'topbar', text: 'Mission Control' },
-    { id: 'sessions', url: `${base}/#/sessions`, text: 'session' },
-    { id: 'files', url: `${base}/#/files`, text: 'file' },
-    { id: 'search', url: `${base}/#/search`, text: 'search' },
-    { id: 'web-desktop', url: `${base}/#/web-desktop`, text: 'web desktop' },
-    { id: 'keys', url: `${base}/#/keys`, text: 'key' },
-    { id: 'telemetry', url: `${base}/#/telemetry`, text: 'telemetry' },
-    { id: 'settings', url: `${base}/#/settings`, text: 'setting' }
-  ];
+  const fallback = ['#pillConn', '#sec-conn', '#sec-keys', '#sec-native-rdp', '#sec-mirror', '#sec-log', '#fileRows'];
+  const list = Array.isArray(override) && override.length ? override.map(x => (typeof x === 'string' ? x : x && x.id)).filter(Boolean) : fallback;
+  return list.map(x => ({ id: x, selector: x, required: true, page: `${base}/` }));
 }
 
+
 function makeRunners(ctx, a, deadline) {
-  const { target, descriptor, page, markers, authProof, forgedToken, envelope, clientIp, contract } = ctx;
+  const { target, descriptor, page, markers, authProof, authOutcome, forgedToken, envelope, clientIp, contract } = ctx;
   const results = ctx.resultsRef || {};
   // the live browser's navigation target is stashed on the page so markers can
   // build origin-relative URLs without re-deriving them from a string.
@@ -1497,11 +1526,11 @@ function makeRunners(ctx, a, deadline) {
     return r.json;
   };
   return {
-    'auth.dash_token_gate': () => feat.evalAuthGate({ authProof, page, markers }),
+    'auth.dash_token_gate': () => feat.evalAuthGate({ authProof, page, markers, authOutcome }),
     'auth.no_stale_key_reuse': () => feat.evalStaleKey({ target, forgedToken }),
     'nav.build_provenance': () => feat.evalProvenance({ target, descriptor, page, markers }),
-    'session.live_binding': () => feat.evalLiveBinding({ target, descriptor }),
-    'health.readiness_contract': () => feat.evalLiveBinding({ target, descriptor }),
+    'session.live_binding': () => feat.evalLiveBinding({ target, descriptor, originRunStartedAt: report.identity.process && report.identity.process.runStartedAt }),
+    'health.readiness_contract': () => feat.evalReadinessContract({ target, descriptor }),
     'telemetry.live_stream': () => feat.evalTelemetryDelta({ target, sampleMs: 6000 }),
     'keys.acl_view': () => feat.evalKeysMasked({ page, secrets: [envelope.dashboardToken, envelope.rdpPassword] }),
     'errors.classified_not_spinner': () => feat.evalErrorSurface({ page, target, forgedToken }),
@@ -1536,18 +1565,33 @@ function makeRunners(ctx, a, deadline) {
     },
     'webdesktop.frames': () => feat.evalWebDesktop({ target, page, sampleMs: 5000, rdpStatus: results['connection.native_rdp_launch'] && results['connection.native_rdp_launch'].status }),
     'webdesktop.interaction': () => feat.na('NO_SUPPORTED_INPUT_ROUTE: this build exposes no documented input endpoint for the web desktop; asserting a synthetic keypress would be a mock, so it is reported NOT_APPLICABLE'),
-    'nav.routes_reachable': () => feat.evalRoutes({ page, routes: contract.routes, markers }),
+    'nav.routes_reachable': () => feat.evalDashboardSurfaces({ page, markers, surfaces: contract.surfaces, routes: contract.routes, target: descriptor.authorizedEndpoint }),
     'files.list': async () => {
       const idx = await request(`${target}/api/progress`, { timeoutMs: 15000 });
       const total = idx.json && (idx.json.filesTotal ?? (idx.json.progress && idx.json.progress.agg && idx.json.progress.agg.total));
       let dom = null;
       if (page) {
-        try { await page.goto(`${descriptor.authorizedEndpoint}/#/files`, { waitUntil: 'domcontentloaded', timeout: 20000 }); dom = await page.evaluate(() => document.querySelectorAll('[data-testid="file-row"], tbody tr').length); } catch (e) { dom = `nav-error: ${e.message.slice(0, 60)}`; }
+        try {
+          await page.goto(`${descriptor.authorizedEndpoint}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          // `#fileRows` is the shipped table body. Its placeholder row ("waiting
+          // for watcher...") is NOT a file, so it is excluded: a table that only
+          // shows the placeholder is an EMPTY list, not one row of evidence.
+          dom = await page.evaluate(() => {
+            const tb = document.querySelector('#fileRows');
+            if (!tb) return 'no-table';
+            const rows = Array.from(tb.querySelectorAll('tr')).filter(tr => tr.children.length > 2);
+            return rows.length;
+          });
+        } catch (e) { dom = `nav-error: ${e.message.slice(0, 60)}`; }
       }
       const evidence = { serverFilesTotal: total ?? null, domRows: dom };
       if (!page) return feat.blocked('DEPENDS_ON_BROWSER');
       if (typeof dom === 'number' && dom > 0) return feat.ok(`${dom} rows rendered against a server index of ${total}`, evidence);
-      return feat.bad(`FILES_LIST_EMPTY_OR_MISMATCH: dom=${JSON.stringify(dom)} server=${JSON.stringify(total)}`, evidence);
+      // Three different facts, three different labels (a placeholder is not a
+      // file row, and an absent table is not an empty one).
+      if (dom === 'no-table') return feat.bad(`FILES_TABLE_ABSENT: the shipped dashboard has no #fileRows table body`, evidence);
+      if (dom === 0 && (!total || Number(total) === 0)) return feat.na(`EMPTY_RUN: this run's watcher indexed nothing, so there is nothing to list (server total=${total ?? 'unknown'})`, evidence);
+      return feat.bad(`FILES_LIST_EMPTY_OR_MISMATCH: dom=${JSON.stringify(dom)} server=${JSON.stringify(total)} — the server reports files that the table does not render`, evidence);
     },
     'files.fixture_roundtrip': () => feat.na('NO_WRITE_ROUTE_IN_LIVE_MODE: the app exposes no run-owned file-write API that the lab may use without touching operator data; writing through the mirror lane would mutate real storage, so this is NOT_APPLICABLE rather than simulated'),
     'search.lane': async () => {
@@ -1719,4 +1763,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, ACK_JOB_RESULT_STATES, ackStateForJobResult, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };
+module.exports = { EXIT, STAGES, ACK_JOB_RESULT_STATES, ackStateForJobResult, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultSurfaces, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };

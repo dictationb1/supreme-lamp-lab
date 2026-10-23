@@ -472,7 +472,7 @@ jobs:
     needs: [discover, claim]
     if: needs.claim.outputs.proceed == 'yes'
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: write
       actions: read
@@ -763,7 +763,7 @@ jobs:
             '--origin-run', $env:ORIGIN_RUN,
             '--origin-attempt', $env:ORIGIN_ATTEMPT,
             '--correlation-id', $env:ORIGIN_CORRELATION,
-            '--timeout-ms', '1500000',
+            '--timeout-ms', '1800000',
             '--ready-timeout-ms', '240000',
             '--native-handoff', 'handler'
           )
