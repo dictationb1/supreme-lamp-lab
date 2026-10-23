@@ -117,6 +117,8 @@ function recordFromFile(file) {
  * Apply the documented selection rules to already-listed rows. Exported so a
  * regression can drive it with a fake listing and a fake reader.
  */
+const MAX_ATTEMPTS = 2;
+
 async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [], claimLive = null } = {}) {
   const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
   let candidates = [];
@@ -157,7 +159,10 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [], c
     // The flag lives in the record BODY (and, for operators, on the row); the
     // row alone is not trusted for it, so a queue listing that predates the
     // flag still behaves correctly.
-    const rowMayBeRetryable = ['FAILED', 'BLOCKED'].includes(r.state) || r.retryable === true;
+    // A reported FAILURE may be re-served ONCE (see the retryable rule below)
+    // while the origin server is still the live one; a reported VERIFICATION
+    // never is. The row only decides whether the record body is worth reading.
+    const rowMayBeRetryable = ['FAILED', 'BLOCKED', 'REPORTED_FAILED'].includes(r.state) || r.retryable === true;
     if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation && !rowMayBeRetryable) {
       skipped.push(`${r.correlationId}: state=${r.state}`);
       continue;
@@ -171,11 +176,22 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [], c
     try {
       d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now });
     } catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
-    const retryable = rec.retryable === true && ['FAILED', 'BLOCKED'].includes(rec.state);
+    // RETRY BUDGET. A full verification that ended REPORTED_FAILED used to be
+    // terminal for that origin, which made every lab-side defect burn an
+    // operator run: the origin server was still alive and publishing, but no
+    // sweep could ever touch it again. A reported failure is now re-served while
+    // (a) the record says retryable, (b) the origin is still attachable (the
+    // descriptor check above: unexpired, in_progress, tailnet), and (c) fewer
+    // than MAX_ATTEMPTS verifications have run. The earlier verdict stays in the
+    // record's history - a retry never rewrites what an earlier run measured.
+    const attempts = Number(rec.verificationAttempts || 0);
+    const retryable = rec.retryable === true && ['FAILED', 'BLOCKED', 'REPORTED_FAILED'].includes(rec.state) && attempts < MAX_ATTEMPTS;
     if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation || retryable) {
-      return { proceed: 'yes', reason: `SELECTED ${detail(r)}${rec.state !== 'AWAITING_LAB_ACCEPTANCE' ? ` retryable=${rec.state}` : ''}`, descriptor: d, retryable: retryable || undefined };
+      const budget = rec.state === 'REPORTED_FAILED' ? ` retry=${attempts + 1}/${MAX_ATTEMPTS}` : '';
+      return { proceed: 'yes', reason: `SELECTED ${detail(r)}${rec.state !== 'AWAITING_LAB_ACCEPTANCE' ? ` retryable=${rec.state}${budget}` : ''}`, descriptor: d, retryable: retryable || undefined, attemptNumber: attempts + 1 };
     }
-    skipped.push(`${r.correlationId}: state=${rec.state}`);
+    if (rec.state === 'REPORTED_FAILED' && rec.retryable === true) skipped.push(`${r.correlationId}: retry budget exhausted (${attempts}/${MAX_ATTEMPTS}) - a new application run is required`);
+    else skipped.push(`${r.correlationId}: state=${rec.state}`);
   }
   return { proceed: 'no', reason: `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}` };
 }

@@ -837,6 +837,16 @@ async function cmdLive(a) {
     annotate.notice('latency', Object.entries(latency).filter(([k, v]) => typeof v === 'number').map(([k, v]) => `${k}=${Math.round(v / 1000)}s`).join(' ') + ` note="${latency.note}"`);
     annotate.notice('verdict', `features ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory PASS; counts=${JSON.stringify(report.features.counts)}; vetoing=${(report.features.vetoing || []).join(',') || 'none'}`);
 
+    // RETRY BOOK-KEEPING: the record must say which verification this was, so a
+    // bounded retry is visible and an exhausted budget is explicit. The earlier
+    // verdict is never overwritten - it stays in the record's history.
+    let prior = null;
+    try { prior = await store.readRecord({ repo: a.labRepo, originRepo: descriptor.originRepo, originRunId: descriptor.originRunId, originAttempt: descriptor.originAttempt }); } catch (e) { annotate.warning('retry', `the previous record could not be read: ${redact(e.message).slice(0, 200)}`); }
+    const prevRec = (prior && prior.record) || null;
+    const attemptNumber = Number((prevRec && prevRec.verificationAttempts) || 0) + 1;
+    report.verificationAttempt = { number: attemptNumber, previousState: prevRec ? prevRec.state : null, previousLabRunId: prevRec && prevRec.report ? prevRec.report.labRunId : null };
+    if (attemptNumber > 1) annotate.notice('retry', `verification attempt ${attemptNumber} for ${descriptor.correlationId} (previous state ${report.verificationAttempt.previousState}, lab run ${report.verificationAttempt.previousLabRunId || 'unknown'}); the earlier verdict remains in the record history`);
+
     writeLiveEvidence(out, report);
     const repPath = a.reportPath || path.join(out, 'live-run-report.json');
     fs.writeFileSync(repPath, JSON.stringify(report, null, 2), { mode: 0o600 });
@@ -849,7 +859,16 @@ async function cmdLive(a) {
         state: accepted ? 'REPORTED_VERIFIED' : (report.verdict.status === STATUS.BLOCKED ? 'BLOCKED' : 'REPORTED_FAILED'),
         by: `lab:${report.lab.runId}`,
         detail: `${report.verdict.code}; ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory features PASS; correlation ${descriptor.correlationId}`,
-        extra: { report: { labRunId: report.lab.runId, attempt: report.lab.attempt, verdict: report.verdict.code, accepted, counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`, correlationId: descriptor.correlationId } }
+        extra: {
+          report: { labRunId: report.lab.runId, attempt: report.lab.attempt, verdict: report.verdict.code, accepted, counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`, correlationId: descriptor.correlationId },
+          retryable: !accepted,
+          retryableReason: accepted ? null : 'the origin is re-served only while it is still attachable and the retry budget is unspent; every verdict stays in history',
+          verificationAttempts: attemptNumber,
+          attempts: [...((prevRec && Array.isArray(prevRec.attempts)) ? prevRec.attempts.slice(-8) : []), {
+            at: new Date().toISOString(), labRunId: report.lab.runId, verdict: report.verdict.code, accepted,
+            counts: report.features.counts, url: `https://github.com/${a.labRepo}/actions/runs/${report.lab.runId}`
+          }]
+        }
       });
     } catch (e) { annotate.warning('ack', `the report could not be written back to ${store.RECORDS_BRANCH}: ${redact(e.message).slice(0, 200)}`); report.cleanup.ackError = redact(e.message).slice(0, 200); }
 

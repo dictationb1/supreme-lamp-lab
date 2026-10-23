@@ -146,16 +146,51 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     assert.match(res.reason, /retryable=FAILED/);
   });
 
-  await test('queue: a reported failure/verification is never re-served (no duplicate work, no relabelling)', async () => {
-    for (const state of ['REPORTED_VERIFIED', 'REPORTED_FAILED']) {
-      const row = { ...ROW(), state };
-      const res = await pick.pickFromRows([row], ARGS, {
-        allow: ['dictationb1/supreme-lamp'],
-        readFull: async () => ({ json: { descriptor: DESC(), state } })
-      });
-      assert.strictEqual(res.proceed, 'no', `${state} must not be picked`);
-      assert.match(res.reason, /state=REPORTED_/);
-    }
+  await test('queue: a verified record is never re-served; a reported FAILURE is re-served once, on budget', async () => {
+    // A verification stands forever.
+    const verified = { ...ROW(), state: 'REPORTED_VERIFIED' };
+    const v = await pick.pickFromRows([verified], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'REPORTED_VERIFIED', retryable: true } })
+    });
+    assert.strictEqual(v.proceed, 'no', 'REPORTED_VERIFIED must never be picked');
+    assert.match(v.reason, /state=REPORTED_/);
+
+    // MEASURED (run 39913711978): a full pass reported FAILED, and every later
+    // sweep then refused to touch an origin whose server was still alive and
+    // publishing - so each lab-side defect burned an operator run. A reported
+    // failure is now re-served while the retry flag and the budget allow it.
+    const failed = { ...ROW(), state: 'REPORTED_FAILED', retryable: true };
+    const once = await pick.pickFromRows([failed], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'REPORTED_FAILED', retryable: true } })
+    });
+    assert.strictEqual(once.proceed, 'yes', once.reason);
+    assert.match(once.reason, /retry=1\/2/);
+    assert.strictEqual(once.attemptNumber, 1);
+
+    const second = await pick.pickFromRows([failed], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'REPORTED_FAILED', retryable: true, verificationAttempts: 1 } })
+    });
+    assert.strictEqual(second.proceed, 'yes', second.reason);
+    assert.match(second.reason, /retry=2\/2/);
+
+    // Budget spent: no more sweeps may re-run the same origin.
+    const spent = await pick.pickFromRows([failed], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'REPORTED_FAILED', retryable: true, verificationAttempts: 2 } })
+    });
+    assert.strictEqual(spent.proceed, 'no', spent.reason);
+    assert.match(spent.reason, /retry budget exhausted \(2\/2\)/);
+
+    // A reported failure that is NOT retryable stays closed.
+    const closed = await pick.pickFromRows([{ ...ROW(), state: 'REPORTED_FAILED' }], ARGS, {
+      allow: ['dictationb1/supreme-lamp'],
+      readFull: async () => ({ json: { descriptor: DESC(), state: 'REPORTED_FAILED' } })
+    });
+    assert.strictEqual(closed.proceed, 'no', closed.reason);
+    assert.match(closed.reason, /state=REPORTED_FAILED/);
     // FAILED without the retryable flag (the poisoning defect) is not served
     const poisoned = { ...ROW(), state: 'FAILED' };
     const res2 = await pick.pickFromRows([poisoned], ARGS, {
