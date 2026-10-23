@@ -111,6 +111,8 @@ async function run(args) {
   const ctx = { mode: args.mode, protectedPids, sessionId: me && me.sessionId !== undefined ? me.sessionId : null };
   const pending = [];
 
+  let registryError = null;
+  try {
   registry.updateRegistry(records => {
     const keep = [];
     for (const rec of records) {
@@ -129,10 +131,22 @@ async function run(args) {
           entry.action = 'would-terminate';
           keep.push(rec);
         } else {
-          const res = terminateTreeSync(rec, snap);
-          entry.killed = res.killed;
-          if (!res.killed.length) keep.push(rec);
-          else pending.push({ rec, entry, killed: res.killed });
+          // ONE process that cannot be dealt with must never abort the whole
+          // cleanup: on 2026-10-23 the Windows client job failed here with
+          // exit 1 and no annotation, and the entire verification was lost
+          // before it started. A failure is recorded per record (and the record
+          // is kept so a later run can retry it), then reported in the summary.
+          try {
+            const res = terminateTreeSync(rec, snap);
+            entry.killed = res.killed;
+            if (!res.killed.length) keep.push(rec);
+            else pending.push({ rec, entry, killed: res.killed });
+          } catch (e) {
+            entry.action = 'error';
+            entry.reason = `TERMINATE_FAILED:${String(e && e.message || e).slice(0, 160)}`;
+            summary.errors.push({ pid: rec.pid, reason: entry.reason });
+            keep.push(rec);
+          }
         }
       } else if (d.action === 'keep') {
         keep.push(rec);
@@ -141,6 +155,14 @@ async function run(args) {
     }
     return keep;
   });
+  } catch (e) {
+    // A registry read/modify/write failure (lock timeout, unreadable file,
+    // atomic-write EPERM) is REPORTED, not turned into a crash: the run needs
+    // its verdict, and "could not update the bookkeeping" is not "the desktop
+    // is dirty".
+    registryError = `REGISTRY_UPDATE_FAILED:${String(e && e.message || e).slice(0, 200)}`;
+    summary.errors.push({ registry: registryError });
+  }
 
   // Bounded identity re-verification of everything we signalled. Records with
   // survivors stay registered so a later cleanup can retry them.

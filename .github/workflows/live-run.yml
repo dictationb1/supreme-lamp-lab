@@ -513,7 +513,16 @@ jobs:
       - name: Preflight owned-process cleanup
         run: |
           node scripts/cleanup-lab.js --mode preflight
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          # Safety is the invariant, not "must kill everything": a snapshot that
+          # cannot be taken (4) means the process table is unreadable, and
+          # guessing is forbidden -> fail. A leftover process of ANOTHER run that
+          # this account cannot terminate (2 = survivors, 3 = registry/lock) is a
+          # warning that names itself in an annotation; aborting here would
+          # destroy a verification that never started (measured 2026-10-23).
+          if ($code -eq 4) { throw "preflight cleanup could not read the process table (exit 4) - refusing to guess" }
+          if ($code -ne 0) { Write-Host "::warning title=preflight cleanup::exit $code - continuing; survivors are named in the annotation and will be retried by a later cleanup" }
+          exit 0
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
