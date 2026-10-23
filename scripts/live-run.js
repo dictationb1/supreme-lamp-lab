@@ -49,6 +49,20 @@ const serverIdentity = require('./lib/server-identity');
 
 const EXIT = { OK: 0, USAGE: 64, NOT_WINDOWS: 69, BLOCKED: 4, NO_EVIDENCE: 5, UNCONFIRMED: 7, EXPIRED: 8, BUSY: 9 };
 /** The operator-facing pipeline. `stage` in every report is one of these. */
+// A job conclusion is not a verification verdict. MEASURED (run 39904246194):
+// a client job whose live step exited 4 BLOCKED was green at workflow level and
+// this fallback relabelled the origin's record to REPORTED_VERIFIED.
+const ACK_JOB_RESULT_STATES = {
+  success: 'BLOCKED',
+  failure: 'FAILED',
+  cancelled: 'BLOCKED',
+  timed_out: 'BLOCKED',
+  skipped: 'BLOCKED'
+};
+function ackStateForJobResult(jobResult) {
+  return ACK_JOB_RESULT_STATES[String(jobResult || 'unknown').toLowerCase()] || 'BLOCKED';
+}
+
 const STAGES = ['STARTING', 'AWAITING_READINESS', 'CLAIMED', 'CONNECTING_VM', 'AUTHENTICATED', 'TESTING', 'REPORTING', 'COMPLETED', 'BLOCKED', 'FAILED', 'EXPIRED'];
 
 const log = (...a) => console.log(`[live ${new Date().toISOString().slice(11, 23)}]`, ...a.map(x => typeof x === 'string' ? x : JSON.stringify(x).slice(0, 400)));
@@ -110,6 +124,8 @@ function parseArgs(argv) {
     else if (k === '--out-dir') a.outDir = v();
     else if (k === '--ack-poll-ms') a.ackPollMs = Number(v());
     else if (k === '--job-result') a.jobResult = v();
+    else if (k === '--reset-to') a.resetTo = v();
+    else if (k === '--reason') a.reason = v();
     else if (k === '--lab-revision') a.labRevision = v();
     else if (k === '--dispatch-out') a.dispatchOut = v();
     else if (k === '--envelope-artifact-repo') a.envelopeArtifactRepo = v();
@@ -718,11 +734,24 @@ async function cmdLive(a) {
   }
 
   function setFinal(stageName, code, detail) {
-    report.verdict = { status: code === 'BLOCKED' || /BLOCK/.test(String(code)) ? STATUS.BLOCKED : STATUS.FAIL, accepted: false, code, detail: String(detail).slice(0, 500) };
+    // A code that names a BLOCKER is a prerequisite, and the record must say so:
+    // MEASURED (run 39904246194) - BLOCKED_ORIGIN_RUN_LOOKUP_FAILED was written
+    // back as plain FAILED, and the job-level ack then "upgraded" it to
+    // REPORTED_VERIFIED because the step exits 0 for blockers. Both are
+    // relabelling defects. Now the in-process report owns the state, and a run
+    // that verified nothing is always retryable.
+    const blocked = /BLOCK/.test(String(code)) || stageName === 'BLOCKED';
+    report.verdict = { status: blocked ? STATUS.BLOCKED : STATUS.FAIL, accepted: false, code, detail: String(detail).slice(0, 500) };
     report.stage = stageName;
     try { fs.writeFileSync(path.join(out, 'live-run-report.json'), JSON.stringify(report, null, 2), { mode: 0o600 }); } catch (e) { }
     if (descriptor) {
-      store.updateRecordState({ repo: a.labRepo, descriptor, state: stageName === 'BLOCKED' ? 'BLOCKED' : 'FAILED', by: `lab:${report.lab.runId}`, detail: `${code}: ${String(detail).slice(0, 200)}` }).catch(() => { });
+      store.updateRecordState({
+        repo: a.labRepo, descriptor,
+        state: blocked ? 'BLOCKED' : 'FAILED',
+        by: `lab:${report.lab.runId}`,
+        detail: `${code}: ${String(detail).slice(0, 200)}`,
+        extra: { retryable: true, retryableReason: 'this lab attempt produced no verified acceptance; the origin may be served again while it is live' }
+      }).catch(() => { });
     }
     return report;
   }
@@ -774,22 +803,41 @@ async function cmdAckState(a) {
   const descriptor = { originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt, correlationId: a.correlationId };
   if (!descriptor.originRepo || !descriptor.originRunId) return printExit(EXIT.USAGE, { code: 'ACK_TARGET_MISSING' });
   const jobResult = String(a.jobResult || 'unknown').toLowerCase();
-  const map = {
-    success: 'REPORTED_VERIFIED',
-    failure: 'FAILED',
-    cancelled: 'BLOCKED',
-    timed_out: 'BLOCKED',
-    skipped: 'BLOCKED'
-  };
-  // `success` here means only "the verify job exited cleanly", which live-run
-  // already uses for BLOCKED outcomes too — so we never overwrite a report the
-  // verify job itself wrote; we only fill a gap it left.
+  // The job-level write-back can only ever report what the JOB did. It is not a
+  // verification and must never mint REPORTED_VERIFIED: MEASURED (run
+  // 39904246194) a client job that exited 4 BLOCKED at AWAITING_READINESS was
+  // green at workflow level, and this fallback relabelled the origin's record
+  // from FAILED to REPORTED_VERIFIED - a claim nothing had verified.
+  const map = ACK_JOB_RESULT_STATES;
+  // The in-process report is authoritative. It writes BLOCKED / FAILED /
+  // REPORTED_VERIFIED itself, so any terminal state stands this fallback down
+  // (it fills a gap, it never overrides).
   const existing = await store.readRecord({ repo: a.labRepo, ...descriptor }).catch(() => null);
-  if (existing && existing.record && String(existing.record.state).startsWith('REPORTED_')) {
-    return printExit(EXIT.OK, { code: 'ACK_ALREADY_REPORTED', state: existing.record.state, detail: 'the verify job already wrote the authoritative report; the job-level write-back stands down' });
+  const cur = existing && existing.record ? String(existing.record.state || '') : '';
+  // Operator correction lane. A record can be wrong about the LAB's own
+  // outcome (MEASURED: run 39904246194 wrote REPORTED_VERIFIED for an origin
+  // that was never verified). Correcting it must be a sanctioned, history-
+  // preserving write with a mandatory reason - never a hand edit of the file.
+  if (a.resetTo) {
+    const allowed = ['BLOCKED', 'FAILED'];
+    if (!allowed.includes(a.resetTo)) return printExit(EXIT.USAGE, { code: 'ACK_RESET_STATE_INVALID', detail: `--reset-to accepts ${allowed.join('|')}` });
+    if (!a.reason) return printExit(EXIT.USAGE, { code: 'ACK_RESET_REASON_REQUIRED', detail: 'a correction must say why' });
+    const res = await store.updateRecordState({
+      repo: a.labRepo, descriptor, state: a.resetTo,
+      by: `operator@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`,
+      detail: `operator correction of ${cur || 'unknown'}: ${String(a.reason).slice(0, 300)}`,
+      extra: { retryable: true, retryableReason: String(a.reason).slice(0, 300) }
+    });
+    return printExit(EXIT.OK, { code: 'ACK_RESET_WRITTEN', from: cur, state: a.resetTo, updated: Boolean(res && res.updated) });
   }
-  const state = map[jobResult] || 'BLOCKED';
-  const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
+  if (['BLOCKED', 'FAILED', 'EXPIRED'].includes(cur) || cur.startsWith('REPORTED_')) {
+    return printExit(cur === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, {
+      code: 'ACK_ALREADY_REPORTED', state: cur,
+      detail: 'the verify job already wrote the authoritative outcome; the job-level write-back stands down'
+    });
+  }
+  const state = ackStateForJobResult(jobResult);
+  const detail = `job-level write-back: verify job result=${jobResult} and NO in-process report exists (${state === 'BLOCKED' ? 'nothing was verified; a green job here only means the step exited 0 for a prerequisite blocker' : 'the verify job exited without an in-process report'})`;
   // A LAB-side failure that produced no in-process report must not poison the
   // queue entry for an origin whose server is still alive: nothing was verified.
   // MEASURED: run 39900345165 died in preflight cleanup, this write-back marked
@@ -804,7 +852,7 @@ async function cmdAckState(a) {
     detail,
     extra: retryable ? { retryable: true, retryableReason: 'no in-process report was produced by the lab attempt; the origin run was not verified' } : {}
   });
-  return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
+  return printExit(EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
 }
 
 // ---------------------------------------------------------------------------
@@ -1543,4 +1591,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };
+module.exports = { EXIT, STAGES, ACK_JOB_RESULT_STATES, ackStateForJobResult, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };

@@ -706,6 +706,33 @@ jobs:
           Write-Host '::notice title=deps::npm ci + chromium ready'
           exit 0
 
+      - name: Origin signal probe (no credential, no browser, no VM takeover)
+        run: |
+          # MEASURED (run 39904246194): the live step stopped at
+          # BLOCKED_ORIGIN_RUN_LOOKUP_FAILED and the reason lived only inside an
+          # artifact the operator could not download. This probe runs the SAME
+          # discovery in this job and prints the refusal code, its detail and the
+          # HTTP status into the step summary, so a blocked origin is diagnosed
+          # from the run page. It never prints key material or a credential.
+          $ErrorActionPreference = 'Continue'
+          $dir = $env:ARTIFACT_DIR
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $outPath = Join-Path $dir 'signal-status.txt'
+          $errPath = Join-Path $dir 'signal-status.stderr.txt'
+          & node scripts/live-run.js signal-status --origin-repo $env:ORIGIN_REPO --origin-run $env:ORIGIN_RUN --origin-attempt $env:ORIGIN_ATTEMPT 1> $outPath 2> $errPath
+          $code = $LASTEXITCODE
+          $body = if (Test-Path -LiteralPath $outPath) { Get-Content -LiteralPath $outPath -Raw } else { '(no output)' }
+          $errBody = if (Test-Path -LiteralPath $errPath) { Get-Content -LiteralPath $errPath -Raw } else { '' }
+          Write-Host $body
+          if ($errBody.Trim()) { Write-Host '--- signal-status stderr ---'; Write-Host $errBody }
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $md = @('### Origin signal probe (exit ' + $code + ')', '```', $body, '```')
+            if ($errBody.Trim()) { $md += @('stderr:', '```', $errBody, '```') }
+            $md | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          if ($code -ne 0) { Write-Host ("::warning title=signal probe::exit " + $code + " - the credential path is not healthy for " + $env:ORIGIN_REPO + "#" + $env:ORIGIN_RUN + "/" + $env:ORIGIN_ATTEMPT + "; the verification below will report the exact refusal") }
+          exit 0
+
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
         shell: powershell
@@ -750,7 +777,28 @@ jobs:
           & node @argv
           $code = $LASTEXITCODE
           "exit_code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
+          # The verdict must be readable from the run page, not only from an
+          # artifact: MEASURED (run 39904246194) a BLOCKED result surfaced as a
+          # bare "exit 4 at AWAITING_READINESS" with the cause in a downloadable
+          # file that this environment cannot fetch.
+          $rep = Join-Path $env:ARTIFACT_DIR 'live-run-report.json'
+          if (Test-Path -LiteralPath $rep) {
+            try {
+              $j = Get-Content -LiteralPath $rep -Raw | ConvertFrom-Json
+              $v = $j.verdict
+              $m = 'stage=' + $j.stage + ' verdict=' + $v.code + ' accepted=' + $v.accepted
+              if ($v.detail) { $m = $m + ' detail=' + $v.detail }
+              if ($m.Length -gt 900) { $m = $m.Substring(0, 900) }
+              if ($v.accepted) { Write-Host ("::notice title=live-run verdict::" + $m) } else { Write-Host ("::error title=live-run verdict::" + $m) }
+              if ($env:GITHUB_STEP_SUMMARY) { @('### Live verdict', $m) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8 }
+            } catch { Write-Host '::warning title=live-run verdict::live-run-report.json is not parseable' }
+          } else {
+            Write-Host ('::error title=live-run verdict::no report was written (exit ' + $code + '); nothing is reported as verified')
+          }
+          # A green step means VERIFIED, and nothing else. A prerequisite blocker
+          # (exit 4) therefore fails this step; the record it wrote says BLOCKED
+          # and stays retryable, which is how the queue keeps the origin serveable.
+          if ($code -eq 0) { exit 0 }
           exit 1
 
       - name: Keep the authorized viewer open (bounded, default useful)

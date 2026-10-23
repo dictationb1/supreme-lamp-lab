@@ -72,6 +72,27 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
   });
 
 
+
+  await test('ack: a job conclusion is never a verification verdict (the 39904246194 relabel)', async () => {
+    const lr = require('../live-run');
+    assert.strictEqual(lr.ackStateForJobResult('success'), 'BLOCKED', 'a green job without an in-process report claims nothing');
+    assert.strictEqual(lr.ackStateForJobResult('failure'), 'FAILED');
+    assert.strictEqual(lr.ackStateForJobResult('cancelled'), 'BLOCKED');
+    assert.strictEqual(lr.ackStateForJobResult('skipped'), 'BLOCKED');
+    assert.strictEqual(lr.ackStateForJobResult('nonsense'), 'BLOCKED');
+    for (const v of Object.values(lr.ACK_JOB_RESULT_STATES)) assert.notStrictEqual(v, 'REPORTED_VERIFIED');
+  });
+
+  await test('workflow: the client job prints its verdict and its origin probe on the run page', async () => {
+    const { readNormalized } = require('../lib/workflow-text');
+    const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
+    const verifyJob = wf.slice(wf.indexOf('  verify:'), wf.indexOf('  report:'));
+    assert.match(verifyJob, /signal-status --origin-repo/, 'the origin lookup is probed in this job');
+    assert.match(verifyJob, /live-run-report\.json/, 'the verdict is read from the report');
+    assert.match(verifyJob, /::error title=live-run verdict::/, 'a non-accepted verdict is annotated, not hidden');
+    assert.match(verifyJob, /if \(\$code -eq 0\) \{ exit 0 \}/, 'only a VERIFIED exit is a green step');
+  });
+
   await test('queue: a lab attempt that died without an in-process report leaves the origin retryable', async () => {
     const row = { ...ROW(), state: 'FAILED', retryable: true };
     const res = await pick.pickFromRows([row], ARGS, {
