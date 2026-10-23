@@ -20,12 +20,18 @@
     "mode": "live-origin",
     "descriptorId": "57d7f4e4713525b8"
   },
-  "state": "AWAITING_LAB_ACCEPTANCE",
+  "state": "CLAIMED_BY_LAB",
   "history": [
     {
       "at": "2026-10-23T21:19:17.646Z",
       "state": "AWAITING_LAB_ACCEPTANCE",
       "by": "origin"
+    },
+    {
+      "at": "2026-10-23T21:20:30.854Z",
+      "state": "CLAIMED_BY_LAB",
+      "by": "lab:40025875096",
+      "detail": "CLAIMED"
     }
   ],
   "envelopeTransport": {
@@ -37,5 +43,6 @@
   },
   "branch": {
     "exists": true
-  }
+  },
+  "updatedAt": "2026-10-23T21:20:30.854Z"
 }
