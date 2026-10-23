@@ -36,6 +36,11 @@ on:
         required: false
         default: 'e432d3df4cf00a8528d574f8410f6a76e590db31'
         type: string
+      runner:
+        description: 'vm = the interactive client VM (headed); anything else = hosted Windows (headless Chromium)'
+        required: false
+        default: 'hosted'
+        type: string
 
 concurrency:
   group: app-candidate
@@ -51,10 +56,15 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.label.name == 'candidate-run')
-    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    # The interactive VM is preferred (headed browser, real desktop) but it is a
+    # SINGLE resource that live-run also needs. A label-triggered run therefore
+    # defaults to a hosted Windows runner with headless Chromium; ask for the VM
+    # explicitly with workflow_dispatch runner=vm when the desktop is free.
+    runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'vm') && 'rdp-lab-client' || 'windows-latest' }}
     timeout-minutes: 40
     env:
       APP_SHA: ${{ inputs.app_sha || 'e432d3df4cf00a8528d574f8410f6a76e590db31' }}
+      CANDIDATE_HEADLESS: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'vm') && '0' || '1' }}
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
     defaults:
       run:
@@ -72,24 +82,39 @@ jobs:
 
       - name: Fetch the pinned application base and apply the patch series
         run: |
-          $ErrorActionPreference = 'Stop'
-          $work = Join-Path $env:RUNNER_TEMP "cand-$env:GITHUB_RUN_ID"
-          New-Item -ItemType Directory -Force -Path $work | Out-Null
-          $zip = Join-Path $work 'app.zip'
-          curl.exe -fsSL -o $zip "https://codeload.github.com/dictationb1/supreme-lamp/zip/$env:APP_SHA"
-          if ($LASTEXITCODE -ne 0) { throw 'codeload download failed' }
-          $zipSha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "::notice title=app base::sha=$env:APP_SHA zipSha256=$zipSha"
-          Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
-          $app = Join-Path $work "supreme-lamp-$env:APP_SHA"
-          if (-not (Test-Path $app)) { throw "unexpected archive layout under $work" }
-          Write-Host "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          foreach ($p in (Get-ChildItem -Path 'reports/mission-control/40022345749-1/app-patches' -Filter '*.patch' | Sort-Object Name)) {
-            Write-Host "::notice title=patch::applying $($p.Name)"
-            & git -C $app apply --whitespace=nowarn $p.FullName
-            if ($LASTEXITCODE -ne 0) { throw "patch failed: $($p.Name)" }
+          # MEASURED (runs 40028113866, 40029843796): this step exited 1 with no
+          # annotation, so the reason was unrecoverable from api.github.com (step
+          # logs redirect to a host an automation environment cannot reach). Every
+          # substep now announces itself and the handler names the failing command.
+          $ErrorActionPreference = 'Continue'
+          try {
+            $work = Join-Path $env:RUNNER_TEMP "cand-$env:GITHUB_RUN_ID"
+            New-Item -ItemType Directory -Force -Path $work | Out-Null
+            $zip = Join-Path $work 'app.zip'
+            Write-Host "::notice title=fetch::downloading $env:APP_SHA"
+            curl.exe -fsSL -o $zip "https://codeload.github.com/dictationb1/supreme-lamp/zip/$env:APP_SHA"
+            if ($LASTEXITCODE -ne 0) { throw "codeload download failed (curl exit $LASTEXITCODE)" }
+            $zipSha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host "::notice title=app base::sha=$env:APP_SHA zipSha256=$zipSha"
+            Write-Host "::notice title=fetch::expanding archive"
+            Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
+            $app = Get-ChildItem -Path $work -Directory | Where-Object { $_.Name -like 'supreme-lamp-*' } | Select-Object -First 1
+            if (-not $app) { throw "no 'supreme-lamp-*' directory under $work" }
+            Write-Host "APP_DIR=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            $patches = Get-ChildItem -Path 'reports/mission-control/40022345749-1/app-patches' -Filter '*.patch' | Sort-Object Name
+            Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
+            foreach ($p in $patches) {
+              Write-Host "::notice title=patch::applying $($p.Name)"
+              & git -C $app.FullName apply --whitespace=nowarn $p.FullName
+              if ($LASTEXITCODE -ne 0) { throw "git apply failed for $($p.Name) (exit $LASTEXITCODE)" }
+            }
+            & git -C $app.FullName status --short | Out-String | Write-Host
+            Write-Host "::notice title=patch::series applied to $($app.FullName)"
+            exit 0
+          } catch {
+            Write-Host ("::error title=fetch/patch::" + ($_.Exception.Message -replace '[\r\n]+', ' '))
+            exit 1
           }
-          & git -C $app status --short | Out-String | Write-Host
 
       - name: Install + unit-test the patched tree (the app's own suite)
         run: |

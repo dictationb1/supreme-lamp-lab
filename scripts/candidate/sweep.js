@@ -76,7 +76,11 @@ async function text(page, testid) {
 
 async function main() {
   fs.mkdirSync(shotsDir, { recursive: true });
-  const browser = await chromium.launch({ headless: false, args: ['--no-first-run', '--no-default-browser-check'] });
+  // The interactive VM runs headed (a human can watch); a hosted runner has no
+  // desktop, so it runs the SAME sweep headless. Which one is recorded, because
+  // "headed on the real desktop" and "headless in CI" are different evidence.
+  const headless = process.env.CANDIDATE_HEADLESS === '1';
+  const browser = await chromium.launch({ headless, args: ['--no-first-run', '--no-default-browser-check'] });
   const consoleErrors = [];
   const failedRequests = [];
 
@@ -298,6 +302,12 @@ async function main() {
     backend: 'lab-candidate-stub (synthetic; NOT the application server)',
     modes,
     host: process.env.COMPUTERNAME || '',
+    execution: {
+      headless,
+      runner: process.env.RUNNER_NAME || '',
+      runnerEnvironment: process.env.RUNNER_ENVIRONMENT || '',
+      session: process.env.SESSIONNAME || ''
+    },
     counts,
     consoleErrors: consoleErrors.slice(0, 50),
     failedRequests: failedRequests.slice(0, 50),
