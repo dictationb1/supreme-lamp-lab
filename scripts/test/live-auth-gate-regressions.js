@@ -100,6 +100,16 @@ module.exports = async function register({ test, assert, fs, path }) {
 
 
 
+
+  await test('live: no call site references a helper that does not exist', async () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'live-run.js'), 'utf8');
+    assert.doesNotMatch(src, /summarizeToCapabilities\s*\(/, 'the dead helper must have no call site');
+    // Every bare identifier called as foo( that is not defined locally/required
+    // is out of scope for a regex; this pins the one that broke REPORTING.
+    const mod = require('../live-run');
+    assert.strictEqual(typeof mod.cmdLive, 'function');
+  });
+
   await test('auth: the refresh-aware route separates "stale credential" from "stale ticket route"', async () => {
     const token = 'run-token-current-0123456789';
     let mode = 'current';

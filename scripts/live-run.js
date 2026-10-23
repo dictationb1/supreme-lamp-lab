@@ -743,7 +743,13 @@ async function cmdLive(a) {
     }
     const summary = summarizeInventory(inventory, results);
     report.features = summary;
-    report.capabilities = summarizeToCapabilities(summary);
+    // MEASURED (run 39912544252): this line called a function that does not
+    // exist (`summarizeToCapabilities`). It never fired before because no real
+    // run had ever reached the feature pass; the moment one did, the whole
+    // verification died at REPORTING with a ReferenceError. Capabilities are
+    // derived once, in writeLiveEvidence(), from the same evidence - never from a
+    // second, unmaintained mapping.
+    delete report.capabilities;
     timings.featuresMs = Date.now() - t0;
     report.timestamps.testingFinishedAt = new Date().toISOString();
 
