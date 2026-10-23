@@ -8,5 +8,7 @@
   },
   "correlationId": "lr-39952421153-1",
   "releaseHint": "claim is released by its owner or when the claimant lab run reaches a terminal state",
-  "nonce": "60abf1a0ed7dc7ae"
+  "nonce": "60abf1a0ed7dc7ae",
+  "supersededAt": "2026-10-23T13:06:38.451Z",
+  "supersededReason": "claimant run 39957424394 is completed/success"
 }
