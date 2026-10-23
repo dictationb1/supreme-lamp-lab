@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "BLOCKED",
+  "state": "CLAIMED_BY_LAB",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
@@ -242,6 +242,12 @@
       "state": "BLOCKED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=cancelled and NO in-process report exists (nothing was verified; a green job here only means the step exited 0 for a prerequisite blocker)"
+    },
+    {
+      "at": "2026-10-23T09:14:42.497Z",
+      "state": "CLAIMED_BY_LAB",
+      "by": "lab:39929404780",
+      "detail": "SUPERSEDED_DEAD_CLAIMANT"
     }
   ],
   "envelopeTransport": {
@@ -255,7 +261,7 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T08:36:31.932Z",
+  "updatedAt": "2026-10-23T09:14:42.497Z",
   "retryable": true,
   "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified",
   "report": {
