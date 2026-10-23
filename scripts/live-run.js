@@ -582,7 +582,14 @@ async function cmdLive(a) {
     };
     if (!proof.ok) {
       const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
-      return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      // The coarse code alone cannot distinguish 'the server refused OUR token'
+      // from 'the gate was never enforced' or 'the request never left'. The
+      // artifact is not reachable from every environment, so the three gate
+      // observations go into the annotation itself (statuses only, no token).
+      const g = proof.results || {};
+      const gates = `noBearer=${(g.noBearer || {}).status}/${(g.noBearer || {}).transport} wrongBearer=${(g.wrongBearer || {}).status}/${(g.wrongBearer || {}).transport} ourBearer=${(g.ourBearer || {}).status}/${(g.ourBearer || {}).transport}${(g.ourBearer || {}).hasRid ? '+rid' : ''} ttl=${(g.ourBearer || {}).ttl || '-'} configGate=${(g.config || {}).gate || '-'} configStatuses=${JSON.stringify((g.config || {}).statuses || [])}`;
+      annotate.error('authorization', `${proof.code}: ${redact(String(proof.detail || '')).slice(0, 240)} | ${gates}`);
+      return done(EXIT.BLOCKED, setFinal('BLOCKED', code, `${proof.code}: ${proof.detail} | ${gates}`));
     }
     timings.authMs = Date.now() - t0;
     report.timestamps.authenticatedAt = new Date().toISOString();
