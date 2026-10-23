@@ -101,6 +101,38 @@ module.exports = async function register({ test, assert, fs, path }) {
 
 
 
+
+  await test('live: an unstamped /api/version is BLOCKED (not a false "different instance")', async () => {
+    const feat = require('../lib/live-features');
+    const http2 = require('http');
+    const srv = http2.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ sha: 'dev', sha7: 'dev' }));
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    try {
+      const r = await feat.evalProvenance({ target: `http://127.0.0.1:${srv.address().port}`, descriptor: { appSha: 'c470531e4739be072daea20425a1de203d0ed326', uiBuild: 'ui-x' } });
+      assert.strictEqual(r.status, 'BLOCKED', JSON.stringify(r));
+      assert.match(r.reason, /VERSION_STAMP_ABSENT/);
+      assert.ok(!/different instance/.test(r.reason), 'an unstamped endpoint is not proof of another instance');
+    } finally { srv.close(); }
+  });
+
+  await test('live: a genuine different sha stays a FAIL', async () => {
+    const feat = require('../lib/live-features');
+    const http2 = require('http');
+    const srv = http2.createServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ sha: 'a'.repeat(40) }));
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    try {
+      const r = await feat.evalProvenance({ target: `http://127.0.0.1:${srv.address().port}`, descriptor: { appSha: 'c470531e4739be072daea20425a1de203d0ed326' } });
+      assert.strictEqual(r.status, 'FAIL');
+      assert.match(r.reason, /BACKEND_SHA_MISMATCH/);
+    } finally { srv.close(); }
+  });
+
   await test('live: no call site references a helper that does not exist', async () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'live-run.js'), 'utf8');
     assert.doesNotMatch(src, /summarizeToCapabilities\s*\(/, 'the dead helper must have no call site');

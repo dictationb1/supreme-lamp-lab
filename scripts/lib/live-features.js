@@ -71,6 +71,16 @@ async function evalProvenance({ target, descriptor, page, markers }) {
   if (v.transport !== 'ok' || v.status !== 200) return blocked(`VERSION_UNREACHABLE: ${v.transport === 'ok' ? 'HTTP ' + v.status : v.errorChain}`);
   const sha = String((v.json && v.json.sha) || '').toLowerCase();
   const evidence = { backendSha: sha, expectedAppSha: descriptor.appSha, uiBuild: null, uiBuildExpected: descriptor.uiBuild || null };
+  // MEASURED (run 39913711978): this live backend answers /api/version with
+  // sha="dev" while /api/config reports the originating buildSha (the attestation
+  // step matched it). "dev" is not a different instance - it is an UNSTAMPED
+  // version endpoint, so the UI build cannot be tied to the run at all. That is a
+  // prerequisite the application does not satisfy (BLOCKED with a name), never a
+  // FAIL that claims the wrong backend, and never a PASS.
+  const stamped = /^[0-9a-f]{7,40}$/.test(sha);
+  if (!stamped) {
+    return blocked(`VERSION_STAMP_ABSENT: /api/version reports ${sha ? JSON.stringify(sha) : 'no sha'}, so the UI build cannot be tied to the originating run; /api/config buildSha did match ${String(descriptor.appSha).slice(0, 12)} (see the attestation step)`, evidence);
+  }
   if (sha !== descriptor.appSha) return bad(`BACKEND_SHA_MISMATCH: this backend is ${sha || 'unknown'}, the originating run's head is ${descriptor.appSha} — a different instance`, evidence);
   if (page) {
     const ui = await markers.buildStamp(page);

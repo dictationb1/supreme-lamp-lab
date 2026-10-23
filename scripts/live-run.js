@@ -779,12 +779,39 @@ async function cmdLive(a) {
       ? 'SCOPE: the live backend is the real application code at the recorded app SHA, but the ORIGIN is this lab repository\'s own run (the CI self-validation harness), not a run of ' + 'the application repository. This proves the integration mechanism end to end; it does not by itself prove the application workflow dispatches it.'
       : `SCOPE: full live integration against ${descriptor.originRepo} run ${descriptor.originRunId} attempt ${descriptor.originAttempt}.`;
     report.scope = modeNote;
+    // A verdict names the OUTCOME, not just the first symptom: the earlier shape
+    // (code = first vetoing feature id) made `stage= verdict=auth.dash_token_gate`
+    // read like a crash instead of "14 mandatory features, 3 PASS, 11 vetoing".
     report.verdict = accepted
       ? { status: STATUS.PASS, accepted: true, code: 'VERIFIED', scope: modeNote }
-      : { status: report.features.vetoing.length ? STATUS.FAIL : STATUS.BLOCKED, accepted: false, code: accepted ? 'VERIFIED' : (report.features.vetoing[0] || 'NOT_VERIFIED'), vetoing: report.features.vetoing, scope: modeNote };
+      : {
+        status: report.features.vetoing.length ? STATUS.FAIL : STATUS.BLOCKED,
+        accepted: false,
+        code: report.features.vetoing.length ? 'FEATURES_VETOED' : 'NOT_VERIFIED',
+        primaryVeto: report.features.vetoing[0] || null,
+        counts: report.features.counts,
+        vetoing: report.features.vetoing,
+        scope: modeNote
+      };
     report.timings = { totalMs: Date.now() - t0, ...pick(timings, ['authMs', 'featuresMs', 'desktopLockMs']) };
     report.artifacts = { outDir: out, files: listEvidence(out).map(f => ({ path: f.split(/[\\/]/).pop(), bytes: fs.statSync(f).size })) };
 
+    // Every non-PASS mandatory feature, one annotation each: the sanitized JSON
+    // report and the screenshots are artifacts, and artifacts are not reachable
+    // from every automation environment, so the REASONS must also live on the
+    // run page. Reasons are already redacted by annotate.
+    const mandatoryIds = new Set((Array.isArray(inventory) ? inventory : []).filter(f => f.mandatory !== false).map(f => f.id));
+    for (const [id, r] of Object.entries(results)) {
+      if (!r || r.status === STATUS.PASS) continue;
+      const title = `feature ${id}`;
+      const msg = `${r.status}${mandatoryIds.has(id) ? '' : ' (optional)'}: ${String(r.reason || r.code || '').slice(0, 600)}`;
+      if (r.status === STATUS.FAIL) annotate.error(title, msg); else annotate.warning(title, msg);
+    }
+    const routeRows = results['nav.routes_reachable'] && results['nav.routes_reachable'].evidence && results['nav.routes_reachable'].evidence.routes;
+    if (Array.isArray(routeRows)) {
+      const badRoutes = routeRows.filter(x => x.status !== 'rendered');
+      if (badRoutes.length) annotate.warning('ui routes', badRoutes.map(x => `${x.route}=${x.status}${x.newErrors ? `(errors=${x.newErrors})` : ''}`).join(', '));
+    }
     writeLiveEvidence(out, report);
     const repPath = a.reportPath || path.join(out, 'live-run-report.json');
     fs.writeFileSync(repPath, JSON.stringify(report, null, 2), { mode: 0o600 });
