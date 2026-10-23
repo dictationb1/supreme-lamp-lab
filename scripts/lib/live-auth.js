@@ -222,13 +222,32 @@ function secretFieldsOf(resp) {
  * turns "401" into either "the server expects a different token" or "the
  * token is right and something else refused us" - without printing either.
  */
+/**
+ * Locate the server's token-comparison ring inside /api/diag/comprehensive. The
+ * bundle nests it under different keys between builds, so it is found
+ * structurally (an array whose entries carry expectedHash/presentedHash) rather
+ * than by a name that a build can change.
+ */
+function findTokenRing(node, depth = 0) {
+  if (!node || depth > 6) return null;
+  if (Array.isArray(node)) {
+    if (node.some(x => x && typeof x === 'object' && ('expectedHash' in x || 'presentedHash' in x))) return node;
+    for (const v of node) { const r = findTokenRing(v, depth + 1); if (r) return r; }
+    return null;
+  }
+  if (typeof node === 'object') {
+    for (const v of Object.values(node)) { const r = findTokenRing(v, depth + 1); if (r) return r; }
+  }
+  return null;
+}
+
 async function diagTokenEvidence(target, presentedToken) {
   const r = await request(`${target}/api/diag/comprehensive`, { timeoutMs: 20000 });
   if (r.transport !== 'ok' || !r.ok || !r.json) return { ok: false, status: r.status, transport: r.transport };
-  const ring = Array.isArray(r.json.dashTokenTelemetry) ? r.json.dashTokenTelemetry : [];
+  const ring = findTokenRing(r.json) || [];
   const forRoute = ring.filter(t => String((t && t.route) || '') === '/api/rdp-token');
   const last = forRoute.length ? forRoute[forRoute.length - 1] : (ring.length ? ring[ring.length - 1] : null);
-  if (!last) return { ok: true, entries: ring.length, matched: null };
+  if (!last) return { ok: true, status: r.status, entries: ring.length, matched: null };
   const mine = crypto.createHash('sha256').update(String(presentedToken || ''), 'utf8').digest('hex').slice(0, 8);
   return {
     ok: true,
@@ -471,7 +490,7 @@ function clientTailnetIp() {
 
 module.exports = {
   DASH_TOKEN_STORAGE_KEY, registerSecret, isCgnat, resolveTransport, fetchEnvelope, proveAuthorization,
-  secretFieldsOf, classifyConfigGate, diagTokenEvidence,
+  secretFieldsOf, classifyConfigGate, diagTokenEvidence, findTokenRing,
   storageInitScript, clearBrowserToken, resolveProtocolHandler,
   productionRdpUrl, mintTraceId, launchProductionHandler, clientTailnetIp, fp
 };

@@ -22,6 +22,9 @@
 // ===========================================================================
 
 module.exports = async function register({ test, assert }) {
+  const http = require('http');
+  const crypto = require('crypto');
+  const shortHash = v => crypto.createHash('sha256').update(String(v), 'utf8').digest('hex').slice(0, 8);
   const auth = require('../lib/live-auth');
 
   const CONFIG_NO_SECRETS = {
@@ -58,6 +61,41 @@ module.exports = async function register({ test, assert }) {
     assert.strictEqual(auth.classifyConfigGate({ anonymous: [], wrongKey: [], ourKey: ['creds.windowsPass'], tailnetSource: false }), 'enforced');
     assert.strictEqual(auth.classifyConfigGate({ anonymous: [], wrongKey: [], ourKey: [], tailnetSource: false }), 'unsupported');
     assert.strictEqual(auth.classifyConfigGate({}), 'unsupported');
+  });
+
+
+  await test('auth diag: the server\'s own telemetry says whether it expects the published token', async () => {
+    const ring = [
+      { route: '/api/rdp-token', presentedHash: 'aaaaaaaa', expectedHash: 'bbbbbbbb', valid: false, presentedLen: 3, expectedLen: 32 }
+    ];
+    const srv = http.createServer((req, res) => {
+      if (req.url.startsWith('/api/diag/comprehensive')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ bundleVersion: 'f99/1', runner: { token: { dashTokenTelemetry: ring } } }));
+      }
+      res.writeHead(404); res.end();
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const target = `http://127.0.0.1:${srv.address().port}`;
+    try {
+      const notEqual = await auth.diagTokenEvidence(target, 'published-token-value');
+      assert.strictEqual(notEqual.ok, true);
+      assert.strictEqual(notEqual.serverExpectedEqualsPublished, false, 'a different expected hash must read as false');
+      assert.strictEqual(notEqual.expectedLen, 32);
+      assert.strictEqual(notEqual.presentedLen, 3);
+
+      ring[0].expectedHash = shortHash('published-token-value');
+      ring[0].expectedLen = 'published-token-value'.length;
+      const equal = await auth.diagTokenEvidence(target, 'published-token-value');
+      assert.strictEqual(equal.serverExpectedEqualsPublished, true, 'the same token must read as true');
+      assert.ok(!JSON.stringify(equal).includes('published-token-value'), 'the evidence must never carry the token');
+    } finally { srv.close(); }
+  });
+
+  await test('auth diag: the telemetry ring is found structurally, not by a bundle key', async () => {
+    assert.deepStrictEqual(auth.findTokenRing({ a: { b: { dashTokenTelemetry: [{ expectedHash: 'x' }] } } }), [{ expectedHash: 'x' }]);
+    assert.strictEqual(auth.findTokenRing({ a: 1 }), null);
+    assert.strictEqual(auth.findTokenRing(null), null);
   });
 
   await test('auth gate: classification never needs a credential value', async () => {
