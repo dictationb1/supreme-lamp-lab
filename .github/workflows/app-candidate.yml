@@ -93,32 +93,51 @@ jobs:
 
       - name: Install + unit-test the patched tree (the app's own suite)
         run: |
-          $ErrorActionPreference = 'Stop'
+          # MEASURED DEFECT (lab run 40028113866, step 4): this step failed with
+          # exit 1 and NO annotation, because `$ErrorActionPreference = 'Stop'`
+          # turns a native tool's stderr (npm's own warnings) into a terminating
+          # error. The result is now recorded, never thrown, and every outcome is
+          # annotated - a failing suite must produce evidence, not a dead job.
+          $ErrorActionPreference = 'Continue'
+          $log = Join-Path $env:RUNNER_TEMP 'app-tests.log'
           Push-Location $env:APP_DIR
-          npm ci --no-audit --no-fund
-          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
-          # The suite is the app's own regression gate; a failure here means the
-          # patch changed behaviour the app relies on.
-          npx vitest run --reporter=dot 2>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'app-tests.log') | Select-Object -Last 12
-          $code = $LASTEXITCODE
-          "APP_TEST_EXIT=$code" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          npm ci --no-audit --no-fund *> $log
+          $ci = $LASTEXITCODE
+          $t = -1
+          if ($ci -eq 0) {
+            npx vitest run --reporter=dot *>> $log
+            $t = $LASTEXITCODE
+          }
+          Get-Content $log -Tail 20 | ForEach-Object { Write-Host $_ }
+          "APP_CI_EXIT=$ci" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APP_TEST_EXIT=$t" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($ci -ne 0) { Write-Host "::warning title=app npm ci::exit $ci (see app-tests.log in the published evidence)" }
+          if ($t -ne 0) { Write-Host "::warning title=app unit tests::exit $t (the suite did not pass on this host)" }
           Pop-Location
           exit 0
 
       - name: Build the single-file bundle (production build path)
         run: |
-          $ErrorActionPreference = 'Stop'
+          # Same rule as the test step: a native tool's stderr is not a PowerShell
+          # error, and a failed build keeps the job alive long enough to publish
+          # why it failed.
+          $ErrorActionPreference = 'Continue'
           Push-Location $env:APP_DIR
+          if ($env:APP_CI_EXIT -ne '0') { Write-Host "::warning title=build skipped::npm ci failed (exit $env:APP_CI_EXIT)"; Pop-Location; exit 0 }
           $env:VITE_BUILD_SHA = "cand-$($env:GITHUB_SHA.Substring(0,12))"
-          npx vite build
-          if ($LASTEXITCODE -ne 0) { throw 'vite build failed' }
+          $log = Join-Path $env:RUNNER_TEMP 'app-build.log'
+          npx vite build *> $log
+          $code = $LASTEXITCODE
+          Get-Content $log -Tail 15 | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) { Write-Host "::error title=vite build::exit $code"; Pop-Location; exit 0 }
           $bundle = Join-Path $env:APP_DIR 'ui\dist\index.html'
-          if (-not (Test-Path $bundle)) { throw 'ui/dist/index.html missing after build' }
+          if (-not (Test-Path $bundle)) { Write-Host '::error title=vite build::ui/dist/index.html missing'; Pop-Location; exit 0 }
           $bytes = (Get-Item $bundle).Length
           $sha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Host "::notice title=candidate bundle::$bytes bytes sha256=$sha build=cand-$($env:GITHUB_SHA.Substring(0,12))"
           "BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "BUNDLE_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Copy-Item $log (Join-Path $env:RUNNER_TEMP 'app-build.log') -Force
           Pop-Location
 
       - name: Install lab dependencies + Chromium (headed)
@@ -133,6 +152,12 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $out = Join-Path $env:RUNNER_TEMP "artifacts\candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'app-build.log') (Join-Path $out 'app-build.log') -ErrorAction SilentlyContinue
+          if (-not $env:BUNDLE -or -not (Test-Path $env:BUNDLE)) {
+            Write-Host '::error title=candidate sweep::no bundle to serve (build did not produce one)'
+            'no bundle: the build step did not produce ui/dist/index.html' | Out-File -FilePath (Join-Path $out 'NO-BUNDLE.txt') -Encoding utf8
+            exit 0
+          }
           foreach ($mode in @('refuse','empty','healthy')) {
             $modeOut = Join-Path $out $mode
             New-Item -ItemType Directory -Force -Path $modeOut | Out-Null
