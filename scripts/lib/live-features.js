@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { STATUS } = require('./status');
 const { request } = require('./http');
+const { observeTicketRoute, inspectTicket, credentialDisclosure, classifyConfigGate, clientTailnetIp } = require('./live-auth');
 const { redact } = require('./redact');
 const { evaluateReadiness } = require('./readiness');
 
@@ -32,15 +33,51 @@ async function evalAuthGate({ authProof, page, markers }) {
 }
 
 /** B. auth.no_stale_key_reuse — a forged/earlier key must fail everywhere. */
-async function evalStaleKey({ http, target, forgedToken }) {
-  const r1 = await request(`${target}/api/rdp-token`, { method: 'POST', timeoutMs: 15000, headers: { Authorization: `Bearer ${forgedToken}`, 'Content-Type': 'application/json' }, body: '{}' });
-  const r2 = await request(`${target}/api/config?key=${encodeURIComponent(forgedToken)}`, { timeoutMs: 15000 });
-  const gated = Boolean(r2.json && (r2.json.rdpCreds || r2.json.creds || r2.json.rawCreds || r2.json.maskedCreds));
-  const refusedTicket = r1.transport === 'ok' && (r1.status === 401 || r1.status === 403);
-  const evidence = { ticketStatus: r1.status ?? r1.transport, configStatus: r2.status ?? r2.transport, configLeakedCreds: gated };
-  if (refusedTicket && !gated) return ok('a token that is not this run\'s was refused by the ticket route and did not unlock the gated credentials', evidence);
-  if (!refusedTicket) return bad('STALE_KEY_ACCEPTED: the live server minted a ticket for a token it should not know', evidence);
-  return bad('STALE_KEY_LEAKED_CREDENTIALS: /api/config returned the gated credentials block for a wrong key', evidence);
+async function evalStaleKey({ target, forgedToken, clientIsTailnetPeer = null, timeoutMs = 15000 }) {
+  // SCOPE, stated honestly: this is a FORGED-token test. A random 32-hex token
+  // that was never valid cannot prove that a PREVIOUSLY VALID token was revoked
+  // or rotated - that is a different test (auth.rotated_token_revoked) which
+  // needs two consecutive application runs.
+  const r1 = await request(`${target}/api/rdp-token`, { method: 'POST', timeoutMs, headers: { Authorization: `Bearer ${forgedToken}`, 'Content-Type': 'application/json' }, body: '{}' });
+  const r2 = await request(`${target}/api/config?key=${encodeURIComponent(forgedToken)}`, { timeoutMs });
+  const o1 = observeTicketRoute(r1);
+  const d2 = credentialDisclosure(r2);
+  const issued = inspectTicket(r1);
+  let peer = clientIsTailnetPeer;
+  if (peer !== true && peer !== false) { try { peer = Boolean(clientTailnetIp().ok); } catch (e) { peer = false; } }
+  const gate = classifyConfigGate({ anonymous: { raw: [], masked: [], empty: [] }, wrongKey: d2, ourKey: { raw: [], masked: [], empty: [] }, sourceIsTailnet: peer });
+  const evidence = {
+    scope: 'forged-token refusal only; genuine rotation/revocation is auth.rotated_token_revoked and was NOT tested here',
+    ticketRoute: { status: o1.status, transport: o1.transport, layer: o1.layer, reasonCode: o1.reasonCode, ticketFormatOk: issued.formatOk },
+    configRoute: { status: d2.status, transport: d2.transport, gate, rawFields: d2.raw, maskedFields: d2.masked, emptyFields: d2.empty },
+    sourceIsTailnetPeer: peer,
+    rotationTested: false
+  };
+  if (r1.transport !== 'ok') return blocked(`FORGED_TOKEN_TRANSPORT_INCOMPLETE: POST /api/rdp-token never answered (${r1.transport}); a timeout is not a refusal`, evidence);
+  if (r1.status === 200 && issued.formatOk) return bad('FORGED_TOKEN_ACCEPTED: the live server minted a ticket for a random token it should not know', evidence);
+  if (r1.status === 403) return bad('FORGED_TOKEN_PASSED_BEARER_GATE: the route validated a random bearer and only then refused the source, so the bearer comparison is not discriminating', evidence);
+  if (r1.status !== 401) return blocked(`FORGED_TOKEN_UNEXPECTED_STATUS: POST /api/rdp-token answered ${r1.status}, not one of the four documented outcomes`, evidence);
+  // the bearer gate refused the forged token; now the INDEPENDENT config gate
+  if (gate === 'leaked') return bad(`CREDENTIAL_DISCLOSED_TO_FORGED_KEY: /api/config served raw password field(s) (${d2.raw.join(', ')}) to a forged key from a source that is NOT a tailnet peer`, evidence);
+  if (gate === 'tailnet-source-trust') {
+    return ok(`a forged token was refused by the strict ticket route (401). The /api/config password block could NOT be isolated from this client: the build also authorizes any tailnet source without a key (APP-POLICY-01), so that one gate is inconclusive here rather than failed`, evidence);
+  }
+  return ok('a forged token was refused by the strict ticket route (401) and unlocked no raw password on /api/config', evidence);
+}
+
+/**
+ * auth.rotated_token_revoked — kept SEPARATE from the forged-token test on
+ * purpose. Proving that a previously valid credential stops working needs a
+ * rotation event (a second application run writing a new dash-token.txt while
+ * the process is up). Nothing in a single live pass can produce one, so this is
+ * reported NOT_RUN with the reason instead of being folded into a forged-token
+ * result and called a revocation proof.
+ */
+async function evalRotatedTokenRevoked({ rotationEvidence = null } = {}) {
+  if (!rotationEvidence || !rotationEvidence.previousTokenFingerprint || !rotationEvidence.rotatedAt) {
+    return notRun('ROTATION_NOT_OBSERVED: this run saw only one credential. A forged random token is not evidence that a previously valid token was revoked; demonstrating revocation needs two consecutive application runs (a rotation event), which this pass does not have.', { requires: 'a second application run that rotates dash-token.txt while the server process stays up' });
+  }
+  return notRun('ROTATION_EVIDENCE_PRESENT_BUT_UNTESTED: the harness does not yet exercise the pre-rotation credential against the strict route', { rotationEvidence: { rotatedAt: rotationEvidence.rotatedAt, previousFingerprint: String(rotationEvidence.previousTokenFingerprint).slice(0, 16) } });
 }
 
 /** C. nav.routes_reachable — visit each route, require a marker, count errors. */
@@ -211,7 +248,7 @@ async function evalErrorSurface({ page, target, forgedToken }) {
 }
 
 module.exports = {
-  evalAuthGate, evalStaleKey, evalRoutes, evalProvenance, evalLiveBinding,
+  evalAuthGate, evalStaleKey, evalRotatedTokenRevoked, evalRoutes, evalProvenance, evalLiveBinding,
   evalTelemetryDelta, evalWebDesktop, evalRdpLaunch, evalSecretHygiene,
   evalKeysMasked, evalErrorSurface, ok, bad, blocked, notRun, sim, na
 };

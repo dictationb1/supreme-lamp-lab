@@ -1845,6 +1845,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, crypto, tmpRoot });
   }
 
+  // ===== authorization classifier (layered transport/bearer/source/prereq/issuance) =====
+  {
+    const register = require('./test/live-auth-gate-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
   // ===== workflow YAML (GitHub refuses the file, not the step) =====
   {
     const register = require('./test/workflow-yaml-regressions');

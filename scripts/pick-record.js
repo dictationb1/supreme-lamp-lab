@@ -133,7 +133,29 @@ async function selectRecord({ rows, a, allow, now = Date.now(), readFull, claimI
    * re-running a real verdict needs an explicit correlation (operator).
    * Bounded to 3 re-queues so a persistently broken client cannot spin.
    */
+  /**
+   * A record that DID produce a measured blocker may still be retried ONCE or
+   * TWICE when - and only when - the blocker's family is TRANSPORT. Re-running a
+   * deterministic refusal (a rejected bearer, a missing MagicDNS prerequisite, a
+   * source-policy 403) unchanged is not verification, it is noise; re-running a
+   * stalled listener is legitimate because the same origin answered HTTP 200
+   * twenty minutes earlier (measured 2026-10-23: /api/ping 200 at 13:5x, then
+   * curl exit 28 at 14:25 on the same run).
+   */
+  const transientRequeueProof = rec => {
+    if (!rec) return null;
+    const b = rec.blocker;
+    if (!b || b.retryable !== true) return null;
+    if (!['TRANSPORT', 'LIVE_BACKEND_UNREACHABLE', 'LIVE_TRANSPORT_INCOMPLETE', 'NEGATIVE_CONTROLS_INCOMPLETE', 'READINESS_TIMEOUT'].includes(String(b.family || b.code || ''))) return null;
+    const hist = Array.isArray(rec.history) ? rec.history : [];
+    const already = hist.filter(h => /REQUEUE_TRANSIENT/.test(String(h.detail || ''))).length;
+    if (already >= 2) return null;
+    return `REQUEUE_TRANSIENT_${String(b.subcode || b.code || 'TRANSPORT').slice(0, 40)}(${already + 1}/2)`;
+  };
+
   const requeueProof = rec => {
+    const transient = transientRequeueProof(rec);
+    if (transient) return transient;
     if (!rec || rec.report) return null;
     const hist = Array.isArray(rec.history) ? rec.history : [];
     const last = hist[hist.length - 1] || {};

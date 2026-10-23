@@ -115,6 +115,12 @@ on:
         required: false
         default: '15'
         type: string
+      probe_only:
+        description: 'BOUNDED AUTHORIZATION PROBE: signal -> credential -> readiness -> the layered authorization matrix, then stop. No browser, no feature pass, no viewer hold, no queue-state change.'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 # Queue policy (enforced in scripts/lib/record-store.js and pick-record.js; the
 # group below only dedupes deliveries of the SAME queue):
@@ -476,6 +482,19 @@ jobs:
     permissions:
       contents: write
       actions: read
+    # The measured outcome travels to the ack and viewer steps as OUTPUTS, not as
+    # a job conclusion: a job that exits 0 for a BLOCKED verdict must not be able
+    # to describe itself as a pass, and the viewer hold must know whether an
+    # authenticated browser actually exists.
+    outputs:
+      exit_code: ${{ steps.live.outputs.exit_code }}
+      blocked_code: ${{ steps.live.outputs.blocked_code }}
+      blocked_subcode: ${{ steps.live.outputs.blocked_subcode }}
+      blocked_family: ${{ steps.live.outputs.blocked_family }}
+      blocked_retryable: ${{ steps.live.outputs.blocked_retryable }}
+      blocked_detail: ${{ steps.live.outputs.blocked_detail }}
+      viewer_active: ${{ steps.live.outputs.viewer_active }}
+      viewer_reason: ${{ steps.live.outputs.viewer_reason }}
     env:
       ORIGIN_CORRELATION: ${{ needs.claim.outputs.correlation_id }}
       ORIGIN_REPO: ${{ needs.claim.outputs.origin_repo }}
@@ -489,6 +508,7 @@ jobs:
       DESCRIPTOR_IDENTITY: ${{ needs.discover.outputs.descriptor_identity }}
       EXPECTED_LAB_REVISION: ${{ needs.claim.outputs.lab_sha }}
       KEEP_VIEWER_MIN: ${{ inputs.keep_viewer_open_minutes || '15' }}
+      PROBE_ONLY: ${{ inputs.probe_only || 'false' }}
     defaults:
       run:
         shell: powershell
@@ -628,7 +648,12 @@ jobs:
           exit 1
 
       - name: Keep the authorized viewer open (bounded, default useful)
-        if: always() && inputs.keep_viewer_open_minutes != '0'
+        # GATED ON A REAL VIEWER. This step used to run on `always()` and announce
+        # "the authenticated dashboard stays visible" for a run that had failed
+        # authorization and never opened a browser - a 15-minute sleep holding the
+        # desktop lease while claiming something was on screen. It now holds only
+        # when the live step reported an authenticated headed browser it owns.
+        if: always() && inputs.probe_only != 'true' && inputs.keep_viewer_open_minutes != '0' && needs.verify.outputs.viewer_active == 'true'
         shell: powershell
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
@@ -648,6 +673,20 @@ jobs:
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
           Start-Sleep -Seconds ($m * 60)
+
+      - name: Release the desktop lease (no viewer, nothing left to look at)
+        # The honest counterpart of the hold: when there is no authenticated
+        # viewer the lease is released at once and the run says so.
+        if: always() && needs.verify.outputs.viewer_active != 'true'
+        shell: powershell
+        run: |
+          $why = "${{ needs.verify.outputs.viewer_reason }}"
+          if (-not $why) { $why = 'the live step did not report a viewer' }
+          Write-Host "::notice title=viewer not held::no authenticated viewer exists ($why); the desktop lease is released immediately and nothing is claimed to be visible"
+          if ($env:GITHUB_STEP_SUMMARY) {
+            "| viewer | NOT held: $why |" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+          exit 0
 
       - name: Postflight cleanup (owned processes + per-run browser profile only)
         if: always()
@@ -719,13 +758,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERIFY_RESULT: ${{ needs.verify.result }}
+          BLOCKED_CODE: ${{ needs.verify.outputs.blocked_code }}
+          BLOCKED_SUBCODE: ${{ needs.verify.outputs.blocked_subcode }}
+          BLOCKED_FAMILY: ${{ needs.verify.outputs.blocked_family }}
+          BLOCKED_RETRYABLE: ${{ needs.verify.outputs.blocked_retryable }}
+          BLOCKED_DETAIL: ${{ needs.verify.outputs.blocked_detail }}
         run: |
           set -euo pipefail
           # The origin's own bounded wait reads this. It is a fact about THIS lab
-          # run, never a restatement of what the origin claimed.
-          node scripts/live-run.js ack-state \
-            --origin-repo "${{ needs.claim.outputs.origin_repo }}" \
-            --origin-run "${{ needs.claim.outputs.origin_run }}" \
-            --origin-attempt "${{ needs.claim.outputs.origin_attempt }}" \
-            --correlation-id "${{ needs.claim.outputs.correlation_id }}" \
-            --job-result "$VERIFY_RESULT" || echo "::warning title=ack::the state write-back failed; the report in this run is still authoritative"
+          # run, never a restatement of what the origin claimed. The measured
+          # code/subcode from the verify process is passed through so a real
+          # observation is never replaced by a generic job-level sentence.
+          ARGS=(ack-state
+            --origin-repo "${{ needs.claim.outputs.origin_repo }}"
+            --origin-run "${{ needs.claim.outputs.origin_run }}"
+            --origin-attempt "${{ needs.claim.outputs.origin_attempt }}"
+            --correlation-id "${{ needs.claim.outputs.correlation_id }}"
+            --job-result "$VERIFY_RESULT")
+          [ -n "$BLOCKED_CODE" ] && ARGS+=(--blocked-code "$BLOCKED_CODE")
+          [ -n "$BLOCKED_SUBCODE" ] && ARGS+=(--blocked-subcode "$BLOCKED_SUBCODE")
+          [ -n "$BLOCKED_FAMILY" ] && ARGS+=(--blocked-family "$BLOCKED_FAMILY")
+          [ -n "$BLOCKED_RETRYABLE" ] && ARGS+=(--blocked-retryable "$BLOCKED_RETRYABLE")
+          [ -n "$BLOCKED_DETAIL" ] && ARGS+=(--blocked-detail "$BLOCKED_DETAIL")
+          node scripts/live-run.js "${ARGS[@]}" || echo "::warning title=ack::the state write-back failed; the report in this run is still authoritative"

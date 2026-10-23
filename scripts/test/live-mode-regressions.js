@@ -432,29 +432,51 @@ module.exports = async function registerLiveModeTests(H) {
     await new Promise(r => srv.listen(0, '127.0.0.1', r));
     const target = `http://127.0.0.1:${srv.address().port}`;
     try {
-      const good = await auth.proveAuthorization({ target, dashboardToken: token });
+      const good = await auth.proveAuthorization({ target, dashboardToken: token, clientIsTailnetPeer: false, timeoutMs: 5000 });
       assert.strictEqual(good.ok, true, good.detail);
       assert.strictEqual(good.code, 'AUTHORIZATION_PROVEN');
       assert.ok(good.ticket && good.ticket.length >= 32, 'a ticket must come back from the real route');
       assert.strictEqual(good.configGate, 'enforced', 'the gated config block must open only for the current key');
       assert.strictEqual(good.configGateProven, true);
 
-      const stale = await auth.proveAuthorization({ target, dashboardToken: 'a-token-from-an-earlier-run-xx' });
+      // The classifier now names the LAYER that refused. 'AUTHORIZATION_REJECTED'
+      // (and the AUTHORIZATION_UNAVAILABLE it was collapsed into downstream) is
+      // gone on purpose: a 401 on this route is a BEARER refusal, and saying so
+      // is what makes the next action obvious.
+      const stale = await auth.proveAuthorization({ target, dashboardToken: 'a-token-from-an-earlier-run-xx', timeoutMs: 5000 });
       assert.strictEqual(stale.ok, false);
-      assert.strictEqual(stale.code, 'AUTHORIZATION_REJECTED', stale.detail);
+      assert.strictEqual(stale.code, 'BEARER_REJECTED', stale.detail);
+      assert.ok(String(stale.subcode).startsWith('BEARER_REJECTED'), stale.subcode);
+      assert.strictEqual(stale.layers.bearer, 'REJECTED');
+      assert.strictEqual(stale.layers.issuance, 'NOT_REACHED');
+      assert.notStrictEqual(stale.code, 'AUTHORIZATION_REJECTED');
+      assert.ok(stale.results.refreshAware, 'the corroborating lane was asked, and its answer is recorded');
 
-      const noTok = await auth.proveAuthorization({ target, dashboardToken: '' });
+      const noTok = await auth.proveAuthorization({ target, dashboardToken: '', timeoutMs: 5000 });
       assert.strictEqual(noTok.code, 'TOKEN_ABSENT');
 
       // If the server does NOT enforce the gate, the lab must refuse to call
       // this a proof — "it worked" is not the same as "it was authorized".
       mode = 'ungated';
-      const ungated = await auth.proveAuthorization({ target, dashboardToken: token });
+      // A raw password served to an anonymous caller from a source that is NOT a
+      // tailnet peer is a genuine disclosure - and it must still report the
+      // independent bearer result instead of erasing it.
+      const ungated = await auth.proveAuthorization({ target, dashboardToken: token, clientIsTailnetPeer: false, timeoutMs: 5000 });
       assert.strictEqual(ungated.ok, false, 'an unenforced gate must not produce AUTHORIZATION_PROVEN');
-      assert.ok(['AUTHORIZATION_GATE_UNENFORCED', 'CREDENTIAL_GATE_LEAKED'].includes(ungated.code), ungated.detail);
+      assert.strictEqual(ungated.code, 'CREDENTIAL_GATE_LEAKED', ungated.detail);
+      assert.strictEqual(ungated.subcode, 'PASSWORD_DISCLOSED_TO_UNAUTHORIZED_CALLER');
+      assert.strictEqual(ungated.bearerProof, 'PROVEN', 'the leak must not hide that the bearer gate worked');
+      assert.deepStrictEqual(ungated.results.config.anonymous.raw, ['rdpCreds.pass']);
+      // the SAME observation from a tailnet peer is the application's documented
+      // source trust, not a leak, and must not block the bearer proof
+      const peer = await auth.proveAuthorization({ target, dashboardToken: token, clientIsTailnetPeer: true, timeoutMs: 5000 });
+      assert.strictEqual(peer.ok, true, peer.detail);
+      assert.strictEqual(peer.configGate, 'tailnet-source-trust');
+      assert.strictEqual(peer.configGateProven, false);
+      assert.ok(peer.findings.some(f => f.startsWith('APP-POLICY-01')));
       mode = 'normal';
 
-      const dead = await auth.proveAuthorization({ target: 'http://127.0.0.1:1', dashboardToken: token });
+      const dead = await auth.proveAuthorization({ target: 'http://127.0.0.1:1', dashboardToken: token, timeoutMs: 5000 });
       assert.strictEqual(dead.code, 'LIVE_BACKEND_UNREACHABLE', dead.detail);
     } finally { srv.close(); }
   });
@@ -510,7 +532,7 @@ module.exports = async function registerLiveModeTests(H) {
     assert.strictEqual(pass1.status, STATUS.PASS, pass1.reason);
     const blockedNoProof = await feat.evalAuthGate({ authProof: null, page, markers });
     assert.strictEqual(blockedNoProof.status, STATUS.BLOCKED);
-    const failProof = await feat.evalAuthGate({ authProof: { ok: false, code: 'AUTHORIZATION_REJECTED', detail: 'x', results: {} }, page, markers });
+    const failProof = await feat.evalAuthGate({ authProof: { ok: false, code: 'BEARER_REJECTED', subcode: 'BEARER_REJECTED_TOKEN_NOT_CURRENT', detail: 'x', results: {} }, page, markers });
     assert.strictEqual(failProof.status, STATUS.FAIL);
     const gateShown = await feat.evalAuthGate({ authProof: { ok: true, results: {} }, page, markers: { gateCleared: async () => ({ cleared: false, detail: 'gate visible' }) } });
     assert.strictEqual(gateShown.status, STATUS.FAIL);

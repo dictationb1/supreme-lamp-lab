@@ -49,7 +49,11 @@ const serverIdentity = require('./lib/server-identity');
 
 const EXIT = { OK: 0, USAGE: 64, NOT_WINDOWS: 69, BLOCKED: 4, NO_EVIDENCE: 5, UNCONFIRMED: 7, EXPIRED: 8, BUSY: 9 };
 /** The operator-facing pipeline. `stage` in every report is one of these. */
-const STAGES = ['STARTING', 'AWAITING_READINESS', 'CLAIMED', 'CONNECTING_VM', 'AUTHENTICATED', 'TESTING', 'REPORTING', 'COMPLETED', 'BLOCKED', 'FAILED', 'EXPIRED'];
+// AUTHENTICATING is the stage a run is IN while the authorization proof is
+// running; AUTHENTICATED is only ever recorded once that proof succeeded. The
+// earlier code entered 'AUTHENTICATED' BEFORE proving anything, so a blocked
+// run's own report read like a logged-in one.
+const STAGES = ['STARTING', 'AWAITING_READINESS', 'CLAIMED', 'CONNECTING_VM', 'AUTHENTICATING', 'AUTHENTICATED', 'TESTING', 'REPORTING', 'COMPLETED', 'BLOCKED', 'FAILED', 'EXPIRED'];
 
 const log = (...a) => console.log(`[live ${new Date().toISOString().slice(11, 23)}]`, ...a.map(x => typeof x === 'string' ? x : JSON.stringify(x).slice(0, 400)));
 
@@ -75,6 +79,12 @@ function parseArgs(argv) {
     //   public-log  - DEPRECATED alias of `auto` from the earlier design when
     //                 log scraping was believed to be the primary transport
     originTransport: 'auto', descriptorId: '', descriptorIdentity: '', originWorkflow: discovery.ORIGIN_WORKFLOW_DEFAULT,
+    // Authorization proof: its own timeout, and an optional explicit answer to
+    // "is this client a tailnet peer?" (the default measures it with the
+    // tailscale CLI; a probe can pin it so a measurement failure cannot be
+    // mistaken for a non-peer source).
+    authTimeoutMs: 15000, clientIsTailnetPeer: '', probeOnly: false, probeOut: 'authorization-probe.json',
+    blockedCode: '', blockedSubcode: '', blockedFamily: '', blockedRetryable: '', blockedDetail: '',
     discoverOut: '', jsonOut: '', publish: false, seedSha: ''
   };
   for (let i = 3; i < argv.length; i++) {
@@ -104,6 +114,15 @@ function parseArgs(argv) {
     else if (k === '--no-claim') a.claim = false;
     else if (k === '--report') a.reportPath = v();
     else if (k === '--skip-browser') a.skipBrowser = true;
+    else if (k === '--auth-timeout-ms') a.authTimeoutMs = Number(v());
+    else if (k === '--client-is-tailnet-peer') a.clientIsTailnetPeer = v();
+    else if (k === '--probe-only') a.probeOnly = true;
+    else if (k === '--probe-out') a.probeOut = v();
+    else if (k === '--blocked-code') a.blockedCode = v();
+    else if (k === '--blocked-subcode') a.blockedSubcode = v();
+    else if (k === '--blocked-family') a.blockedFamily = v();
+    else if (k === '--blocked-retryable') a.blockedRetryable = v();
+    else if (k === '--blocked-detail') a.blockedDetail = v();
     else if (k === '--client-ip') a.clientIp = v();
     else if (k === '--rdp-user') a.rdpUser = v();
     else if (k === '--profile-dir') a.profileDir = v();
@@ -318,13 +337,16 @@ async function cmdLive(a) {
     origin: {}, lab: { runId: envOr('GITHUB_RUN_ID', 'local'), attempt: envOr('GITHUB_RUN_ATTEMPT', '1'), revision: envOr('GITHUB_SHA', 'unknown'), repo: a.labRepo },
     runner: { name: envOr('RUNNER_NAME', os.hostname()), account: `${envOr('USERDOMAIN', '')}\\${envOr('USERNAME', '')}`, session: sessionId(), platform: process.platform, psHint: 'headed browser + native mstsc require the interactive desktop' },
     timestamps: {}, identity: {}, authorization: {}, capabilities: {}, features: null, manual: { interventionOccurred: false, note: 'a live run that needs any human input is reported BLOCKED, never VERIFIED' },
-    verdict: { status: STATUS.NOT_RUN, accepted: false, code: 'NOT_STARTED' }, cleanup: {}, stages: []
+    verdict: { status: STATUS.NOT_RUN, accepted: false, code: 'NOT_STARTED' }, cleanup: {}, stages: [],
+    // Honest default: until a headed authenticated browser actually exists there
+    // is NO viewer, and the workflow's hold step is gated on this field.
+    viewer: { active: false, reason: 'not reached: no authenticated browser was opened' }
   };
   const setStage = (s, extra = {}) => { stage = s; report.stages.push({ at: new Date().toISOString(), stage: s, ...extra }); log('stage', s, extra.code || ''); };
 
   try {
     if (process.platform !== 'win32' && !a.skipBrowser) {
-      return done(EXIT.NOT_WINDOWS, setFinal('BLOCKED', 'PLATFORM_NOT_WINDOWS', 'the live run drives a visible browser and native mstsc; it must execute on the interactive Windows client'));
+      return await done(EXIT.NOT_WINDOWS, setFinal('BLOCKED', 'PLATFORM_NOT_WINDOWS', 'the live run drives a visible browser and native mstsc; it must execute on the interactive Windows client'));
     }
     // 1. locate + validate the record -----------------------------------
     setStage('AWAITING_READINESS');
@@ -350,13 +372,13 @@ async function cmdLive(a) {
       const { verifyArtifactProvenance } = require('./lib/verify-origin');
       const name = 'live-run-selftest';
       const prov = await verifyArtifactProvenance({ originRepo: a.envelopeArtifactRepo, originRunId: runId, originAttempt: a.originAttempt, name });
-      if (!prov.ok) return done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', prov.code, `no live-run artifact for this lab run: ${prov.detail}`));
+      if (!prov.ok) return await done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', prov.code, `no live-run artifact for this lab run: ${prov.detail}`));
       const dl = await downloadArtifact({ originRepo: a.envelopeArtifactRepo, originRunId: runId, artifactId: prov.artifact.id });
-      if (!dl.ok) return done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', dl.code, dl.detail));
+      if (!dl.ok) return await done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', dl.code, dl.detail));
       const entries = extractZip(dl.bytes, { maxEntries: 6, maxEntryBytes: 512 * 1024 });
       const pick = n => entries.find(e => path.basename(e.name) === n);
       const recE = pick('record.json');
-      if (!recE) return done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', 'ARTIFACT_ENTRY_MISSING', 'the live-run artifact has no record.json'));
+      if (!recE) return await done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', 'ARTIFACT_ENTRY_MISSING', 'the live-run artifact has no record.json'));
       fs.mkdirSync(path.join(out, 'inbound'), { recursive: true });
       fs.writeFileSync(path.join(out, 'inbound', 'envelope.json'), pick('envelope.json').data, { mode: 0o600 });
       a.envelopeInline = path.join(out, 'inbound', 'envelope.json');
@@ -416,7 +438,7 @@ async function cmdLive(a) {
           originLogPubliclyReadable: disc.evidence.originLogPubliclyReadable === true
         } : null
       };
-      if (!disc.ok) return done(EXIT.BLOCKED, setFinal('AWAITING_READINESS', `BLOCKED_${disc.code}`, disc.detail));
+      if (!disc.ok) return await done(EXIT.BLOCKED, setFinal('AWAITING_READINESS', `BLOCKED_${disc.code}`, disc.detail));
       // The queue names a run, not a moment: `issuedAt`/`expiresAt` are
       // re-derived by every sweep, so a changed descriptor id alone is not a
       // mismatch. The STABLE identity (run, attempt, sha, endpoint, key
@@ -426,7 +448,7 @@ async function cmdLive(a) {
         report.descriptorRefreshed = { queuedId: a.descriptorId, derivedId: disc.descriptor.id, stableIdentity: disc.descriptor.stableIdentity };
       }
       if (a.descriptorIdentity && disc.descriptor.stableIdentity !== a.descriptorIdentity) {
-        return done(EXIT.EXPIRED, setFinal('EXPIRED', 'BLOCKED_DESCRIPTOR_CHANGED',
+        return await done(EXIT.EXPIRED, setFinal('EXPIRED', 'BLOCKED_DESCRIPTOR_CHANGED',
           `stable identity ${disc.descriptor.stableIdentity} != queued ${a.descriptorIdentity}; refusing to attach a different instance`));
       }
       // The credential lives in a private temp file for exactly as long as the
@@ -469,7 +491,7 @@ async function cmdLive(a) {
       report.timestamps.discoveredAt = new Date().toISOString();
     }
 
-    if (!rec) return done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', 'NO_RECORD', 'no live-run record for this origin (the application workflow publishes one while its server is alive); pass --correlation-id with --origin-repo/--origin-run, or --envelope-inline for the CI self-validation harness'));
+    if (!rec) return await done(EXIT.NO_EVIDENCE, setFinal('BLOCKED', 'NO_RECORD', 'no live-run record for this origin (the application workflow publishes one while its server is alive); pass --correlation-id with --origin-repo/--origin-run, or --envelope-inline for the CI self-validation harness'));
 
     descriptor = rec.record.descriptor;
     report.origin = { repo: descriptor.originRepo, workflow: descriptor.originWorkflow, runId: descriptor.originRunId, attempt: descriptor.originAttempt, runUrl: `https://github.com/${descriptor.originRepo}/actions/runs/${descriptor.originRunId}`, correlationId: descriptor.correlationId, descriptorId: descriptor.id, appSha: descriptor.appSha, uiBuild: descriptor.uiBuild };
@@ -483,7 +505,7 @@ async function cmdLive(a) {
       const c = await store.claimRecord({ repo: a.labRepo, descriptor, labRunId: report.lab.runId, labAttempt: report.lab.attempt, maxWaitMs: Math.min(a.queueWaitMs, Math.max(0, deadline - Date.now())) });
       claimed = c;
       if (!c.claimed) {
-        return done(EXIT.BUSY, setFinal('BLOCKED', c.reason, `${c.detail}; queue policy = one live claimant per (originRun,attempt), FIFO by claim time, never re-attached to another server`));
+        return await done(EXIT.BUSY, setFinal('BLOCKED', c.reason, `${c.detail}; queue policy = one live claimant per (originRun,attempt), FIFO by claim time, never re-attached to another server`));
       }
       try { await store.updateRecordState({ repo: a.labRepo, descriptor, state: 'CLAIMED_BY_LAB', by: `lab:${report.lab.runId}`, detail: c.reason }); } catch (e) { annotate.warning('ack', `claim state write failed: ${redact(e.message)}`); }
     }
@@ -512,13 +534,13 @@ async function cmdLive(a) {
     // trust anchor checks for — a record advertising no envelope cannot later
     // "find" one.
     const transport = auth.resolveTransport(rec && rec.record, descriptor);
-    if (transport.refused) return done(EXIT.BLOCKED, setFinal('BLOCKED', 'RECORD_TRANSPORT_REJECTED', transport.note));
+    if (transport.refused) return await done(EXIT.BLOCKED, setFinal('BLOCKED', 'RECORD_TRANSPORT_REJECTED', transport.note));
     const origin = await verifyOriginRun(descriptor, {
       allowNonRunning: !a.expectRunning,
       expectArtifact: (a.envelopeInline || transport.inlinePath) ? null : transport.artifactName
     });
     report.identity.originVerification = { ok: origin.ok, code: origin.code, checks: (origin.checks || []).map(c => ({ code: c.code, ok: c.ok, detail: redact(String(c.detail || '')).slice(0, 200) })), runUrl: origin.runUrl || null };
-    if (!origin.ok) return done(EXIT.BLOCKED, setFinal('BLOCKED', origin.code, origin.detail));
+    if (!origin.ok) return await done(EXIT.BLOCKED, setFinal('BLOCKED', origin.code, origin.detail));
 
     // 5. envelope -> the run's real credential handoff --------------------
     const envRes = await auth.fetchEnvelope({
@@ -530,7 +552,7 @@ async function cmdLive(a) {
       originArtifactRunId: a.envelopeArtifactRunId || (transport.artifactRunId !== descriptor.originRunId ? transport.artifactRunId : null),
       originArtifactAttempt: transport.artifactAttempt || null
     });
-    if (!envRes.ok) return done(EXIT.BLOCKED, setFinal('BLOCKED', envRes.code, envRes.detail));
+    if (!envRes.ok) return await done(EXIT.BLOCKED, setFinal('BLOCKED', envRes.code, envRes.detail));
     const envelope = envRes.value;
     auth.registerSecret(envelope.dashboardToken, 'DASH_TOKEN');
     if (envelope.rdpPassword) auth.registerSecret(envelope.rdpPassword, 'RDP_PASSWORD');
@@ -545,7 +567,7 @@ async function cmdLive(a) {
       // route that is not up, or a server that never started.
       const seen = (ready.history || []).slice(-4).map(h => `${h.code}@${h.at ? h.at.slice(11, 19) : '?'}(${String(h.detail || '').slice(0, 120)})`);
       annotate.error('readiness', `${ready.code} after ${Math.round(a.readyTimeoutMs / 1000)}s against ${target}; history=${seen.join(' | ')}`);
-      return done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
+      return await done(EXIT.BLOCKED, setFinal('BLOCKED', ready.code, `${ready.detail} — the originating server must be alive; a completed run's ephemeral host is not attachable (history=${(ready.history || []).slice(-3).map(h => h.code).join(',')})`));
     }
     report.identity.readiness = ready.last && ready.last.body ? { pid: ready.last.body.pid, port: ready.last.body.port, phase: ready.last.body.phase, serverTs: ready.last.body.serverTs } : null;
 
@@ -566,33 +588,87 @@ async function cmdLive(a) {
       if (attest.rdp.tailnetIp) envelope.tailnetIp = attest.rdp.tailnetIp;
     }
     if (!attest.ok) {
-      return done(EXIT.BLOCKED, setFinal('BLOCKED', attest.code, `${attest.detail} — the endpoint answered, but it is not provably the originating run's instance`));
+      return await done(EXIT.BLOCKED, setFinal('BLOCKED', attest.code, `${attest.detail} — the endpoint answered, but it is not provably the originating run's instance`));
     }
     report.identity.instance = { backendIdentity: descriptor.backendIdentity, sessionId: attest.identity.sessionId, buildSha: attest.identity.buildSha };
 
     // 7. authenticate --------------------------------------------------------
-    setStage('AUTHENTICATED');
-    const proof = await auth.proveAuthorization({ target, dashboardToken: envelope.dashboardToken, log });
+    setStage('AUTHENTICATING');
+    const peerOpt = String(a.clientIsTailnetPeer || '').toLowerCase();
+    const proof = await auth.proveAuthorization({
+      target, dashboardToken: envelope.dashboardToken, log,
+      timeoutMs: a.authTimeoutMs,
+      clientIsTailnetPeer: peerOpt === 'true' ? true : peerOpt === 'false' ? false : null
+    });
+    const proofTicket = proof.ok ? (proof.ticket || null) : null;
+    if (proofTicket) auth.registerSecret(proofTicket, 'RDP_TICKET');
+    const gates = proof.results ? Object.fromEntries(Object.entries(proof.results).map(([k, v]) => [k, typeof v === 'object' ? v : String(v)])) : null;
     report.authorization = {
-      outcome: proof.ok ? 'PROVEN' : proof.code, code: proof.code, detail: redact(String(proof.detail || '')).slice(0, 400),
-      gates: proof.results ? Object.fromEntries(Object.entries(proof.results).map(([k, v]) => [k, typeof v === 'object' ? v : String(v)])) : null,
-      // deliberately NOT a localStorage claim: the value below is what the
-      // server itself answered.
-      proof: 'the live server minted a single-use ticket for this bearer and refused anonymous + forged bearers'
+      outcome: proof.ok ? 'PROVEN' : 'NOT_PROVEN',
+      code: proof.code,
+      // the exact subcode: AUTHORIZATION_UNAVAILABLE alone cannot distinguish
+      // 'the server refused OUR token' from 'our source was not a tailnet peer'
+      // from 'the server is missing its MagicDNS name' from 'the request never
+      // got an answer'. Every one of those needs a different action.
+      subcode: proof.subcode || proof.code,
+      family: proof.ok ? 'AUTHORIZATION_PROVEN'
+        : ['LIVE_BACKEND_UNREACHABLE', 'LIVE_TRANSPORT_INCOMPLETE', 'NEGATIVE_CONTROLS_INCOMPLETE'].includes(proof.code) ? 'TRANSPORT'
+          : 'AUTHORIZATION',
+      detail: redact(String(proof.detail || '')).slice(0, 400),
+      layers: proof.layers || null,
+      findings: proof.findings || [],
+      configGate: proof.configGate || null,
+      configGateProven: Boolean(proof.configGateProven),
+      gates,
+      ticketIssued: Boolean(proofTicket),
+      ticketTtlSec: proof.ok ? (proof.ticketTtlSec || null) : null,
+      // NEVER a hard-coded success sentence. This field used to claim "the live
+      // server minted a single-use ticket..." even when the proof had failed;
+      // it is now the server's own measured answer, or null.
+      proof: proof.ok ? redact(String(proof.detail || '')).slice(0, 300) : null
     };
     if (!proof.ok) {
-      const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
-      // The coarse code alone cannot distinguish 'the server refused OUR token'
-      // from 'the gate was never enforced' or 'the request never left'. The
-      // artifact is not reachable from every environment, so the three gate
-      // observations go into the annotation itself (statuses only, no token).
       const g = proof.results || {};
-      const gates = `noBearer=${(g.noBearer || {}).status}/${(g.noBearer || {}).transport} wrongBearer=${(g.wrongBearer || {}).status}/${(g.wrongBearer || {}).transport} ourBearer=${(g.ourBearer || {}).status}/${(g.ourBearer || {}).transport}${(g.ourBearer || {}).hasRid ? '+rid' : ''} ttl=${(g.ourBearer || {}).ttl || '-'} configGate=${(g.config || {}).gate || '-'} configStatuses=${JSON.stringify((g.config || {}).statuses || [])}`;
-      annotate.error('authorization', `${proof.code}: ${redact(String(proof.detail || '')).slice(0, 240)} | ${gates}`);
-      return done(EXIT.BLOCKED, setFinal('BLOCKED', code, `${proof.code}: ${proof.detail} | ${gates}`));
+      const L = proof.layers || {};
+      const gateLine = `noBearer=${(g.noBearer || {}).status}/${(g.noBearer || {}).transport} wrongBearer=${(g.wrongBearer || {}).status}/${(g.wrongBearer || {}).transport} ourBearer=${(g.ourBearer || {}).status}/${(g.ourBearer || {}).transport}${(g.ourBearer || {}).ticketFormatOk ? '+ticket' : ''} ttl=${(g.ourBearer || {}).ticketTtl ?? '-'} reason=${(g.ourBearer || {}).reasonCode || '-'} configGate=${(g.config || {}).gate || '-'} configStatuses=${JSON.stringify((g.config || {}).statuses || [])} tailnetPeer=${(g.source || {}).isTailnetPeer}/${(g.source || {}).determinedBy || '-'}`;
+      const layerLine = `layers transport=${L.transport || '-'} bearer=${L.bearer || '-'} source=${L.source || '-'} prerequisite=${L.prerequisite || '-'} issuance=${L.issuance || '-'} configGate=${L.configGate || '-'}`;
+      const refresh = g.refreshAware ? ` refreshAware=${g.refreshAware.code}` : '';
+      annotate.error('authorization', `${proof.code}/${proof.subcode}: ${redact(String(proof.detail || '')).slice(0, 240)} | ${gateLine} | ${layerLine}${refresh}`);
+      // The verdict carries the PRECISE code. The coarse family label stays in
+      // report.authorization.family for continuity with earlier reports.
+      return await done(EXIT.BLOCKED, setFinal('BLOCKED', proof.code, `${proof.subcode}: ${proof.detail} | ${gateLine} | ${layerLine}${refresh}`));
     }
+    setStage('AUTHENTICATED', { code: proof.code, subcode: proof.subcode });
     timings.authMs = Date.now() - t0;
     report.timestamps.authenticatedAt = new Date().toISOString();
+
+    // 7b. BOUNDED AUTHORIZATION PROBE (operator-requested). This is the small,
+    //     decisive measurement: it proves the signal->credential->authorization
+    //     chain and persists the sanitized matrix, then stops. It never opens a
+    //     browser, never runs the feature pass and never holds a viewer, so a
+    //     classifier question is answered in minutes instead of a full pass.
+    if (a.probeOnly) {
+      setStage('REPORTING');
+      const probe = {
+        schema: 'authorization-probe/1',
+        generatedAt: new Date().toISOString(),
+        labRunId: report.lab.runId, labAttempt: report.lab.attempt, labRevision: report.lab.revision,
+        origin: report.origin,
+        endpoint: { target, backendIdentity: descriptor.backendIdentity, host: new URL(target).host },
+        client: { name: report.runner.name, account: report.runner.account, session: report.runner.session, tailnetIp: report.identity.clientTailnetIp || null },
+        readiness: report.identity.readiness || null,
+        attested: report.identity.attested || null,
+        instance: report.identity.instance || null,
+        authorization: report.authorization,
+        // the probe ticket is DISCARDED: a launch mints its own at launch time
+        probeTicketDiscarded: Boolean(proofTicket),
+        timings: { authMs: timings.authMs }
+      };
+      fs.writeFileSync(path.join(out, a.probeOut), JSON.stringify(redactObject(probe), null, 2), { mode: 0o600 });
+      annotate.notice('authorization probe', `${proof.code}/${proof.subcode} — transport=${(proof.layers || {}).transport} bearer=${(proof.layers || {}).bearer} source=${(proof.layers || {}).source} prerequisite=${(proof.layers || {}).prerequisite} issuance=${(proof.layers || {}).issuance} configGate=${proof.configGate}`);
+      report.viewer = { active: false, reason: 'PROBE_ONLY: no browser was opened, so no viewer exists to hold' };
+      return await done(EXIT.OK, setFinal('COMPLETED', 'AUTHORIZATION_PROBE_COMPLETE', `${proof.code}/${proof.subcode} (bounded probe; no feature pass was attempted)`, { accepted: false, probeOnly: true }));
+    }
 
     // 8. the visible browser, authenticated for THIS run -------------------
     setStage('TESTING');
@@ -620,8 +696,14 @@ async function cmdLive(a) {
         page.on('pageerror', err => { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(String(err && err.message || err)).slice(0, 160)); });
         page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(m.text()).slice(0, 160)); } });
         report.browser = { profile, headed: !a.headless, pageErrors, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
+        // A viewer exists ONLY here: an authenticated, headed, task-owned
+        // browser on the interactive desktop. The workflow's hold step is gated
+        // on this, so a run that never authenticated cannot sleep for the
+        // default viewer interval while claiming a dashboard is visible.
+        report.viewer = { active: !a.headless, reason: !a.headless ? 'an authenticated headed browser is open on the interactive desktop' : 'the browser is headless: there is nothing for an operator to look at' };
       } catch (e) {
         // NEVER fall back to headless silently (documented lab defect #3).
+        report.viewer = { active: false, reason: `HEADED_LAUNCH_FAILED: ${redact(e.message).split('\n')[0]}` };
         results['nav.routes_reachable'] = feat.blocked(`HEADED_LAUNCH_FAILED: ${redact(e.message).split('\n')[0]}`);
         results['nav.build_provenance'] = results['nav.build_provenance'] || feat.blocked('DEPENDS_ON_BROWSER');
         report.browser = { launchError: redact(e.message).split('\n')[0], headed: false };
@@ -633,8 +715,19 @@ async function cmdLive(a) {
 
     // Evaluate everything that can run without a desktop; RDP/web-desktop are
     // ordered so their dependency stays visible as BLOCKED, not as a fake FAIL.
-    const ctx = { target, descriptor, page, markers, authProof: proof, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, evidence: { out, results } };
-    const order = ['auth.dash_token_gate', 'auth.no_stale_key_reuse', 'nav.build_provenance', 'session.live_binding', 'telemetry.live_stream', 'keys.acl_view', 'errors.classified_not_spinner', 'files.list', 'search.lane', 'mirror.matrix', 'health.readiness_contract', 'connection.native_rdp_launch', 'connection.ticket_single_use', 'webdesktop.frames', 'webdesktop.interaction', 'nav.routes_reachable', 'settings.read_modify_restore', 'files.fixture_roundtrip', 'connection.credential_hygiene', 'lifecycle.teardown'];
+    // The peer fact is measured ONCE and reused: the config gate's meaning
+    // depends on it, and measuring it per-evaluator could answer differently
+    // mid-pass (tailscale CLI timing) and make two features disagree.
+    const peerMeasured = (() => {
+      const opt = String(a.clientIsTailnetPeer || '').toLowerCase();
+      if (opt === 'true') return { value: true, by: 'operator-input' };
+      if (opt === 'false') return { value: false, by: 'operator-input' };
+      const r = auth.clientTailnetIp();
+      return { value: Boolean(r.ok), by: r.ok ? 'measured-tailscale-cli' : `unresolved(${r.code})` };
+    })();
+    report.identity.clientTailnetPeer = peerMeasured;
+    const ctx = { target, descriptor, page, markers, authProof: proof, authOutcome: report.authorization, forgedToken: crypto.randomBytes(16).toString('hex'), http: request, envelope, clientIp, contract, rdpUser: a.rdpUser || envelope.rdpUser, clientIsTailnetPeer: peerMeasured.value, evidence: { out, results } };
+    const order = ['auth.dash_token_gate', 'auth.no_stale_key_reuse', 'auth.rotated_token_revoked', 'nav.build_provenance', 'session.live_binding', 'telemetry.live_stream', 'keys.acl_view', 'errors.classified_not_spinner', 'files.list', 'search.lane', 'mirror.matrix', 'health.readiness_contract', 'connection.native_rdp_launch', 'connection.ticket_single_use', 'webdesktop.frames', 'webdesktop.interaction', 'nav.routes_reachable', 'settings.read_modify_restore', 'files.fixture_roundtrip', 'connection.credential_hygiene', 'lifecycle.teardown'];
     ctx.resultsRef = results;
   const runners = makeRunners(ctx, a, deadline);
     for (const id of order) {
@@ -697,27 +790,99 @@ async function cmdLive(a) {
       });
     } catch (e) { annotate.warning('ack', `the report could not be written back to ${store.RECORDS_BRANCH}: ${redact(e.message).slice(0, 200)}`); report.cleanup.ackError = redact(e.message).slice(0, 200); }
 
-    return done(accepted ? EXIT.OK : (report.verdict.status === STATUS.BLOCKED ? EXIT.BLOCKED : EXIT.UNCONFIRMED), report);
+    return await done(accepted ? EXIT.OK : (report.verdict.status === STATUS.BLOCKED ? EXIT.BLOCKED : EXIT.UNCONFIRMED), report);
   } catch (e) {
     const code = classifyError(e);
     annotate.error('live-run aborted', `${code}: ${redact(e.stack || e.message)}`.slice(0, 900));
-    return done(code.exit, setFinal(code.stage || 'FAILED', code.code, redact(e.message).slice(0, 400)));
+    return await done(code.exit, setFinal(code.stage || 'FAILED', code.code, redact(e.message).slice(0, 400)));
   } finally {
     if (publicEnvelopeDir) { try { fs.rmSync(publicEnvelopeDir, { recursive: true, force: true }); } catch (e) { /* reported above */ } }
     if (claimed && claimed.claimed) { try { await store.releaseClaim({ repo: a.labRepo, descriptor, labRunId: report.lab.runId }); } catch (e) { log('claim release failed', e.message); } }
     if (lock) { try { releaseLock(lock); } catch (e) { log('desktop lock release failed', e.message); } }
   }
 
-  function setFinal(stageName, code, detail) {
-    report.verdict = { status: code === 'BLOCKED' || /BLOCK/.test(String(code)) ? STATUS.BLOCKED : STATUS.FAIL, accepted: false, code, detail: String(detail).slice(0, 500) };
-    report.stage = stageName;
-    try { fs.writeFileSync(path.join(out, 'live-run-report.json'), JSON.stringify(report, null, 2), { mode: 0o600 }); } catch (e) { }
-    if (descriptor) {
-      store.updateRecordState({ repo: a.labRepo, descriptor, state: stageName === 'BLOCKED' ? 'BLOCKED' : 'FAILED', by: `lab:${report.lab.runId}`, detail: `${code}: ${String(detail).slice(0, 200)}` }).catch(() => { });
+  /**
+   * Persist what this run measured BEFORE it exits.
+   *
+   * Two defects this replaces, both measured on 2026-10-23:
+   *   1. the record write-back was fire-and-forget and `process.exit` killed it
+   *      mid-flight, so every blocked run left only the ack step's generic
+   *      "job-level write-back" text and the real subcode was lost;
+   *   2. no sanitized evidence bundle was written on a failure path, so the
+   *      uploaded artifact could not answer what had actually been measured.
+   * `retryable` is decided by the code's FAMILY, not by hope: a transport
+   * failure may be retried by a later sweep, a deterministic authorization or
+   * configuration refusal must not be re-run unchanged.
+   */
+  const TRANSIENT_CODES = new Set(['LIVE_BACKEND_UNREACHABLE', 'LIVE_TRANSPORT_INCOMPLETE', 'NEGATIVE_CONTROLS_INCOMPLETE', 'READINESS_TIMEOUT', 'READINESS_UNREACHABLE']);
+  async function persistPartial(state, code, detail) {
+    report.stage = state;
+    if (!report.authorization) report.authorization = { outcome: 'NOT_MEASURED', code: 'AUTHORIZATION_NOT_REACHED', subcode: 'AUTHORIZATION_NOT_REACHED', proof: null };
+    const family = (report.authorization && report.authorization.family) || (TRANSIENT_CODES.has(code) ? 'TRANSPORT' : 'OTHER');
+    const retryable = TRANSIENT_CODES.has(code) || family === 'TRANSPORT';
+    try { writeLiveEvidence(out, report); } catch (e) { annotate.warning('partial evidence', `capabilities bundle not written: ${redact(String(e.message || e)).slice(0, 160)}`); }
+    try { fs.writeFileSync(path.join(out, 'live-run-report.json'), JSON.stringify(redactObject(report), null, 2), { mode: 0o600 }); } catch (e) { }
+    try { fs.writeFileSync(path.join(out, 'live-run-report.md'), renderMarkdown(report), 'utf8'); } catch (e) { }
+    if (process.env.GITHUB_OUTPUT) {
+      // The ack step prefers these over its job-level guess, and the viewer-hold
+      // step is gated on viewer_active: a run that never opened an authenticated
+      // browser must not sleep while claiming a dashboard is visible.
+      const one = x => String(x == null ? '' : x).replace(/[\r\n]+/g, ' ');
+      try {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, [
+          `blocked_code=${one(code).slice(0, 120)}`,
+          `blocked_subcode=${one((report.authorization && report.authorization.subcode) || code).slice(0, 120)}`,
+          `blocked_family=${one(family).slice(0, 40)}`,
+          `blocked_retryable=${retryable ? 'true' : 'false'}`,
+          `blocked_detail=${one(detail).slice(0, 900)}`,
+          `viewer_active=${report.viewer && report.viewer.active ? 'true' : 'false'}`,
+          `viewer_reason=${one(report.viewer && report.viewer.reason || 'no authenticated viewer was opened').slice(0, 200)}`
+        ].join('\n') + '\n');
+      } catch (e) { }
     }
+    if (descriptor && report.verdict.probeOnly) {
+      // A bounded probe is a DIAGNOSTIC: it must not move the origin's queue
+      // state, or an operator's probe would silently consume the queue's
+      // bounded retry budget for a real verification.
+      annotate.notice('authorization probe', 'no queue state was changed: a bounded probe never writes a product verdict');
+    } else if (descriptor) {
+      const extra = {
+        blocker: {
+          code, subcode: (report.authorization && report.authorization.subcode) || code, family, retryable,
+          layers: (report.authorization && report.authorization.layers) || null,
+          detail: String(detail).slice(0, 300), recordedAt: new Date().toISOString(),
+          byLabRun: report.lab.runId, labRevision: report.lab.revision
+        }
+      };
+      try {
+        await Promise.race([
+          store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `lab:${report.lab.runId}`, detail: `${code}: ${String(detail).slice(0, 240)}`, extra }),
+          new Promise((resolve, reject) => setTimeout(() => reject(new Error('RECORD_WRITE_TIMEOUT_25S')), 25000))
+        ]);
+      } catch (e) {
+        annotate.warning('record write-back', `${code}: the in-process state write failed (${redact(String(e.message || e)).slice(0, 160)}); this run's own report is still authoritative`);
+      }
+    }
+  }
+
+  function setFinal(stageName, code, detail, opts = {}) {
+    report.verdict = {
+      status: stageName === 'COMPLETED' ? (opts.accepted ? STATUS.PASS : STATUS.BLOCKED) : (code === 'BLOCKED' || /BLOCK/.test(String(code)) ? STATUS.BLOCKED : STATUS.FAIL),
+      accepted: Boolean(opts.accepted), code, detail: redact(String(detail)).slice(0, 500),
+      probeOnly: Boolean(opts.probeOnly)
+    };
+    report.stage = stageName;
+    // The write is queued and awaited by done(); nothing is fire-and-forget.
+    report.__persist = persistPartial(stageName === 'COMPLETED' ? 'REPORTED_FAILED' : stageName, code, detail).catch(() => { });
     return report;
   }
-  function done(code, obj) { print('live', code, obj); return process.exit(code); }
+  async function done(code, obj) {
+    // Persist BEFORE the annotation/exit: an exit that races its own evidence
+    // is how a blocked run used to leave nothing behind.
+    if (obj && obj.__persist) { try { await obj.__persist; } catch (e) { } delete obj.__persist; }
+    print('live', code, obj);
+    return process.exit(code);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -786,10 +951,39 @@ async function cmdAckState(a) {
   if (existing && existing.record && String(existing.record.state).startsWith('REPORTED_')) {
     return printExit(EXIT.OK, { code: 'ACK_ALREADY_REPORTED', state: existing.record.state, detail: 'the verify job already wrote the authoritative report; the job-level write-back stands down' });
   }
+  // The verify process now records the EXACT measured blocker itself (state +
+  // `blocker` extra). When it did, the job-level write-back must stand down
+  // instead of replacing a precise observation with a generic sentence - that
+  // replacement is why every blocked record on 2026-10-23 read "job-level
+  // write-back" and no subcode survived.
+  const mine = String(envOr('GITHUB_RUN_ID', ''));
+  const rec0 = existing && existing.record;
+  const b0 = rec0 && rec0.blocker;
+  if (b0 && (!mine || String(b0.byLabRun || '') === mine)) {
+    return printExit(EXIT.OK, {
+      code: 'ACK_STOOD_DOWN_MEASURED_BLOCKER', state: rec0.state,
+      blocker: { code: b0.code, subcode: b0.subcode, family: b0.family, retryable: b0.retryable },
+      detail: 'the verify process already recorded the exact measured blocker; the job-level write-back stands down'
+    });
+  }
   const state = map[jobResult] || 'BLOCKED';
-  const detail = `job-level write-back: verify job result=${jobResult} (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)`;
-  const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
-  return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
+  // If the verify step exported its measured code (but its own record write
+  // failed), the ack carries it through rather than inventing a generic one.
+  const measured = Boolean(a.blockedCode);
+  const family = String(a.blockedFamily || (measured ? 'OTHER' : ''));
+  const retryable = measured ? String(a.blockedRetryable || '') === 'true' : false;
+  const detail = measured
+    ? `${a.blockedCode}/${a.blockedSubcode || a.blockedCode}: ${String(a.blockedDetail || '').slice(0, 240)} (measured in-process, relayed by the ack step because the verify process could not write the record itself)`
+    : `job-level write-back: verify job result=${jobResult} (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)`;
+  const extra = measured ? {
+    blocker: {
+      code: a.blockedCode, subcode: a.blockedSubcode || a.blockedCode, family, retryable,
+      detail: String(a.blockedDetail || '').slice(0, 300), recordedAt: new Date().toISOString(),
+      byLabRun: mine || null, relayed: 'ack-step', labRevision: envOr('GITHUB_SHA', 'unknown')
+    }
+  } : {};
+  const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail, extra });
+  return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: measured ? 'ACK_STATE_WRITTEN_MEASURED' : 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), measured, blocker: extra.blocker || null, detail });
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,19 +1488,33 @@ function makeRunners(ctx, a, deadline) {
   };
   return {
     'auth.dash_token_gate': () => feat.evalAuthGate({ authProof, page, markers }),
-    'auth.no_stale_key_reuse': () => feat.evalStaleKey({ target, forgedToken }),
+    'auth.no_stale_key_reuse': () => feat.evalStaleKey({ target, forgedToken, clientIsTailnetPeer: ctx.clientIsTailnetPeer, timeoutMs: a.authTimeoutMs }),
     'nav.build_provenance': () => feat.evalProvenance({ target, descriptor, page, markers }),
     'session.live_binding': () => feat.evalLiveBinding({ target, descriptor }),
     'health.readiness_contract': () => feat.evalLiveBinding({ target, descriptor }),
     'telemetry.live_stream': () => feat.evalTelemetryDelta({ target, sampleMs: 6000 }),
     'keys.acl_view': () => feat.evalKeysMasked({ page, secrets: [envelope.dashboardToken, envelope.rdpPassword] }),
     'errors.classified_not_spinner': () => feat.evalErrorSurface({ page, target, forgedToken }),
+    'auth.rotated_token_revoked': () => feat.evalRotatedTokenRevoked({ rotationEvidence: ctx.rotationEvidence || null }),
     'connection.native_rdp_launch': async () => {
       const since = new Date().toISOString();
+      // A FRESH ticket, minted at launch time. The authorization proof minted
+      // its own ticket minutes earlier and a ticket lives 60 seconds and is
+      // single-use, so reusing it here hands the production handler a value the
+      // server has already expired - and the resulting failure says nothing
+      // about the launch path. Probe tickets and launch tickets are separate.
+      const launchTicket = await auth.mintTicket(target, envelope.dashboardToken, { purpose: 'native-launch', timeoutMs: 20000 });
+      if (!launchTicket.ok) {
+        return {
+          status: STATUS.BLOCKED,
+          reason: `LAUNCH_TICKET_NOT_ISSUED/${launchTicket.subcode || launchTicket.code}: the launch could not mint its own single-use ticket${launchTicket.observation && launchTicket.observation.reasonCode ? ' (' + launchTicket.observation.reasonCode + ')' : ''}`,
+          evidence: { purpose: 'native-launch', observation: launchTicket.observation, code: launchTicket.code, subcode: launchTicket.subcode, note: 'the authorization proof ticket is deliberately NOT reused here' }
+        };
+      }
       const url = auth.productionRdpUrl({
         fqdn: envelope.rdpFqdn || new URL(descriptor.authorizedEndpoint).hostname,
         user: envelope.rdpUser, tailnetIp: envelope.tailnetIp || clientIp,
-        trace: auth.mintTraceId('lab'), ticket: authProof.ticket
+        trace: auth.mintTraceId('lab'), ticket: launchTicket.ticket
       });
       const handoffMode = a.nativeHandoff === 'auto' ? 'handler' : a.nativeHandoff;
       const launch = auth.launchProductionHandler({ url, mode: handoffMode });
@@ -1324,11 +1532,46 @@ function makeRunners(ctx, a, deadline) {
       return feat.evalRdpLaunch({ launch, logon, target, descriptor, clientIp, sinceIso: since });
     },
     'connection.ticket_single_use': async () => {
-      const r = await request(`${target}/api/rdp-creds`, { method: 'POST', timeoutMs: 20000, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: authProof.ticket || crypto.randomBytes(16).toString('hex') }) });
-      const evidence = { secondRedemptionStatus: r.status ?? r.transport };
-      if (r.transport === 'ok' && (r.status === 401 || r.status === 403)) return feat.ok('a used ticket is refused (401) — single-use enforced', evidence);
-      if (r.status === 200) return feat.bad('TICKET_REPLAY_ACCEPTED: the same ticket redeemed twice', evidence);
-      return feat.blocked(`TICKET_ROUTE_UNTESTABLE: HTTP ${JSON.stringify(r.status)}`, evidence);
+      // A DEDICATED ticket for this test: the proof's ticket and the launch's
+      // ticket are both already consumed or expired by the time this runs, and
+      // redeeming one of those would produce a 401 that proves nothing.
+      const mint = await auth.mintTicket(target, envelope.dashboardToken, { purpose: 'single-use-test', timeoutMs: 20000 });
+      if (!mint.ok) {
+        return feat.blocked(`SINGLE_USE_UNTESTABLE/${mint.subcode || mint.code}: no ticket could be minted for this test`, { mint: { code: mint.code, subcode: mint.subcode, observation: mint.observation } });
+      }
+      const t0r = Date.now();
+      const first = await auth.redeemTicket(target, mint.ticket);
+      const t1r = Date.now();
+      const second = await auth.redeemTicket(target, mint.ticket);
+      const elapsedMs = t1r - t0r;
+      // The application answers 401 for BOTH "consumed" and "expired"
+      // (Use-RdpTicket removes the entry before it checks the age), so a 401 is
+      // only evidence of single-use when it happened INSIDE the ttl window and
+      // the first redemption is accounted for. Otherwise it is inconclusive.
+      const insideTtl = elapsedMs < (mint.ttlSec * 1000);
+      const evidence = {
+        purpose: 'single-use-test',
+        ttlSec: mint.ttlSec,
+        firstRedemption: { code: first.code, subcode: first.subcode || null, status: first.observation && first.observation.status, transport: first.observation && first.observation.transport, reasonCode: first.observation && first.observation.reasonCode },
+        secondRedemption: { code: second.code, subcode: second.subcode || null, status: second.observation && second.observation.status, transport: second.observation && second.observation.transport, reasonCode: second.observation && second.observation.reasonCode },
+        elapsedBeforeSecondMs: elapsedMs,
+        insideTtlWindow: insideTtl,
+        bodySuppressed: true
+      };
+      if (second.code === 'REDEEM_SOURCE_POLICY_REJECTED') {
+        // 403 on this route is the SOURCE policy, not a used ticket: calling it
+        // "single-use enforced" was a false PASS.
+        return feat.bad(`SINGLE_USE_NOT_DEMONSTRATED: the second redemption was refused by the SOURCE policy (${second.subcode}), which says nothing about ticket reuse`, evidence);
+      }
+      if (second.code === 'TICKET_REDEEMED') return feat.bad('TICKET_REPLAY_ACCEPTED: the same ticket redeemed twice', evidence);
+      if (second.code !== 'REDEEM_TICKET_REFUSED') return feat.blocked(`SINGLE_USE_UNTESTABLE: the second redemption produced ${second.code}/${second.subcode || '-'}`, evidence);
+      if (!insideTtl) return feat.blocked('SINGLE_USE_INCONCLUSIVE_EXPIRY_WINDOW: the second redemption happened after the ticket ttl, so the 401 may be expiry rather than consumption', evidence);
+      if (first.code !== 'TICKET_REDEEMED') {
+        // The first redemption did not succeed, so the second 401 may simply be
+        // "unknown ticket" - not proof of single-use consumption.
+        return feat.blocked(`SINGLE_USE_INCONCLUSIVE_FIRST_REDEMPTION_${first.subcode || first.code}: the ticket was never successfully redeemed once, so a refusal of the second attempt does not demonstrate single-use`, evidence);
+      }
+      return feat.ok(`single-use enforced: the ticket redeemed once (200) and the immediate second attempt was refused (401 ${second.subcode}) ${elapsedMs}ms later, inside the ${mint.ttlSec}s ttl window`, evidence);
     },
     'webdesktop.frames': () => feat.evalWebDesktop({ target, page, sampleMs: 5000, rdpStatus: results['connection.native_rdp_launch'] && results['connection.native_rdp_launch'].status }),
     'webdesktop.interaction': () => feat.na('NO_SUPPORTED_INPUT_ROUTE: this build exposes no documented input endpoint for the web desktop; asserting a synthetic keypress would be a mock, so it is reported NOT_APPLICABLE'),
@@ -1435,7 +1678,18 @@ function renderMarkdown(r) {
   L.push('');
   L.push(`**Timestamps** advertised ${r.timestamps.advertisedAt || '?'} · authenticated ${r.timestamps.authenticatedAt || '?'} · testing ${r.timestamps.testingStartedAt || '?'}→${r.timestamps.testingFinishedAt || '?'} · generated ${r.generatedAt}`);
   L.push('');
-  L.push(`**Authorization proof**: ${r.authorization.proof || '—'} → \`${r.authorization.outcome}\``);
+  L.push(`**Authorization proof**: ${r.authorization.proof || '— (nothing was proven)'} → \`${r.authorization.outcome}\``);
+  L.push('');
+  L.push(`**Authorization code**: \`${r.authorization.code || '-'}\` · subcode \`${r.authorization.subcode || '-'}\` · family \`${r.authorization.family || '-'}\` · configGate \`${r.authorization.configGate || '-'}\` (proven: ${r.authorization.configGateProven ? 'yes' : 'no'})`);
+  if (r.authorization.layers) {
+    const L2 = r.authorization.layers;
+    L.push('');
+    L.push(`**Authorization layers**: transport \`${L2.transport || '-'}\` · bearer \`${L2.bearer || '-'}\` · source \`${L2.source || '-'}\` · prerequisite \`${L2.prerequisite || '-'}\` · issuance \`${L2.issuance || '-'}\``);
+  }
+  if (Array.isArray(r.authorization.findings) && r.authorization.findings.length) {
+    L.push('');
+    for (const f of r.authorization.findings) L.push(`> ${f}`);
+  }
   L.push('');
   L.push(`**Human intervention**: ${r.manual.interventionOccurred ? 'YES' : 'no'} — ${r.manual.note}`);
   L.push('');

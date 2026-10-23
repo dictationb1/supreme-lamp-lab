@@ -27,12 +27,23 @@ function buildInventory(contract = {}) {
     },
     {
       id: 'auth.no_stale_key_reuse', area: 'authentication', mandatory: true, evaluator: 'evalStaleKey',
-      requirement: 'A key stored from an earlier run must not authorise this run.',
-      source: 'main.yml writes a fresh dashToken per run into C:\\ghrdp\\config.json',
-      preconditions: ['a forged token of the same shape'],
-      action: 'Present the forged token to the ticket route and to the gated config route.',
+      requirement: 'A FORGED key (never valid) must not authorise this run on the strict ticket route, and must not disclose a raw password to a caller that is not authorized by source.',
+      source: 'main.yml writes a fresh dashToken per run into C:\\ghrdp\\config.json · payloads/ghrdp-server.ps1 Get-GhrdpStrictDashTokenCandidates (strict) + Test-CredsAllowed (key OR tailnet source)',
+      preconditions: ['a forged token of the same shape', 'the client\'s own tailnet identity'],
+      action: 'Present the forged token to POST /api/rdp-token and to GET /api/config?key=forged.',
       expectUi: 'n/a (server contract)',
-      expectServer: '401 on /api/rdp-token; /api/config?key=forged must NOT return the gated credentials block'
+      expectServer: '401 on /api/rdp-token (the documented bearer refusal). /api/config discloses raw password fields ONLY to a matching key or to a source inside the tailnet CGNAT range - so from a tailnet peer the key gate is INCONCLUSIVE (recorded as APP-POLICY-01), not failed, and from a non-peer a raw disclosure is a FAIL.',
+      note: 'This is a forged-token test. Genuine rotation/revocation of a previously valid credential is auth.rotated_token_revoked.'
+    },
+    {
+      id: 'auth.rotated_token_revoked', area: 'authentication', mandatory: false, evaluator: 'evalRotatedTokenRevoked',
+      requirement: 'A credential that WAS valid must stop working once the run rotates it.',
+      source: 'payloads/ghrdp-server.ps1 Get-GhrdpStrictDashTokenCandidates: adopting a new current credential revokes the previous one and the boot snapshot for the life of the process',
+      preconditions: ['two consecutive application runs, or a rotation event observed while the server process stays up'],
+      action: 'Present the pre-rotation credential to the strict ticket route after the rotation and require a refusal.',
+      expectUi: 'n/a (server contract)',
+      expectServer: '401 for the pre-rotation credential; 200 for the post-rotation credential',
+      note: 'Kept separate on purpose: a forged random token can never prove revocation of a previously valid one.'
     },
     {
       id: 'nav.routes_reachable', area: 'navigation', mandatory: true, evaluator: 'evalRoutes',
