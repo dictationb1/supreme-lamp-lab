@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "f4cefe4692df73f0"
   },
-  "state": "REPORTED_VERIFIED",
+  "state": "CLAIMED_BY_LAB",
   "history": [
     {
       "at": "2026-10-23T12:41:16.974Z",
@@ -44,6 +44,12 @@
       "state": "REPORTED_VERIFIED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=success (the verify job exited without an in-process report)"
+    },
+    {
+      "at": "2026-10-23T13:06:42.167Z",
+      "state": "CLAIMED_BY_LAB",
+      "by": "lab:39958377748",
+      "detail": "SUPERSEDED_DEAD_CLAIMANT"
     }
   ],
   "envelopeTransport": {
@@ -56,5 +62,5 @@
   "branch": {
     "exists": true
   },
-  "updatedAt": "2026-10-23T13:00:26.607Z"
+  "updatedAt": "2026-10-23T13:06:42.167Z"
 }
