@@ -97,7 +97,12 @@ jobs:
             if ($st.policyValues -and $st.policyValues.values) { $policyCount = @($st.policyValues.values).Count }
             Write-Host "::notice title=rdp signing status::admin=$($st.isAdmin) osBuild=$($st.osBuild) admxPolicyFound=$($st.admxPolicyFound) admxKey=`"$($st.admxKey)`" valuePrefix=`"$($st.admxValuePrefix)`" policyKey=`"$($st.policyKey)`" policyEntries=$policyCount allowUnsigned=$($st.policyValues.allowPolicies.AllowUnsignedFiles) allowSigned=$($st.policyValues.allowPolicies.AllowSignedFiles) rootPinned=$($st.rootPinned) storedIdentity=$(if ($st.identity) { $st.identity.thumbprint } else { 'none' })"
           } else {
-            Write-Host '::warning title=rdp signing status::status output was not parseable; the raw JSON is in the step log'
+            # The step log of a Windows runner is not retrievable from every
+            # automation environment, so the failing lines go to annotations too.
+            $lines = @($out | ForEach-Object { [string]$_ } | Where-Object { $_.Trim() -ne '' })
+            foreach ($l in ($lines | Select-Object -Last 8)) { Write-Host "::error title=signing status output::$l" }
+            Write-Host '::error title=rdp signing status::status output was not parseable'
+            exit 1
           }
 
       - name: Bootstrap (identity + single-thumbprint trust pin)

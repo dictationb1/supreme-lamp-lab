@@ -449,6 +449,7 @@ if ($recorded) { $Result.identity = $recorded }
 
 $mstsc = Join-Path $env:SystemRoot 'System32\mstsc.exe'
 
+try {
 switch ($Mode) {
     'Status' {
         $certs = @((Get-ChildItem -Path Cert:\CurrentUser\My -ErrorAction SilentlyContinue) + (Get-ChildItem -Path Cert:\LocalMachine\My -ErrorAction SilentlyContinue) |
@@ -640,6 +641,14 @@ switch ($Mode) {
         $Result.ok = $true
         $Result.code = 'ROLLBACK_OK'
     }
+}
+
+}
+catch {
+    $Result.ok = $false
+    $Result.code = 'SCRIPT_ERROR'
+    $Result.detail = ($_.Exception.Message + ' @ ' + $_.InvocationInfo.ScriptLineNumber)
+    $Result.actions += 'the script stopped early; the JSON below is still emitted so the caller can classify it'
 }
 
 # single-line JSON so a workflow can parse it without secrets or noise.
