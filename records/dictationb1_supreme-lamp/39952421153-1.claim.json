@@ -7,5 +7,7 @@
   },
   "correlationId": "lr-39952421153-1",
   "superseded": "claimant run 39957424394 is completed/success",
-  "nonce": "b9041eaaf0a35bcc"
+  "nonce": "b9041eaaf0a35bcc",
+  "supersededAt": "2026-10-23T13:20:05.822Z",
+  "supersededReason": "claimant run 39958377748 is completed/success"
 }
