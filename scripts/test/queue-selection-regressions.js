@@ -148,6 +148,32 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     assert.strictEqual(res.descriptor.originRunId, 39899000001);
   });
 
+
+  await test('workflow: cleanup bookkeeping cannot skip the verification; process-table safety still fails it', async () => {
+    const { readNormalized } = require('../lib/workflow-text');
+    const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
+    const pre = wf.slice(wf.indexOf('- name: Preflight owned-process cleanup'), wf.indexOf('- name: Install lab dependencies'));
+    assert.ok(pre.length > 100, 'preflight step located');
+    assert.match(pre, /\$code -eq 2 -or \$code -eq 4/, 'survivors/snapshot failures are fatal');
+    assert.match(pre, /::warning title=preflight cleanup::exit \$code/, 'bookkeeping failures are visible but not fatal');
+    const post = wf.slice(wf.indexOf('- name: Postflight cleanup'), wf.indexOf('- name: Upload live-run evidence'));
+    assert.ok(post.length > 100, 'postflight step located');
+    assert.match(post, /cleanup-postflight\.json/, 'postflight writes its JSON into the uploaded artifact dir');
+    assert.match(post, /\$code -eq 2 -or \$code -eq 4/);
+  });
+
+  await test('workflow: the live step re-derives the credential in process (key in env, signal-first transport)', async () => {
+    const { readNormalized } = require('../lib/workflow-text');
+    const wf = readNormalized(__dirname, '..', '..', '.github', 'workflows', 'live-run.yml');
+    const live = wf.slice(wf.indexOf('- name: LIVE VERIFICATION'), wf.indexOf('- name: Keep the authorized viewer open'));
+    assert.match(live, /LAB_SIGNAL_PRIVATE_KEY: \$\{\{ secrets\.LAB_SIGNAL_PRIVATE_KEY \}\}/);
+    assert.match(live, /'--origin-transport', 'auto'/);
+    assert.match(live, /'--native-handoff', 'handler'/);
+    // and the secret must also reach the discover/claim steps that decrypt
+    const discover = wf.slice(wf.indexOf('- name: Discover the originating run'), wf.indexOf('- name: claim + verify origin') > 0 ? wf.indexOf('  claim:') : undefined);
+    assert.match(discover, /LAB_SIGNAL_PRIVATE_KEY: \$\{\{ secrets\.LAB_SIGNAL_PRIVATE_KEY \}\}/);
+  });
+
   await test('credential source: a live-origin run re-derives the signal IN PROCESS, never from the queue record', async () => {
     // The queue record published by `discover` names a generic artifact
     // transport that an application run never uploads. Treating it as the
