@@ -1,0 +1,13 @@
+{
+  "kind": "slab-live-run-claim/1",
+  "claimedAt": "2026-10-23T21:20:29.107Z",
+  "claimant": {
+    "labRunId": "40025875096",
+    "labAttempt": "1",
+    "url": "https://github.com/dictationb1/supreme-lamp-lab/actions/runs/40025875096"
+  },
+  "descriptorId": "c5ebc96722458997",
+  "correlationId": "lr-40022345749-1",
+  "releaseHint": "claim is released by its owner or when the claimant lab run reaches a terminal state",
+  "nonce": "6454886fbf9f4652"
+}
