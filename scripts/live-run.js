@@ -300,6 +300,33 @@ async function cmdOriginSignal(a) {
   function finish(code, obj) { print('origin-signal', code, obj); return process.exit(code); }
 }
 
+
+/**
+ * WHERE THE CREDENTIAL COMES FROM (decided once, before any fetch).
+ *
+ *   record    - an explicit `--origin-transport record` artifact handoff
+ *   inline    - a file on this machine (CI self-validation harness)
+ *   artifact  - a lab-hosted artifact (CI self-validation harness)
+ *   discovery - re-derive it IN THIS PROCESS from the origin run's own live
+ *               signal (check-run) or its log
+ *
+ * MEASURED DEFECT this closes: the queue record published by `discover` is a
+ * QUEUE ENTRY, not an envelope. It names the origin artifact transport
+ * generically, but an application run uploads no such artifact. Treating the
+ * queue entry as an envelope source made every automatic attachment fail at
+ * ENVELOPE/ARTIFACT_NOT_FOUND after a successful discovery, so the client never
+ * reached the signal it had just validated. In live-origin mode the credential
+ * is therefore ALWAYS re-derived in process; the queue record is used only for
+ * its identity (run/attempt/stableIdentity) and its claim.
+ */
+function envelopeSource(a) {
+  if (a.originTransport === 'record') return 'record';
+  if (a.envelopeArtifactRepo) return 'artifact';
+  if (a.envelopeInline && fs.existsSync(path.join(path.dirname(a.envelopeInline), 'record.json'))) return 'inline';
+  if (a.envelopeInline && fs.existsSync(a.envelopeInline)) return 'inline';
+  return 'discovery';
+}
+
 // ---------------------------------------------------------------------------
 // live
 // ---------------------------------------------------------------------------
@@ -329,7 +356,9 @@ async function cmdLive(a) {
     // 1. locate + validate the record -----------------------------------
     setStage('AWAITING_READINESS');
     let rec = null;
-    if ((a.originTransport === 'record' || a.originTransport === 'auto') && a.correlationId && a.originRunId && a.originRepo) {
+    const envSource = envelopeSource(a);
+    report.envelopeSource = envSource;
+    if (envSource === 'record' && a.correlationId && a.originRunId && a.originRepo) {
       rec = await store.readRecord({ repo: a.labRepo, originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt });
     } else if (a.envelopeInline && fs.existsSync(a.envelopeInline)) {
       // CI self-validation / local harness: the descriptor sits next to the envelope.
@@ -370,7 +399,7 @@ async function cmdLive(a) {
     // which run it belongs to. Nothing here is caller-supplied: `--origin-run`
     // only names a candidate, and every field is re-derived from the log of the
     // exact attempt before a descriptor exists.
-    if (!rec && a.originTransport !== 'record') {
+    if (!rec && envSource === 'discovery') {
       setStage('AWAITING_READINESS', { code: 'DISCOVERING_ORIGIN' });
       const disc = await discovery.discoverOrigin({
         originRepo: a.originRepo || 'dictationb1/supreme-lamp',
@@ -1496,4 +1525,4 @@ async function main() {
 
 if (require.main === module) main().catch(e => { annotate.error('live-run fatal', redact(e.stack || e.message)); process.exit(EXIT.UNCONFIRMED); });
 
-module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput };
+module.exports = { EXIT, STAGES, parseArgs, cmdOriginSignal, cmdLive, cmdDiscover, cmdProbe, cmdSignalStatus, cmdAckState, readRunnerState, defaultRoutes, renderMarkdown, listEvidence, acquireLock, sanitizeDiscovery, writeGithubOutput, envelopeSource };

@@ -18,13 +18,25 @@
 //      rule. This is also how a duplicate repository_dispatch dedupes: the second
 //      delivery resolves to the SAME record, sees the live claim, and stands down.
 //   3. Otherwise take the OLDEST unclaimed, unexpired, allowlisted record
-//      (FIFO by issuedAt). Never the newest.
+//      (FIFO by correlationId, which sorts by run id and attempt). Never the newest.
 //   4. Every candidate is validated through lib/run-descriptor before it can be
 //      selected: a malformed or expired descriptor is skipped and reported, and
 //      an origin repo outside the allowlist is refused outright.
 //
 // Exit code is always 0 (a "no" is a normal, reportable outcome); usage errors
 // exit 64.
+//
+// TWO MEASURED DEFECTS IN THIS FILE (fixed, with regressions in
+// scripts/test/queue-selection-regressions.js):
+//   a. the records listing was parsed with a `}`-at-end-of-file anchor, but
+//      `live-run.js poll-records` prints a header line BEFORE the JSON and a
+//      `[NOTICE] ...` line AFTER it. Every read therefore failed with
+//      RECORDS_UNREADABLE -> proceed=no -> the client job was skipped even
+//      though discovery had just published a valid record.
+//   b. the record file was consumed as if it were the record itself, while
+//      `record-store.readRepoFile` returns `{text,json,sha,size}`. The real
+//      record lives in `.json`, so every candidate became "record body
+//      unavailable" (or threw on `rec.descriptor`).
 
 const fs = require('fs');
 const rd = require('./lib/run-descriptor');
@@ -53,13 +65,92 @@ function out(proceed, reason, descriptor) {
   process.exit(0);
 }
 
+/**
+ * Extract the FIRST balanced JSON object from arbitrary text.
+ * Brace counting respects strings and escapes, so a `}` inside a message cannot
+ * truncate the document either.
+ */
+function extractJsonObject(text) {
+  const s = String(text || '');
+  const start = s.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(s.slice(start, i + 1)); } catch (e) { return null; }
+      }
+    }
+  }
+  return null;
+}
+
 function loadRecords(file) {
   let text = '';
   try { text = file ? fs.readFileSync(file, 'utf8') : ''; } catch (e) { return { error: `records file unreadable: ${e.message}` }; }
-  // live-run.js poll-records prints a fenced JSON block; accept bare JSON too.
-  const m = text.match(/\{[\s\S]*\}\s*$/);
-  if (!m) return { error: 'no JSON payload in the records listing' };
-  try { return { doc: JSON.parse(m[0]) }; } catch (e) { return { error: `records JSON unparseable: ${e.message}` }; }
+  const doc = extractJsonObject(text);
+  if (!doc) return { error: 'no JSON payload in the records listing' };
+  if (Array.isArray(doc.records)) return { doc };
+  if (doc.doc && Array.isArray(doc.doc.records)) return { doc: doc.doc };
+  return { error: 'records JSON has no records array' };
+}
+
+/** `record-store.readRepoFile()` returns {text,json,...}: the RECORD is `.json`. */
+function recordFromFile(file) {
+  if (!file) return null;
+  if (file.json && typeof file.json === 'object') return file.json;
+  if (file.text) { try { return JSON.parse(file.text); } catch (e) { return null; } }
+  return null;
+}
+
+/**
+ * Apply the documented selection rules to already-listed rows. Exported so a
+ * regression can drive it with a fake listing and a fake reader.
+ */
+async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } = {}) {
+  const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
+  let candidates = [];
+  if (a.correlation) {
+    candidates = rows.filter(r => String(r.correlationId) === String(a.correlation));
+    if (!candidates.length) return { proceed: 'no', reason: `CORRELATION_NOT_FOUND: no record for ${a.correlation} (queue holds: ${rows.map(r => r.correlationId).join(', ') || 'none'}) — a requested correlation is never substituted` };
+  } else if (a.origin && a.run) {
+    candidates = rows.filter(r => String(r.origin).startsWith(`${a.origin}#${a.run}/`) && String(r.origin).endsWith(`/${a.attempt}`));
+    if (!candidates.length) return { proceed: 'no', reason: `RECORD_NOT_FOUND: no record for ${a.origin}#${a.run}/${a.attempt} — it may already have been consumed, expired, or never published` };
+  } else {
+    // FIFO: the oldest still-valid origin is served first, because its server is
+    // the one that is alive and waiting.
+    candidates = rows.slice().sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)));
+  }
+
+  const skipped = [];
+  for (const r of candidates) {
+    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
+    if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
+    const originRepo = String(r.origin).split('#')[0];
+    if (originRepo && allow.length && !allow.includes(originRepo)) { skipped.push(`${r.correlationId}: origin ${originRepo} not allowlisted`); continue; }
+    const rec = recordFromFile(readFull ? await readFull(r.path) : null);
+    if (!rec || !rec.descriptor) { skipped.push(`${r.correlationId}: record body unavailable`); continue; }
+    let d = null;
+    try {
+      d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now });
+    } catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
+    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) {
+      return { proceed: 'yes', reason: `SELECTED ${detail(r)}`, descriptor: d };
+    }
+    skipped.push(`${r.correlationId}: state=${rec.state}`);
+  }
+  return { proceed: 'no', reason: `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}` };
 }
 
 async function main() {
@@ -74,45 +165,20 @@ async function main() {
   const rows = (loaded.doc && loaded.doc.records) || [];
   if (!rows.length) return out(false, 'EMPTY_QUEUE: no live-run record has been published for any run that is still in progress');
 
-  const now = Date.now();
-  const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
-
-  let candidates = [];
-  if (a.correlation) {
-    candidates = rows.filter(r => String(r.correlationId) === String(a.correlation));
-    if (!candidates.length) return out(false, `CORRELATION_NOT_FOUND: no record for ${a.correlation} (queue holds: ${rows.map(r => r.correlationId).join(', ') || 'none'}) — a requested correlation is never substituted`);
-  } else if (a.origin && a.run) {
-    candidates = rows.filter(r => String(r.origin).startsWith(`${a.origin}#${a.run}/`) && String(r.origin).endsWith(`/${a.attempt}`));
-    if (!candidates.length) return out(false, `RECORD_NOT_FOUND: no record for ${a.origin}#${a.run}/${a.attempt} — it may already have been consumed, expired, or never published`);
-  } else {
-    // FIFO by issuedAt: the oldest still-valid origin is served first, because
-    // its server is the one that is alive and waiting.
-    candidates = rows.slice().sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)));
-  }
-
-  const skipped = [];
-  for (const r of candidates) {
-    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
-    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
-    if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
-    if (String(r.origin).split('#')[0] && !allow.includes(String(r.origin).split('#')[0])) { skipped.push(`${r.correlationId}: origin ${r.origin} not allowlisted`); continue; }
-    const rec = await readFull(r.path);
-    if (!rec) { skipped.push(`${r.correlationId}: record body unavailable`); continue; }
-    let d = null;
-    try { d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now }); }
-    catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
-    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation) return out(true, `SELECTED ${detail(r)}`, d);
-    skipped.push(`${r.correlationId}: state=${rec.state}`);
-  }
-  return out(false, `NO_PICKABLE_RECORD: ${skipped.slice(0, 6).join(' | ') || 'all candidates filtered'}`);
+  const res = await pickFromRows(rows, a, {
+    allow,
+    readFull: async (p) => {
+      const store = require('./lib/record-store');
+      try {
+        return await store.readRepoFile(process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab', store.RECORDS_BRANCH, p);
+      } catch (e) { return null; }
+    }
+  });
+  return out(res.proceed === 'yes', res.reason, res.descriptor);
 }
 
-async function readFull(p) {
-  const store = require('./lib/record-store');
-  try { return await store.readRepoFile(process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab', store.RECORDS_BRANCH, p); }
-  catch (e) { return null; }
+if (require.main === module) {
+  main().catch(e => { console.error(`pick-record fatal: ${e.stack || e.message}`); process.exit(64); });
 }
 
-main().catch(e => { console.error(`pick-record fatal: ${e.stack || e.message}`); process.exit(64); });
-
-module.exports = { parseArgs, loadRecords };
+module.exports = { parseArgs, loadRecords, extractJsonObject, recordFromFile, pickFromRows };
