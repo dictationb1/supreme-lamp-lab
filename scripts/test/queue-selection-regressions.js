@@ -104,6 +104,31 @@ module.exports = async function register({ test, assert, fs, path, tmpRoot }) {
     assert.match(verifyJob, /if \(\$code -eq 0\) \{ exit 0 \}/, 'only a VERIFIED exit is a green step');
   });
 
+
+  await test('queue: a claim left by a terminal lab run does not make the origin unattachable', async () => {
+    const body = { descriptor: DESC(), state: 'FAILED', retryable: true };
+    const row = { ...ROW(), state: 'FAILED', retryable: true, claimedBy: '39904982757' };
+    const liveClaim = await pick.pickFromRows([row], ARGS, {
+      allow: ['dictationb1/supreme-lamp'], claimLive: async () => true,
+      readFull: async () => ({ json: body })
+    });
+    assert.strictEqual(liveClaim.proceed, 'no');
+    assert.match(liveClaim.reason, /already claimed by live lab run/);
+
+    const unknown = await pick.pickFromRows([row], ARGS, {
+      allow: ['dictationb1/supreme-lamp'], claimLive: async () => null,
+      readFull: async () => ({ json: body })
+    });
+    assert.strictEqual(unknown.proceed, 'no', 'an unreadable claimant is treated as live');
+
+    const stale = await pick.pickFromRows([row], ARGS, {
+      allow: ['dictationb1/supreme-lamp'], claimLive: async () => false,
+      readFull: async () => ({ json: body })
+    });
+    assert.strictEqual(stale.proceed, 'yes', stale.reason);
+    assert.match(stale.reason, /SELECTED .*claim=39904982757/);
+  });
+
   await test('queue: a lab attempt that died without an in-process report leaves the origin retryable', async () => {
     const row = { ...ROW(), state: 'FAILED', retryable: true };
     const res = await pick.pickFromRows([row], ARGS, {

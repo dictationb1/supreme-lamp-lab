@@ -117,7 +117,7 @@ function recordFromFile(file) {
  * Apply the documented selection rules to already-listed rows. Exported so a
  * regression can drive it with a fake listing and a fake reader.
  */
-async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } = {}) {
+async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [], claimLive = null } = {}) {
   const detail = r => `${r.origin || '?'} corr=${r.correlationId || '?'} state=${r.state} claim=${r.claimedBy || 'none'} ttl=${r.expiresInSeconds}s`;
   let candidates = [];
   if (a.correlation) {
@@ -134,7 +134,22 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } 
 
   const skipped = [];
   for (const r of candidates) {
-    if (r.claimedBy) { skipped.push(`${r.correlationId}: already claimed by live lab run ${r.claimedBy}`); continue; }
+    // A claim left behind by a lab run that is already terminal is stale: the
+    // desktop lock, the record state and the claim itself must not make an
+    // origin unattachable for the rest of its lifetime. MEASURED (runs
+    // 39904982757 -> 39905558539): the claimant failed in the live step, and
+    // every later sweep refused to even look at the record. The row is only
+    // skipped when the claimant is provably still running; when its status
+    // cannot be read the conservative answer (a live claimant) stands.
+    if (r.claimedBy) {
+      // No resolver at all means "assume a live claimant" (the safe reading).
+      const live = claimLive ? await claimLive(String(r.claimedBy)) : true;
+      if (live !== false) {
+        skipped.push(`${r.correlationId}: already claimed by ${live === null ? 'unreadable' : 'live'} lab run ${r.claimedBy}`);
+        continue;
+      }
+      skipped.push(`${r.correlationId}: stale claim by terminal lab run ${r.claimedBy}`);
+    }
     // A lab attempt that failed WITHOUT an in-process report (e.g. the client VM
     // preflight died) leaves the record `retryable`. The origin server is still
     // alive and nothing was verified, so a later sweep may serve it again. A
@@ -179,6 +194,13 @@ async function main() {
 
   const res = await pickFromRows(rows, a, {
     allow,
+    claimLive: async (labRunId) => {
+      const store = require('./lib/record-store');
+      try {
+        const st = await store.labRunStatus(labRunId);
+        return !store.TERMINAL_RUN_STATES.has(String(st.status || ''));
+      } catch (e) { return null; }
+    },
     readFull: async (p) => {
       const store = require('./lib/record-store');
       try {
