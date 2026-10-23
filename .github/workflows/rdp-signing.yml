@@ -150,10 +150,17 @@ jobs:
           $parsed = $null
           try { $parsed = $json | ConvertFrom-Json } catch { $parsed = $null }
           if (-not $parsed) { Write-Host '::error title=rdp signing probe::unparseable output'; exit 1 }
+          $shapes = ''
+          if ($parsed.probe -and $parsed.probe.shapesTried) {
+            $shapes = (($parsed.probe.shapesTried | ForEach-Object { "$($_.shape)=$($_.result)" }) -join ', ')
+          }
           if ($parsed.ok) {
-            Write-Host "::notice title=rdp signing probe::PASS - a signed .rdp opened with no security-review dialog (rdpsign switch $($parsed.probe.signatureSwitch), exit $($parsed.probe.signatureExitCode))"
+            Write-Host "::notice title=rdp signing probe::PASS - signed .rdp opened with no security-review dialog; working policy shape '$($parsed.probe.workingShape)' (rdpsign $($parsed.probe.signatureSwitch), exit $($parsed.probe.signatureExitCode)); shapes tried: $shapes"
           } else {
-            Write-Host "::error title=rdp signing probe::FAIL $($parsed.code) $($parsed.detail)"
+            Write-Host "::error title=rdp signing probe::FAIL $($parsed.code) $($parsed.detail); rdpsign $($parsed.probe.signatureSwitch) exit=$($parsed.probe.signatureExitCode); shapes tried: $shapes"
+            if ($parsed.probe -and $parsed.probe.shapesTried) {
+              foreach ($s2 in $parsed.probe.shapesTried) { Write-Host "::notice title=shape $($s2.shape)::$($s2.result)" }
+            }
             exit 1
           }
 

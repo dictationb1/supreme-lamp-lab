@@ -313,6 +313,98 @@ function Sign-RdpFile {
     }
 }
 
+# --------------------------------------------------------- policy shape trials
+# The registry shape of the trusted-thumbprint list is not identical across
+# builds: the ADMX on this VM (Server 2022 20348.5761) exposed the policy key but
+# neither a list subkey nor a value prefix, and a pin written as a numbered value
+# directly under "Terminal Services" did NOT suppress the review (measured:
+# rdp-signing run 39876303141 -> PROBE_SECURITY_DIALOG_PRESENT). Rather than
+# guess, the probe TRIES the documented shapes in turn, keeps the one that makes
+# mstsc stop asking, and records every attempt. Each shape pins exactly one
+# thumbprint and none of them changes what may run.
+function Clear-PolicyShapes {
+    $valueNames = @('TrustedCertThumbprints')
+    foreach ($n in $valueNames) {
+        if (Test-Path -LiteralPath $PolicyRoot) {
+            Remove-ItemProperty -LiteralPath $PolicyRoot -Name $n -ErrorAction SilentlyContinue
+        }
+    }
+    $sub = Join-Path $PolicyRoot 'TrustedCertThumbprints'
+    if (Test-Path -LiteralPath $sub) { Remove-Item -LiteralPath $sub -Recurse -Force -ErrorAction SilentlyContinue }
+    # numbered values written directly under the policy key by an earlier attempt
+    if (Test-Path -LiteralPath $PolicyRoot) {
+        $props = Get-ItemProperty -LiteralPath $PolicyRoot -ErrorAction SilentlyContinue
+        if ($props) {
+            foreach ($n in $props.PSObject.Properties.Name) {
+                if ($n -like 'PS*') { continue }
+                if ($n -match '^[0-9]+$') { Remove-ItemProperty -LiteralPath $PolicyRoot -Name $n -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+}
+
+function Set-PolicyShape {
+    param([string]$Shape, [string]$Thumb, [string]$Prefix = '')
+    Clear-PolicyShapes
+    if (-not (Test-Path -LiteralPath $PolicyRoot)) { New-Item -Path $PolicyRoot -Force | Out-Null }
+    switch ($Shape) {
+        'value-plain' {
+            New-ItemProperty -LiteralPath $PolicyRoot -Name 'TrustedCertThumbprints' -Value $Thumb -PropertyType String -Force | Out-Null
+        }
+        'value-prefixed' {
+            New-ItemProperty -LiteralPath $PolicyRoot -Name 'TrustedCertThumbprints' -Value ($Prefix + $Thumb) -PropertyType String -Force | Out-Null
+        }
+        'list-plain' {
+            $sub = Join-Path $PolicyRoot 'TrustedCertThumbprints'
+            if (-not (Test-Path -LiteralPath $sub)) { New-Item -Path $sub -Force | Out-Null }
+            New-ItemProperty -LiteralPath $sub -Name '1' -Value $Thumb -PropertyType String -Force | Out-Null
+        }
+        'list-prefixed' {
+            $sub = Join-Path $PolicyRoot 'TrustedCertThumbprints'
+            if (-not (Test-Path -LiteralPath $sub)) { New-Item -Path $sub -Force | Out-Null }
+            New-ItemProperty -LiteralPath $sub -Name '1' -Value ($Prefix + $Thumb) -PropertyType String -Force | Out-Null
+        }
+        'numbered-plain' {
+            New-ItemProperty -LiteralPath $PolicyRoot -Name '1' -Value $Thumb -PropertyType String -Force | Out-Null
+        }
+        'numbered-prefixed' {
+            New-ItemProperty -LiteralPath $PolicyRoot -Name '1' -Value ($Prefix + $Thumb) -PropertyType String -Force | Out-Null
+        }
+        default { throw "unknown policy shape $Shape" }
+    }
+    return $Shape
+}
+
+function Test-ReviewDialogForFile {
+    param([string]$Path, [int]$Seconds = 8)
+    if (-not (Test-Path -LiteralPath $mstsc)) {
+        return [pscustomobject]@{ opened = $false; securityDialogFound = $false; code = 'MSTSC_NOT_FOUND'; evidence = $mstsc }
+    }
+    $p = Start-Process -FilePath $mstsc -ArgumentList @($Path) -PassThru
+    Start-Sleep -Seconds ([Math]::Max(4, [Math]::Min(60, $Seconds)))
+    $json = $null
+    try {
+        $enumerator = Join-Path $PSScriptRoot 'Get-RdpDialogState.ps1'
+        if (Test-Path -LiteralPath $enumerator) {
+            $json = & powershell -NoProfile -ExecutionPolicy Bypass -File $enumerator -ProcessId $p.Id 2>$null
+        }
+    } catch { $json = $null }
+    $still = $null
+    try { $still = -not $p.HasExited } catch { $still = $null }
+    try { if ($still) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch { }
+    $text = if ($json) { ((@($json) | Out-String)) } else { '' }
+    $review = $false
+    if ($text -match '(?i)security review|security warning|Unknown publisher|rdp_file_security_review|Opening Remote Desktop Connection|I understand and allow') { $review = $true }
+    return [pscustomobject]@{
+        opened             = $true
+        mstscPid           = $p.Id
+        aliveAfterSeconds  = $still
+        securityDialogFound= $review
+        code               = $(if ($review) { 'SECURITY_DIALOG_PRESENT' } else { 'NO_SECURITY_DIALOG' })
+        evidence           = $text.Substring(0, [Math]::Min(900, $text.Length))
+    }
+}
+
 function New-ProbeRdpFile {
     param([string]$Path)
     # A syntactically valid file whose target is a tailnet address that is NOT
@@ -453,58 +545,56 @@ switch ($Mode) {
             $Result.detail = 'no recorded signing identity; run -Mode Bootstrap first'
             break
         }
-        if (-not (Test-Path -LiteralPath $mstsc)) {
-            $Result.code = 'MSTSC_NOT_FOUND'
-            $Result.detail = $mstsc
-            break
-        }
+        $thumb = Get-NormalizedThumbprint $idRec.thumbprint
+        if (-not (Test-Path -LiteralPath $StateDir)) { New-Item -ItemType Directory -Path $StateDir -Force | Out-Null }
         $probeFile = Join-Path $StateDir 'probe.rdp'
         $null = New-ProbeRdpFile -Path $probeFile
-        $sig = Sign-RdpFile -Path $probeFile -Thumb $idRec.thumbprint
-        $Result.actions += "signed probe.rdp: $($sig.code) via=$($sig.switchUsed) authenticode=$($sig.authenticodeStatus)"
+        $sig = Sign-RdpFile -Path $probeFile -Thumb $thumb
+        $Result.actions += "signed probe.rdp: $($sig.code) via=$($sig.switchUsed) exit=$($sig.exitCode) authenticode=$($sig.authenticodeStatus)"
         if (-not $sig.ok) {
-            $Result.probe = @{ signed = $false; signature = $sig }
+            $Result.probe = [pscustomobject]@{ signed = $false; signature = $sig }
             $Result.code = 'PROBE_SIGN_FAILED'
             $Result.detail = $sig.output
             break
         }
-        $p = Start-Process -FilePath $mstsc -ArgumentList @($probeFile) -PassThru
-        Start-Sleep -Seconds ([Math]::Max(4, [Math]::Min(60, $ProbeSeconds)))
-        $dialogJson = $null
-        try {
-            $enumerator = Join-Path $PSScriptRoot 'Get-RdpDialogState.ps1'
-            if (Test-Path -LiteralPath $enumerator) {
-                $dialogJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $enumerator -ProcessId $p.Id 2>$null
-            }
-        } catch { $dialogJson = $null }
-        $still = $null
-        try { $still = -not $p.HasExited } catch { $still = $null }
-        try { if ($still) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } } catch { }
-        $reviewDialog = $false
-        $dialogText = ''
-        if ($dialogJson) {
-            $dialogText = ((@($dialogJson) | Out-String))
-            if ($dialogText -match '(?i)security review|security warning|Unknown publisher|rdp_file_security_review|consent') { $reviewDialog = $true }
+        $prefix = ''
+        if ($layout -and $null -ne $layout.valuePrefix) { $prefix = [string]$layout.valuePrefix }
+        $shapes = @('value-plain', 'value-prefixed', 'list-plain', 'list-prefixed', 'numbered-plain', 'numbered-prefixed')
+        $attempts = @()
+        $working = $null
+        foreach ($shape in $shapes) {
+            $null = Set-PolicyShape -Shape $shape -Thumb $thumb -Prefix $prefix
+            $r = Test-ReviewDialogForFile -Path $probeFile -Seconds $ProbeSeconds
+            $attempts += [pscustomobject]@{ shape = $shape; result = $r.code; dialog = $r.securityDialogFound }
+            if ($r.opened -and -not $r.securityDialogFound) { $working = $shape; break }
         }
         $Result.probe = [pscustomobject]@{
-            signedFile            = $probeFile
-            signatureExitCode     = $sig.exitCode
-            signatureSwitch       = $sig.switchUsed
-            signatureAttempts     = $sig.attempts
-            signatureStatus       = $sig.authenticodeStatus
-            signatureThumbprint   = $sig.thumbprint
-            mstscPid              = $p.Id
-            mstscAliveAfterSeconds= $still
-            securityDialogFound   = $reviewDialog
-            dialogEvidence        = $dialogText.Substring(0, [Math]::Min(1200, $dialogText.Length))
+            signedFile             = $probeFile
+            signatureExitCode      = $sig.exitCode
+            signatureSwitch        = $sig.switchUsed
+            signatureAttempts      = $sig.attempts
+            signatureStatus        = $sig.authenticodeStatus
+            signatureThumbprint    = $sig.thumbprint
+            valuePrefix            = $prefix
+            shapesTried            = $attempts
+            workingShape           = $working
         }
-        if ($reviewDialog) {
-            $Result.code = 'PROBE_SECURITY_DIALOG_PRESENT'
-            $Result.detail = 'a signed .rdp still produced a security warning: the pinned thumbprint/prefix does not match what mstsc checks'
-            $Result.ok = $false
-        } else {
-            $Result.code = 'PROBE_NO_SECURITY_DIALOG'
+        if ($working) {
+            # Leave ONLY the working shape pinned, and record it in the identity.
+            $null = Set-PolicyShape -Shape $working -Thumb $thumb -Prefix $prefix
+            $rec = Read-Identity
+            if ($rec) {
+                $rec | Add-Member -NotePropertyName workingPolicyShape -NotePropertyValue $working -Force
+                $rec | Add-Member -NotePropertyName workingPolicyPrefix -NotePropertyValue $prefix -Force
+                Write-Identity -Identity $rec
+            }
             $Result.ok = $true
+            $Result.code = 'PROBE_NO_SECURITY_DIALOG'
+            $Result.detail = "the review disappeared with policy shape '$working' (prefix '$prefix'); that shape is pinned and recorded"
+        } else {
+            $Result.ok = $false
+            $Result.code = 'PROBE_SECURITY_DIALOG_PRESENT'
+            $Result.detail = 'every documented registry shape still produced the security review; the pinned list is not what this build consults (evidence per shape in probe.shapesTried)'
         }
     }
     'Sign' {

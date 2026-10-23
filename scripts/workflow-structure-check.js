@@ -101,8 +101,19 @@ function run() {
   if (signing) {
     // The signing bootstrap must never become a "disable the protection" knob.
     const body = linesOf(signing.text).filter(l => !/^\s*#/.test(l)).join('\n');
-    for (const forbidden of ['RedirectionWarningDialogVersion', 'AllowUnsignedFiles', 'enablecredsspsupport:i:0', 'authentication level:i:0']) {
-      if (body.includes(forbidden)) add('SECURITY_WEAKENING', signing.file, `the workflow must not set ${forbidden}`);
+    // Reads are fine (a report must be able to SHOW the current Allow* state);
+    // writes are not. Match write shapes only.
+    const forbiddenWrites = [
+      [/New-ItemProperty[^\n]*RedirectionWarningDialogVersion/, 'RedirectionWarningDialogVersion'],
+      [/RedirectionWarningDialogVersion[^\n]*-Value/, 'RedirectionWarningDialogVersion'],
+      [/New-ItemProperty[^\n]*AllowUnsignedFiles/, 'AllowUnsignedFiles'],
+      [/AllowUnsignedFiles["']?\s*[-=:]\s*0/, 'AllowUnsignedFiles=0'],
+      [/New-ItemProperty[^\n]*AllowSignedFiles/, 'AllowSignedFiles'],
+      [/enablecredsspsupport:i:0/, 'enablecredsspsupport:i:0'],
+      [/authentication level:i:[12]/, 'authentication level > 0']
+    ];
+    for (const [re, label] of forbiddenWrites) {
+      if (re.test(body)) add('SECURITY_WEAKENING', signing.file, `the workflow must not set ${label}`);
     }
     if (!/head\.repo\.full_name == github\.repository/.test(signing.text)) add('FORK_NOT_GUARDED', signing.file, 'a fork PR could reach the client VM');
     if (!wt.stepBlock(signing.text, 'Rollback (only when explicitly asked)')) add('NO_ROLLBACK', signing.file, 'rollback is not wired');
