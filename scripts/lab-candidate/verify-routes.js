@@ -83,7 +83,11 @@ async function waitListening(okFile, child) {
 }
 
 function startServer() {
-  const okFile = path.join(ROOT, 'server-ok-lab.txt');
+  // The payload writes `$Root\server-ok.txt` (payloads/ghrdp-server.ps1:419/9416)
+  // and does NOT read OK_FILE - watching an env-named path made every probe
+  // report LISTEN_TIMEOUT against a server that was listening and working
+  // (run 39934941144: logon/conn scans ticking, no marker where we looked).
+  const okFile = path.join(ROOT, 'server-ok.txt');
   try { fs.unlinkSync(okFile); } catch (e) { /* absent */ }
   // PRODUCTION SHAPE: a Scheduled Task does not inherit the workflow's build
   // environment, so the identity is not in the environment - it is on disk.
