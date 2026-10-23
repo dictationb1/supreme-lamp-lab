@@ -1845,6 +1845,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, crypto, tmpRoot });
   }
 
+  // ===== workflow YAML (GitHub refuses the file, not the step) =====
+  {
+    const register = require('./test/workflow-yaml-regressions');
+    await register({ test, assert });
+  }
+
   // ===== queue claim path (poll-records -> pick-record) =====
   {
     const register = require('./test/pick-record-regressions');
