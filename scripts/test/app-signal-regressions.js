@@ -37,7 +37,14 @@ module.exports = async function register({ test, assert, tmpRoot }) {
     return '{' + k.map(x => JSON.stringify(x) + ':' + stable(v[x])).join(',') + '}';
   }
 
-  function seal({ plaintext = 'dash-token-' + crypto.randomBytes(6).toString('hex'), overrides = {}, aadOverrides = {} } = {}) {
+  let lastCredential = null;
+  function seal({ plaintext = null, overrides = {}, aadOverrides = {}, credential = null } = {}) {
+    const dashToken = 'dash-token-' + crypto.randomBytes(6).toString('hex');
+    lastCredential = credential || {
+      dashTokenQueryParam: 'key', dashToken, issuedAt: new Date().toISOString(),
+      repository: REPO, runId: RUN_ID, runAttempt: 1, sha: SHA
+    };
+    if (plaintext === null) plaintext = JSON.stringify(lastCredential);
     const keyId = 'rsa:' + crypto.createHash('sha256').update(pubPem).digest('hex').slice(0, 16);
     const identity = {
       schema: 'mc-signal/v1', repository: REPO, runId: RUN_ID, runAttempt: 1, sha: SHA, keyId,
@@ -70,17 +77,20 @@ module.exports = async function register({ test, assert, tmpRoot }) {
       ...overrides
     };
     const text = 'summary text\n\n```json\n' + JSON.stringify(signal, null, 2) + '\n```\n';
-    return { signal, text, plaintext };
+    return { signal, text, plaintext, credential: lastCredential };
   }
 
   const expect = { repo: REPO, runId: RUN_ID, attempt: 1, appSha: SHA, now: NOW };
 
   await test('app signal: the published mc-signal/v1 envelope parses, validates, binds its AAD and decrypts', () => {
-    const { text, plaintext } = seal();
+    const { text, credential } = seal();
     const r = ls.resolveAppSignal(text, expect, privPem);
     assert.strictEqual(r.ok, true, r.code + ' ' + r.detail);
     assert.strictEqual(r.format, 'mc-signal/v1');
-    assert.strictEqual(r.key, plaintext);
+    // The app seals a JSON credential object; the resolved key is the TOKEN,
+    // never the envelope blob (which also carries a moving issuedAt).
+    assert.strictEqual(r.key, credential.dashToken);
+    assert.strictEqual(r.credentialMeta.queryParam, 'key');
     assert.strictEqual(r.envelope.appSha, SHA);
     assert.strictEqual(r.envelope.attempt, 1);
     assert.strictEqual(r.aad.runId, RUN_ID);
@@ -136,7 +146,7 @@ module.exports = async function register({ test, assert, tmpRoot }) {
     const viaApp = ls.resolveAnySignal({ summary: 'human summary only', text: app.text }, expect, privPem);
     assert.strictEqual(viaApp.ok, true);
     assert.strictEqual(viaApp.format, 'mc-signal/v1');
-    assert.strictEqual(viaApp.key, app.plaintext);
+    assert.strictEqual(viaApp.key, app.credential.dashToken);
 
     const labText = ls.buildSignal({ repo: REPO, runId: Number(RUN_ID), attempt: 1, appSha: SHA, endpoint: 'http://100.87.91.3:7331', issuedAt: new Date(NOW - 30000).toISOString(), expiresAt: new Date(NOW + 3600000).toISOString(), key: 'lab-sealed' }, pubPem);
     const viaLab = ls.resolveAnySignal({ summary: labText, text: '' }, expect, privPem);
@@ -163,6 +173,21 @@ module.exports = async function register({ test, assert, tmpRoot }) {
     assert.strictEqual(r.evidence.envelope.enc.hasAad, true);
     assert.strictEqual(r.evidence.envelope.enc.wrappedKeyChars >= 340, true);
     assert.strictEqual(JSON.stringify(r).includes('dash-token-'), false);
+  });
+
+  await test('app signal: a sealed credential whose EMBEDDED identity names another sha is refused', () => {
+    const { text } = seal({ credential: { dashTokenQueryParam: 'key', dashToken: 'x', repository: REPO, runId: RUN_ID, runAttempt: 1, sha: 'f'.repeat(40) } });
+    const r = ls.resolveAppSignal(text, expect, privPem);
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.code, 'APP_SIGNAL_CREDENTIAL_IDENTITY_MISMATCH');
+  });
+
+  await test('app signal: a bare-string credential still works (older publishers)', () => {
+    const { text } = seal({ plaintext: 'bare-token-value' });
+    const r = ls.resolveAppSignal(text, expect, privPem);
+    assert.strictEqual(r.ok, true, r.code);
+    assert.strictEqual(r.key, 'bare-token-value');
+    assert.strictEqual(r.credentialMeta, null);
   });
 
   await test('app signal: the auditor refuses an app signal whose AAD names another run', () => {

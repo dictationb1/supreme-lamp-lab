@@ -287,6 +287,30 @@ function resolveAppSignal(text, expect = {}, privateKeyPem) {
   if (!aad.ok) return { ...aad, format: APP_SCHEMA };
   const opened = openAppCredential(sig.credential.envelope, privateKeyPem);
   if (!opened.ok) return { ...opened, format: APP_SCHEMA };
+  // The application seals a JSON credential object, not a bare token:
+  //   { dashTokenQueryParam, dashToken, issuedAt, repository, runId,
+  //     runAttempt, sha }
+  // Using the raw plaintext as the credential both breaks authentication and
+  // makes the descriptor's token fingerprint change on every heartbeat
+  // (issuedAt moves), which is exactly how a live origin looked "changed"
+  // (measured 2026-10-23: BLOCKED_DESCRIPTOR_CHANGED on lab run 39958850298).
+  // The embedded identity must ALSO match the run API expectation - a sealed
+  // credential for another run/attempt/sha is refused.
+  let key = opened.key;
+  let meta = null;
+  try {
+    const p = JSON.parse(opened.key);
+    if (p && typeof p.dashToken === 'string' && p.dashToken) {
+      const checks = [];
+      if (expect.repo && String(p.repository || '') !== String(expect.repo)) checks.push(`repository ${p.repository} != ${expect.repo}`);
+      if (expect.runId && String(p.runId || '') !== String(expect.runId)) checks.push(`runId ${p.runId} != ${expect.runId}`);
+      if (expect.attempt && Number(p.runAttempt) !== Number(expect.attempt)) checks.push(`runAttempt ${p.runAttempt} != ${expect.attempt}`);
+      if (expect.appSha && String(p.sha || '') !== String(expect.appSha)) checks.push(`sha ${p.sha} != ${expect.appSha}`);
+      if (checks.length) return { ok: false, code: 'APP_SIGNAL_CREDENTIAL_IDENTITY_MISMATCH', detail: checks.join('; '), format: APP_SCHEMA };
+      key = p.dashToken;
+      meta = { schema: 'app-credential', queryParam: String(p.dashTokenQueryParam || 'key'), embeddedIdentity: true };
+    }
+  } catch (e) { /* a bare-string credential is valid too */ }
   return {
     ok: true,
     format: APP_SCHEMA,
@@ -302,7 +326,8 @@ function resolveAppSignal(text, expect = {}, privateKeyPem) {
       expiresAt: valid.expiresAt,
       enc: { alg: sig.credential.envelope.alg, keyId: sig.credential.envelope.keyId }
     },
-    key: opened.key,
+    key,
+    credentialMeta: meta,
     host: valid.host,
     expiresAt: valid.expiresAt,
     aad: aad.aad
