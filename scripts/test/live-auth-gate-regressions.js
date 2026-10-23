@@ -99,6 +99,44 @@ module.exports = async function register({ test, assert, fs, path }) {
   });
 
 
+
+  await test('auth: the refresh-aware route separates "stale credential" from "stale ticket route"', async () => {
+    const token = 'run-token-current-0123456789';
+    let mode = 'current';
+    const srv = http.createServer((req, res) => {
+      if (req.url !== '/api/search/status') { res.writeHead(404); return res.end(); }
+      const presented = String(req.headers['x-dash-token'] || '');
+      const ok = mode === 'unenforced' ? true : (mode === 'current' && presented === token);
+      res.writeHead(ok ? 200 : 403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok }));
+    });
+    await new Promise(r => srv.listen(0, '127.0.0.1', r));
+    const target = `http://127.0.0.1:${srv.address().port}`;
+    const authLib = require('../lib/live-auth');
+    try {
+      const cur = await authLib.probeRefreshAwareToken(target, token);
+      assert.strictEqual(cur.code, 'REFRESH_AWARE_CURRENT', JSON.stringify(cur));
+      mode = 'rejected';
+      const rej = await authLib.probeRefreshAwareToken(target, token);
+      assert.strictEqual(rej.code, 'REFRESH_AWARE_REJECTED');
+      mode = 'unenforced';
+      const un = await authLib.probeRefreshAwareToken(target, token);
+      assert.strictEqual(un.code, 'REFRESH_AWARE_UNENFORCED', 'a gate that serves everyone proves nothing');
+      const none = await authLib.probeRefreshAwareToken(target, '');
+      assert.strictEqual(none.code, 'TOKEN_ABSENT');
+      // the probe never puts the token in a URL
+      assert.ok(!JSON.stringify(await authLib.probeRefreshAwareToken(target, token)).includes(token));
+    } finally { srv.close(); }
+  });
+
+  await test('live: a stale ticket route is named, and RDP is not claimed from it', async () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'live-run.js'), 'utf8');
+    assert.match(src, /APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE/);
+    assert.match(src, /probeRefreshAwareToken/);
+    assert.match(src, /report\.authorization\.outcome = 'PROVEN_FOR_UI_TICKET_ROUTE_STALE'/);
+    assert.match(src, /Unattended native RDP must therefore be reported BLOCKED/, 'the report says what is NOT proven');
+  });
+
   await test('identity: the serving process start time is read from the diagnostics bundle', async () => {
     const si = require('../lib/server-identity');
     assert.deepStrictEqual(si.findServerStart({ a: { logonCollector: { startedAt: '2026-10-23T04:00:00.0000000Z', uptimeSec: 7200 } } }),

@@ -378,6 +378,43 @@ async function proveAuthorization({ target, dashboardToken, log = () => {} } = {
 }
 
 /**
+ * Is the run's credential CURRENT for the application, as distinct from
+ * "accepted by the strict ticket route"?
+ *
+ * Measured (runs 39906231257 .. 39910994515): the serving process booted 77s
+ * after the origin run began, its strict POST /api/rdp-token compares the
+ * dashboard token against the value read ONCE at boot, and it answered 401 for
+ * the exact credential the application itself published - while the same build
+ * compares the refresh-aware way (snapshot UNION dash-token.txt UNION
+ * config.json) everywhere else.
+ *
+ * GET /api/search/status is such a route: read-only, X-Dash-Token header only
+ * (query credentials are refused by design), it records each comparison in the
+ * F99 telemetry ring, and it answers 403 when the token is not current. With an
+ * anonymous and a forged baseline it therefore separates three states:
+ *   current     200 for ours, 403 for both baselines
+ *   rejected    refused for ours as well (the credential really is stale)
+ *   unenforced  the baselines are served too (a gate that proves nothing)
+ */
+async function probeRefreshAwareToken(target, dashboardToken, { timeoutMs = 15000 } = {}) {
+  const T = String(dashboardToken || '');
+  if (!T) return { ok: false, code: 'TOKEN_ABSENT' };
+  const bogus = crypto.randomBytes(16).toString('hex');
+  const ours = await request(`${target}/api/search/status`, { timeoutMs, headers: { 'X-Dash-Token': T } });
+  const anon = await request(`${target}/api/search/status`, { timeoutMs });
+  const forged = await request(`${target}/api/search/status`, { timeoutMs, headers: { 'X-Dash-Token': bogus } });
+  const results = { ours: { status: ours.status, transport: ours.transport }, anonymous: { status: anon.status, transport: anon.transport }, forged: { status: forged.status, transport: forged.transport } };
+  if (ours.transport !== 'ok') return { ok: false, code: 'REFRESH_AWARE_UNREACHABLE', results };
+  const oursOk = ours.status === 200;
+  const refusedAnon = anon.status === 401 || anon.status === 403;
+  const refusedForged = forged.status === 401 || forged.status === 403;
+  if (oursOk && refusedAnon && refusedForged) return { ok: true, code: 'REFRESH_AWARE_CURRENT', results };
+  if (!oursOk && (ours.status === 401 || ours.status === 403)) return { ok: false, code: 'REFRESH_AWARE_REJECTED', results };
+  if (oursOk && !(refusedAnon && refusedForged)) return { ok: false, code: 'REFRESH_AWARE_UNENFORCED', results };
+  return { ok: false, code: 'REFRESH_AWARE_UNPROVEN', results };
+}
+
+/**
  * The browser-side half of the handoff. The app persists a successful token in
  * `localStorage["ghrdp.dashToken"]` (src/lib/dashToken.ts §3.1), so the run can
  * be authenticated WITHOUT putting the key in the address bar. A fresh
@@ -490,7 +527,7 @@ function clientTailnetIp() {
 
 module.exports = {
   DASH_TOKEN_STORAGE_KEY, registerSecret, isCgnat, resolveTransport, fetchEnvelope, proveAuthorization,
-  secretFieldsOf, classifyConfigGate, diagTokenEvidence, findTokenRing,
+  secretFieldsOf, classifyConfigGate, diagTokenEvidence, findTokenRing, probeRefreshAwareToken,
   storageInitScript, clearBrowserToken, resolveProtocolHandler,
   productionRdpUrl, mintTraceId, launchProductionHandler, clientTailnetIp, fp
 };

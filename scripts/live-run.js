@@ -666,8 +666,28 @@ async function cmdLive(a) {
         : ` diag[unavailable status=${d.status || '?'}]`;
       const codes = `noBearer=${(r.noBearer || {}).status} wrongBearer=${(r.wrongBearer || {}).status} ourBearer=${(r.ourBearer || {}).status} configGate=${(r.config || {}).gate}${diagNote}`;
       annotate.error('auth proof gates', `${proof.code}: ${codes} - ${redact(String(proof.detail || '')).slice(0, 300)}`);
-      const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
-      return done(proof.code === 'AUTHORIZATION_REJECTED' ? EXIT.BLOCKED : EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      // Before blaming the credential, ask whether the application accepts it on
+      // the paths that compare REFRESH-AWARE (snapshot UNION dash-token.txt UNION
+      // config.json). If it does, the credential is current and the refusal is
+      // the application's own boot-snapshot strict route - a named defect, not a
+      // lab-side guess. The UI pass still runs (that is where this credential is
+      // used); the native ticket route stays BLOCKED and no RDP is claimed.
+      const refresh = await auth.probeRefreshAwareToken(target, envelope.dashboardToken).catch(e => ({ ok: false, code: 'REFRESH_AWARE_PROBE_FAILED', detail: e.message }));
+      report.authorization.refreshAware = { code: refresh.code, results: refresh.results || null };
+      annotate.notice('auth refresh-aware', `${refresh.code} ${refresh.results ? JSON.stringify(refresh.results) : ''}`);
+      if (proof.code === 'AUTHORIZATION_REJECTED' && refresh.ok) {
+        report.authorization.outcome = 'PROVEN_FOR_UI_TICKET_ROUTE_STALE';
+        report.authorization.code = 'APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE';
+        report.authorization.ticketRoute = {
+          ok: false, code: 'APP_TICKET_ROUTE_BOOT_SNAPSHOT_STALE',
+          detail: `the application accepts this run's credential on its refresh-aware routes (${refresh.code}) and refuses it on its strict POST /api/rdp-token route, which compares only the dashboard token read at server boot (${report.identity.process.bootAt || 'unknown'}). The credential is current; the ticket route is stale. Unattended native RDP must therefore be reported BLOCKED, not verified.`
+        };
+        report.authorization.detail = `${report.authorization.ticketRoute.detail} (strict route: ${redact(String(proof.detail || '')).slice(0, 200)})`;
+        annotate.error('auth ticket route', report.authorization.ticketRoute.code + ': ' + report.authorization.ticketRoute.detail.slice(0, 400));
+      } else {
+        const code = proof.code === 'LIVE_BACKEND_UNREACHABLE' ? 'LIVE_BACKEND_UNREACHABLE' : 'AUTHORIZATION_UNAVAILABLE';
+        return done(EXIT.BLOCKED, setFinal('BLOCKED', code, proof.detail));
+      }
     }
     timings.authMs = Date.now() - t0;
     report.timestamps.authenticatedAt = new Date().toISOString();
@@ -1536,7 +1556,9 @@ function writeLiveEvidence(dir, report) {
   const f = report.features || { rows: [] };
   const by = id => (f.rows || []).find(r => r.id === id) || {};
   capSet.set('live_origin_verified', STATUS.PASS, `descriptor ${report.identity && report.identity.originVerification ? 'verified' : 'not verified'}`, { checks: report.identity && report.identity.originVerification ? report.identity.originVerification.checks : null });
-  capSet.set('live_authorization', report.authorization.outcome === 'PROVEN' ? STATUS.PASS : STATUS.BLOCKED, report.authorization.detail);
+  capSet.set('live_authorization',
+    report.authorization.outcome === 'PROVEN' ? STATUS.PASS : STATUS.BLOCKED,
+    report.authorization.ticketRoute ? `${report.authorization.ticketRoute.code}: ${report.authorization.detail}` : report.authorization.detail);
   capSet.set('live_identity', by('nav.build_provenance').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.build_provenance').status), by('nav.build_provenance').reason || null);
   capSet.set('live_ui_rendered', by('nav.routes_reachable').status === STATUS.PASS ? STATUS.PASS : mapStatus(by('nav.routes_reachable').status), by('nav.routes_reachable').reason || (report.browser ? `profile ${report.browser.profile || 'n/a'}` : 'browser not used'));
   capSet.set('live_features', f.accepted ? STATUS.PASS : STATUS.FAIL, `${f.mandatoryPass}/${f.mandatoryTotal} mandatory features PASS; vetoing=${(f.vetoing || []).join(',') || 'none'}`, { counts: f.counts });
