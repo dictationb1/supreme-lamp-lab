@@ -101,21 +101,10 @@ async function attestBackend({ target, appSha, timeoutMs = 15000 } = {}) {
 }
 
 /**
- * When did the SERVING PROCESS start? buildSha ties the code to the origin
- * commit but says nothing about the process: a server left running from an
- * earlier run answers with the same buildSha, the same UI and a fresh-looking
- * /api/readiness, while every boot-time value it holds (notably the dashboard
- * token its strict /api/rdp-token route compares against, read once at start)
- * belongs to a different run.
- *
- * MEASURED (lab runs 39906231257..39909552608): the origin's sealed signal
- * decrypted to the credential the application published, /api/rdp-token
- * answered 401 for it, and 401 for anonymous and forged callers alike.
- *
- * The application publishes its process start time as
- * `logonCollector.startedAt` (plus `uptimeSec`) inside /api/diag/comprehensive.
- * It is read structurally because the bundle's nesting changes between builds,
- * and a missing value is reported as unavailable - never guessed.
+ * Find the application's published process start time inside any of its
+ * diagnostic documents. `logonCollector.startedAt` / `uptimeSec` is how the
+ * server stamps its own boot; the search is structural because the bundle's
+ * nesting changes between builds.
  */
 function findServerStart(node, depth = 0) {
   if (!node || depth > 7) return null;
@@ -134,18 +123,29 @@ function findServerStart(node, depth = 0) {
   return null;
 }
 
+/**
+ * Where the application publishes its process start time. Measured: the F28
+ * logon collector's `startedAt` is emitted on /api/native-status (folded into
+ * rdpListener), the F99 bundle at /api/diag/comprehensive carries the same
+ * collectors, and /diag carries the raw listener. All three are tried and the
+ * one that answered is named, so a moved field is a diagnostic, not a mystery.
+ */
+const BOOT_ROUTES = ['/api/native-status', '/api/diag/comprehensive', '/diag'];
+
 async function serverBootTime({ target, timeoutMs = 20000 } = {}) {
-  const r = await request(`${target}/api/diag/comprehensive`, { timeoutMs });
-  if (r.transport !== 'ok' || r.status !== 200 || !r.json) {
-    return { ok: false, code: 'BOOT_TIME_UNAVAILABLE', detail: `HTTP ${r.status} transport=${r.transport}`, boot: null };
+  const tried = [];
+  for (const route of BOOT_ROUTES) {
+    const r = await request(`${target}${route}`, { timeoutMs }).catch(e => ({ transport: 'error', status: 0, summary: e.message }));
+    tried.push({ route, status: r.status, transport: r.transport });
+    if (r.transport !== 'ok' || r.status !== 200 || !r.json) continue;
+    const hit = findServerStart(r.json);
+    if (hit) return { ok: true, code: 'BOOT_TIME_READ', boot: { ...hit, route }, tried };
+    if (r.json.serverTs && r.json.uptimeSec !== undefined) {
+      const startedAt = new Date(Date.parse(r.json.serverTs) - Number(r.json.uptimeSec) * 1000).toISOString();
+      return { ok: true, code: 'BOOT_TIME_DERIVED', boot: { startedAt, uptimeSec: Number(r.json.uptimeSec), source: 'serverTs-uptimeSec', route }, tried };
+    }
   }
-  const hit = findServerStart(r.json);
-  if (!hit && r.json.serverTs && r.json.uptimeSec !== undefined) {
-    const startedAt = new Date(Date.parse(r.json.serverTs) - Number(r.json.uptimeSec) * 1000).toISOString();
-    return { ok: true, code: 'BOOT_TIME_DERIVED', boot: { startedAt, uptimeSec: Number(r.json.uptimeSec), source: 'serverTs-uptimeSec' } };
-  }
-  if (!hit) return { ok: false, code: 'BOOT_TIME_ABSENT', detail: 'the diagnostic bundle reports no process start time', boot: null };
-  return { ok: true, code: 'BOOT_TIME_READ', boot: hit };
+  return { ok: false, code: 'BOOT_TIME_UNAVAILABLE', detail: tried.map(t => `${t.route}=${t.status}/${t.transport}`).join(' '), boot: null, tried };
 }
 
 /**

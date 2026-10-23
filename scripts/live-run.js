@@ -641,7 +641,8 @@ async function cmdLive(a) {
       runStartedAt: runStartedIso || null,
       predatesRunByMs: predatesMs
     };
-    if (bootIso) annotate.notice('server process', `bootAt=${bootIso} uptimeSec=${report.identity.process.uptimeSec} runStartedAt=${runStartedIso || '-'} predatesRunByMs=${predatesMs === null ? '-' : predatesMs}`);
+    if (bootIso) annotate.notice('server process', `bootAt=${bootIso} route=${boot.boot.route} uptimeSec=${report.identity.process.uptimeSec} runStartedAt=${runStartedIso || '-'} predatesRunByMs=${predatesMs === null ? '-' : predatesMs}`);
+    else annotate.warning('server process', `the serving process start time is unavailable (${boot ? boot.code + ' ' + String(boot.detail || '').slice(0, 200) : 'probe failed'}) - the instance binding rests on buildSha+sessionId only`);
     if (predatesMs !== null && predatesMs > 120000) {
       return done(EXIT.BLOCKED, setFinal('BLOCKED', 'ORIGIN_INSTANCE_PREDATES_RUN',
         `the endpoint is served by a process that started ${Math.round(predatesMs / 60000)} min BEFORE origin run ${descriptor.originRunId} began (boot ${bootIso}, run ${runStartedIso}). Every boot-time value it holds belongs to an earlier run - the application's strict /api/rdp-token route compares the dashboard token against that boot snapshot - so a credential published by this run cannot prove THIS instance`));

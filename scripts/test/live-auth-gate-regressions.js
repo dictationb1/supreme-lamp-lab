@@ -106,14 +106,16 @@ module.exports = async function register({ test, assert, fs, path }) {
     assert.strictEqual(si.findServerStart({ a: { note: 'no time here' } }), null);
 
     const srv = http.createServer((req, res) => {
+      if (req.url !== '/api/native-status') { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('nope'); }
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ bundleVersion: 'f99/1', runner: { collector: { startedAt: '2026-10-23T04:00:00Z', uptimeSec: 60 } } }));
+      return res.end(JSON.stringify({ bundleVersion: 'f99/1', rdpListener: { logonCollector: { startedAt: '2026-10-23T04:00:00Z', uptimeSec: 60 } } }));
     });
     await new Promise(r => srv.listen(0, '127.0.0.1', r));
     try {
       const b = await si.serverBootTime({ target: `http://127.0.0.1:${srv.address().port}` });
       assert.strictEqual(b.ok, true, JSON.stringify(b));
       assert.strictEqual(b.boot.startedAt, '2026-10-23T04:00:00.000Z');
+      assert.strictEqual(b.boot.route, '/api/native-status', 'the route that answered is named');
     } finally { srv.close(); }
     const dead = await si.serverBootTime({ target: 'http://127.0.0.1:1', timeoutMs: 3000 });
     assert.strictEqual(dead.ok, false);
