@@ -1,0 +1,76 @@
+From 5f110d964b26e3fc04181c87d8a371023a18d253 Mon Sep 17 00:00:00 2001
+From: LAB candidate <lab@local>
+Date: Fri, 23 Oct 2026 10:09:31 +0000
+Subject: [PATCH] P001B: the credential-deleting purge route shares the
+ current-token policy
+
+/api/purge-stale-creds hands out a command that deletes TERMSRV credentials and
+repeated the exact gate P001 fixes: it compared the bearer with the boot
+snapshot only (-not $Token -or length -ne ... ) while main.yml writes the run's
+token after the server starts. Measured on the shipped source at the baseline
+and still present at application SHA 15e15ab8 (line 8226).
+
+Same resolver, same policy: current token authorizes itself, the snapshot is the
+fallback, missing/empty/forged/superseded still 401, constant-time compare kept.
+Refusals are recorded with Add-F99TokenTelemetry so the next 401 is diagnosable.
+---
+ payloads/ghrdp-server.ps1                      | 17 ++++++++++++++---
+ ...01-p002-ticket-and-version-identity.test.js | 18 ++++++++++++++++++
+ 2 files changed, 32 insertions(+), 3 deletions(-)
+
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index 026b24d9..cd2c3585 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -8266,11 +8266,22 @@ function Invoke-ClientRequest {
+         # Nothing here runs anything on the server, reads a credential value, or
+         # automates any credential UI.
+         if ($path -eq '/api/purge-stale-creds') {
++            # [P001] Same strict-gate defect as /api/rdp-token (payloads/ghrdp-server.ps1):
++            # this route hands out a CREDENTIAL-DELETING command, so it must accept the
++            # current run's dashboard token and refuse a superseded one - not compare
++            # the boot snapshot only. Shared resolver, same policy.
+             $authP = [string]$parts.headers['authorization']
+-            $expectP = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)
+             $recvP = [System.Text.Encoding]::UTF8.GetBytes($authP)
+-            if (-not $Token -or $recvP.Length -ne $expectP.Length -or
+-                -not (Test-TicketBearer $recvP $expectP)) {
++            $purgeCands = @(Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token)
++            $purgeOk = $false
++            foreach ($purgeCand in $purgeCands) {
++                if (-not $purgeCand) { continue }
++                $expectP = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + [string]$purgeCand)
++                if ($recvP.Length -ne $expectP.Length) { continue }
++                if (Test-TicketBearer $recvP $expectP) { $purgeOk = $true; break }
++            }
++            if (-not $purgeOk) {
++                try { Add-F99TokenTelemetry -Route '/api/purge-stale-creds' -Presented ($authP -replace '^Bearer\s+', '') -SnapshotToken $Token -Valid $false } catch { }
+                 Send-ClientResponse -Stream $stream -Code 401 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('dashboard authorization required'))
+                 return
+             }
+diff --git a/tests/p001-p002-ticket-and-version-identity.test.js b/tests/p001-p002-ticket-and-version-identity.test.js
+index 39afeda3..28fa694e 100644
+--- a/tests/p001-p002-ticket-and-version-identity.test.js
++++ b/tests/p001-p002-ticket-and-version-identity.test.js
+@@ -92,3 +92,21 @@ test("P002: a config with no identity key still answers dev", () => {
+   assert.ok(buildIdx > 0 && devIdx > buildIdx, "the dev fallback no longer runs after the buildSha lookup");
+   assert.ok(block.includes("if ($cfgV2.PSObject.Properties[$ck] -and [string]$cfgV2.$ck)"), "an empty buildSha would be accepted as an identity");
+ });
++
++test("P001: the credential-deleting purge route shares the current-token policy", () => {
++  const block = routeBlock("if ($path -eq '/api/purge-stale-creds') {");
++  assert.ok(
++    block.includes("Get-GhrdpStrictDashTokenCandidates -SnapshotToken $Token"),
++    "the purge route still compares only the boot snapshot",
++  );
++  assert.ok(
++    !block.includes("$expectP = [System.Text.Encoding]::UTF8.GetBytes('Bearer ' + $Token)"),
++    "the purge route still has the single-snapshot comparison",
++  );
++  assert.ok(block.includes("Code 401"), "the purge route's refusal path disappeared");
++  assert.ok(block.includes("Test-TicketBearer $recvP $expectP"), "the constant-time comparison was dropped on the purge route");
++  assert.ok(
++    block.includes("Add-F99TokenTelemetry -Route '/api/purge-stale-creds'"),
++    "the purge route no longer records why a token was refused",
++  );
++});

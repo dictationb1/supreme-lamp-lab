@@ -1,3 +1,4 @@
-# P001 -> P002 (ordered; each applies on top of the previous)
+# P001 -> P002 -> P001B (ordered; each applies on top of the previous)
 0001-P001-authorize-the-ticket-route-against-the-current-.patch
 0002-P002-api-version-reads-config.json-buildSha-the-iden.patch
+0003-P001B-purge-route-current-token.patch

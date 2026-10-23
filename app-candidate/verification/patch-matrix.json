@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-23T10:00:00Z",
+  "base": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+  "patches": [
+    {
+      "id": "P001",
+      "file": "0001-P001-authorize-the-ticket-route-against-the-current-.patch",
+      "sha256": "550f44dfcf07ab1db247209018a9cf8ea46ff25044c6bde0222fc754b3ff7109",
+      "symptom": "POST /api/rdp-token answers 401 for the current run's dashboard token while the refresh-aware routes accept the same token; and a previous run's token stays mintable for the life of the process",
+      "rootCause": "the route compared the bearer against $script:Token, read once at boot (payloads/ghrdp-server.ps1), while main.yml writes dash-token.txt/config.json.dashToken long after the GHRDP-Server task is kicked",
+      "changedFiles": [
+        "payloads/ghrdp-server.ps1",
+        "tests/p001-p002-ticket-and-version-identity.test.js"
+      ],
+      "dependsOn": [],
+      "failingReproduction": "lab run 39929404780 job 120333833464 (application-origin): ourBearer=401, anonymous=401, forged=401, diag expectedLen=0 publishedLen=32, refresh-aware probe REFRESH_AWARE_CURRENT",
+      "targetedRegression": "node --test tests/p001-p002-ticket-and-version-identity.test.js (3 tests at this commit, 5 after P002)",
+      "negativeCases": [
+        "no Authorization header -> 401",
+        "forged bearer -> 401",
+        "superseded token -> 401 (candidate) / mintable (baseline)",
+        "empty snapshot and no current token -> 401"
+      ],
+      "windowsEvidence": "real Windows run 39936599775: candidate arm PASS for this defect (P001: current accepted / superseded refused; P002: sha=<40-hex base>)",
+      "limitations": "does not add a rotation grace window (none is documented); the boot snapshot remains the fallback when no current token can be read"
+    },
+    {
+      "id": "P002",
+      "file": "0002-api-version-reads-config.json-buildSha-the-iden.patch",
+      "sha256": "a645b8287342a6bbdb2b475a53db559335052467def7b3fc9cb01171146b3cfb",
+      "symptom": "GET /api/version answers sha=\"dev\" while config.json carries the exact build identity",
+      "rootCause": "the route's config fallback read the key 'commit'; main.yml writes 'buildSha', and the Scheduled-Task server inherits no GHRDP_BUILD_SHA/GITHUB_SHA",
+      "changedFiles": [
+        "payloads/ghrdp-server.ps1",
+        "tests/p001-p002-ticket-and-version-identity.test.js"
+      ],
+      "dependsOn": [
+        "P001"
+      ],
+      "failingReproduction": "lab run 39929404780: VERSION_UNREACHABLE/VERSION_STAMP_ABSENT; source-read of /api/version shows the 'commit' fallback",
+      "targetedRegression": "node --test tests/p001-p002-ticket-and-version-identity.test.js (2 additional tests)",
+      "negativeCases": [
+        "config.json without buildSha/gitCommit/sourceSha still answers dev",
+        "an empty buildSha is not accepted as identity"
+      ],
+      "windowsEvidence": "real Windows run 39936599775: candidate arm PASS for this defect (P001: current accepted / superseded refused; P002: sha=<40-hex base>)",
+      "limitations": "reports the identity the workflow wrote; it cannot detect a config.json written by a different run (that is the run-descriptor's job)"
+    }
+  ]
+}

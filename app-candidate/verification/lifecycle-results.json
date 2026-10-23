@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-23T10:07:46Z",
+  "status": "NOT_RUN",
+  "reason": "every item needs an application-origin run (fresh credential, expiry, cancellation, superseded attempt) and the lab cannot dispatch the application workflow (HTTP 403). Lab lifecycle proof is deliberately NOT mixed with future production-origin proof.",
+  "unit_covered": [
+    "SIGNAL_STALE_ATTEMPT",
+    "closed-signal",
+    "RUN_ATTEMPT_SUPERSEDED",
+    "expired-record-skipped (prior lab session)"
+  ],
+  "owes": [
+    "fresh run with a new identity",
+    "old credential/endpoint not reusable",
+    "duplicate signal + retry bounds",
+    "cancellation + superseded attempts on dedicated test runs",
+    "short-TTL expiry against the real expiry logic"
+  ]
+}

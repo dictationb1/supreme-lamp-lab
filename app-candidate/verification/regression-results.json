@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-23T10:07:46Z",
+  "results": [
+    {
+      "suite": "lab regressions (scripts/run-regressions.js)",
+      "tests": 241,
+      "passed": 233,
+      "failed": 0,
+      "skipped": 8,
+      "platform": "linux sandbox",
+      "note": "8 skips are PowerShell/host-dependent"
+    },
+    {
+      "suite": "app pinned tests tests/p001-p002-ticket-and-version-identity.test.js",
+      "tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "where": "candidate clone, and a clean 6a327168 checkout with the queue applied"
+    },
+    {
+      "suite": "portable replay (app-candidate/replay/apply-and-verify.sh)",
+      "result": "REPLAY_OK",
+      "base": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+      "patches": 2,
+      "where": "fresh clone at the pinned base"
+    },
+    {
+      "suite": "real Windows candidate probes",
+      "result": "4/4 candidate expectations + P002 negative",
+      "where": "run 39936599775"
+    }
+  ],
+  "before_after": {
+    "before": "POST /api/rdp-token: current token 401, superseded token mintable; GET /api/version sha=dev",
+    "after": "POST /api/rdp-token: current token accepted, superseded + forged + anonymous 401; GET /api/version sha=<base 40-hex>; no identity -> dev"
+  }
+}

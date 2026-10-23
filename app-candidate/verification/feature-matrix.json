@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-23T10:07:46Z",
+  "scope": "this bundle covers two server-side defects; the application feature inventory is NOT claimed here",
+  "features": [
+    {
+      "id": "nav.build_provenance",
+      "status": "PASS",
+      "evidence": "GET /api/version sha=978a8375\u2026 (40-hex) on the patched candidate",
+      "where": "windows-results.json"
+    },
+    {
+      "id": "auth.dash_token_gate",
+      "status": "PASS",
+      "evidence": "anonymous 401, forged 401, current token accepted, superseded token refused",
+      "where": "windows-results.json"
+    },
+    {
+      "id": "auth.no_stale_key_reuse",
+      "status": "PASS",
+      "evidence": "superseded token refused by the patched candidate",
+      "where": "windows-results.json"
+    },
+    {
+      "id": "connection.ticket_single_use",
+      "status": "NOT_RUN",
+      "reason": "needs a tailnet source and a minted rid; lab runner is not a tailnet peer"
+    },
+    {
+      "id": "connection.native_rdp_launch",
+      "status": "NOT_RUN",
+      "reason": "needs the client VM and an application-origin run (lab cannot dispatch the app workflow: 403)"
+    },
+    {
+      "id": "webdesktop.frames",
+      "status": "NOT_RUN",
+      "reason": "depends on a live RDP session"
+    },
+    {
+      "id": "webdesktop.interaction",
+      "status": "NOT_RUN",
+      "reason": "depends on a live RDP session"
+    },
+    {
+      "id": "nav.routes_reachable",
+      "status": "NOT_RUN",
+      "reason": "needs an authenticated Mission Control UI session on the client VM"
+    },
+    {
+      "id": "files.list",
+      "status": "NOT_RUN",
+      "reason": "needs an authenticated UI session and controlled fixtures"
+    },
+    {
+      "id": "search.lane",
+      "status": "NOT_RUN",
+      "reason": "needs an authenticated UI session and a controlled source"
+    },
+    {
+      "id": "mirror.matrix",
+      "status": "NOT_RUN",
+      "reason": "not reported by this build in the prior run; not exercised here"
+    },
+    {
+      "id": "health.readiness_contract",
+      "status": "NOT_RUN",
+      "reason": "readiness contract is unchanged by these patches and was not re-measured"
+    },
+    {
+      "id": "telemetry.live_stream",
+      "status": "NOT_RUN",
+      "reason": "needs an authenticated UI session"
+    },
+    {
+      "id": "session.live_binding",
+      "status": "NOT_RUN",
+      "reason": "needs an application-origin run"
+    },
+    {
+      "id": "errors.classified_not_spinner",
+      "status": "NOT_RUN",
+      "reason": "needs an authenticated UI session"
+    },
+    {
+      "id": "settings.read_modify_restore",
+      "status": "SKIPPED",
+      "reason": "no reversible settings write route (unchanged from the prior run)"
+    },
+    {
+      "id": "connection.credential_hygiene",
+      "status": "PASS_LIMITED",
+      "evidence": "no token value appears in any artifact: only sha256[0:8] and length",
+      "where": "verify-routes.js fingerprinting"
+    },
+    {
+      "id": "lifecycle.teardown",
+      "status": "NOT_RUN",
+      "reason": "needs dedicated test runs on the origin"
+    }
+  ]
+}

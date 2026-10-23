@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-23T10:07:46Z",
+  "executor": {
+    "account": "GitHub Actions (lab repository)",
+    "repository": "dictationb1/supreme-lamp-lab",
+    "branch": "arena/77adac0a-supreme-lamp-lab",
+    "runners": [
+      "ubuntu-latest (probe design, replay, regressions)",
+      "windows-latest (real server + staging)",
+      "self-hosted rdp-lab-client (prior application-origin run, read-only evidence)"
+    ]
+  },
+  "upstream": {
+    "repository": "dictationb1/supreme-lamp",
+    "base": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+    "mainAtRecovery": "6a327168dbcdf5cabe40406ba21b726c8617fb8e",
+    "writes": 0,
+    "note": "no push, no dispatch, no secret or variable change"
+  },
+  "credentials": {
+    "application_keys_rotated": 0,
+    "mc_signal_key_reused": true,
+    "rdp_signing_identity_untouched": true,
+    "secrets_in_artifacts": 0,
+    "token_handling": "probe tokens are generated per run; only sha256[0:8] and length are recorded"
+  },
+  "toolVersions": {
+    "node": "v22.x",
+    "powershell": "pwsh 7.x on windows-latest",
+    "git": "runner default"
+  },
+  "priorApplicationRun": {
+    "id": 39899087271,
+    "attempt": 1,
+    "sha": "c470531e4739be072daea20425a1de203d0ed326",
+    "descriptorExpiry": "2026-10-23T10:12:31Z",
+    "use": "read-only evidence only; not re-attached, not reused"
+  }
+}

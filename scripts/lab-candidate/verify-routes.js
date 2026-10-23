@@ -127,6 +127,22 @@ async function probeToken(tok) {
   };
 }
 
+// /api/purge-stale-creds: a credential-DELETING command route with the same
+// strict gate. Acceptance here is 200 (no tailnet check on this route); a 401
+// means the credential was refused. The response body is never executed - it is
+// a command string the operator would run on their own PC.
+async function probePurge(tok) {
+  const r = await request(`http://127.0.0.1:${PORT}/api/purge-stale-creds`, {
+    timeoutMs: 20000, headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+  });
+  return {
+    status: r.status, transport: r.transport,
+    accepted: r.transport === 'ok' && r.status === 200,
+    hasCommand: !!(r.json && typeof r.json.command === 'string' && r.json.command.length > 0),
+    discriminator: r.transport !== 'ok' ? 'NO_RESPONSE' : (r.status === 401 ? 'REFUSED_401' : `ACCEPTED_${r.status}`),
+  };
+}
+
 function versionFacts(r) {
   return {
     status: r.status, transport: r.transport,
@@ -204,12 +220,15 @@ async function main() {
   const forged = await probeToken(TOKEN_FORGED);
   const current = await probeToken(TOKEN_NEW);
   const superseded = await probeToken(TOKEN_OLD);
+  const purgeCurrent = await probePurge(TOKEN_NEW);
+  const purgeSuperseded = await probePurge(TOKEN_OLD);
   const version = versionFacts(await request(`http://127.0.0.1:${PORT}/api/version`, { timeoutMs: 15000 }));
 
   out.steps = {
     ...out.steps,
     anonymous: { status: anon.status, transport: anon.transport },
     forged, current, superseded, version,
+    purge: { current: purgeCurrent, superseded: purgeSuperseded },
   };
 
   // ---- expectations --------------------------------------------------------
@@ -217,14 +236,16 @@ async function main() {
   //           P002 answers dev. Those are the reproductions we are looking for.
   // candidate: the opposite, with the negative cases intact.
   const expect = VARIANT === 'candidate'
-    ? { anon401: true, forgedRefused: true, currentAccepted: true, supersededRefused: true, versionIsBuild: true }
-    : { anon401: true, forgedRefused: true, currentAccepted: false, supersededRefused: false, versionIsBuild: false };
+    ? { anon401: true, forgedRefused: true, currentAccepted: true, supersededRefused: true, versionIsBuild: true, purgeCurrent: true, purgeSuperseded: false }
+    : { anon401: true, forgedRefused: true, currentAccepted: false, supersededRefused: false, versionIsBuild: false, purgeCurrent: false, purgeSuperseded: true };
 
   const checks = [
     { id: 'P001.anonymous', pass: (anon.transport === 'ok' && anon.status === 401) === expect.anon401, detail: { status: anon.status, transport: anon.transport } },
     { id: 'P001.forged', pass: forged.accepted === !expect.forgedRefused, detail: forged },
     { id: 'P001.current_token', pass: current.accepted === expect.currentAccepted, detail: current },
     { id: 'P001.superseded_token', pass: superseded.accepted === !expect.supersededRefused, detail: superseded },
+    { id: 'P001B.purge_current', pass: purgeCurrent.accepted === expect.purgeCurrent, detail: purgeCurrent },
+    { id: 'P001B.purge_superseded', pass: purgeSuperseded.accepted === !expect.purgeSuperseded, detail: purgeSuperseded },
     { id: 'P002.version_identity', pass: expect.versionIsBuild ? (version.is40Hex && version.sha === BUILD_SHA) : version.isDev, detail: version },
   ];
   out.checks.push(...checks);
@@ -232,6 +253,8 @@ async function main() {
     reproduction: VARIANT === 'baseline',
     currentTokenAccepted: current.accepted,
     supersededTokenAccepted: superseded.accepted,
+    purgeCurrentAccepted: purgeCurrent.accepted,
+    purgeSupersededAccepted: purgeSuperseded.accepted,
     versionSha: version.sha,
     allExpectationsMet: checks.every(c => c.pass),
   };
