@@ -1850,6 +1850,7 @@ $obj | ConvertTo-Json -Compress
     const register = require('./test/pick-record-regressions');
     await register({ test, assert, fs, path, os, tmpRoot });
     if (typeof register.requeue === 'function') await register.requeue({ test, assert });
+    if (typeof register.inconsistent === 'function') await register.inconsistent({ test, assert });
   }
 
   // ===== summary =====

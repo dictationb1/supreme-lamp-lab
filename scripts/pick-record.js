@@ -130,8 +130,15 @@ async function selectRecord({ rows, a, allow, now = Date.now(), readFull }) {
     if (!rec || rec.report) return null;
     const hist = Array.isArray(rec.history) ? rec.history : [];
     const last = hist[hist.length - 1] || {};
-    if (last.state !== 'FAILED' && last.state !== 'BLOCKED') return null;
-    if (!/exited without an in-process report|did not reach a report/.test(String(last.detail || ''))) return null;
+    // A state that claims a verdict while carrying NO report object is itself
+    // provably inconsistent: the in-process verify job writes state and report
+    // together, so this can only be a gap-fill (measured 2026-10-23:
+    // REPORTED_VERIFIED written for a run that aborted at CLAIMED).
+    const claimsVerdictWithoutReport = String(last.state || '').startsWith('REPORTED_');
+    if (!claimsVerdictWithoutReport) {
+      if (last.state !== 'FAILED' && last.state !== 'BLOCKED') return null;
+      if (!/in-process report|did not reach a report/.test(String(last.detail || ''))) return null;
+    }
     const requeues = hist.filter(h => h.state === 'AWAITING_LAB_ACCEPTANCE' && h.by && h.by !== 'origin').length;
     if (requeues >= 3) return null;
     return `REQUEUE_NO_VERIFICATION_WAS_ATTEMPTED(${requeues + 1}/3)`;
@@ -143,7 +150,7 @@ async function selectRecord({ rows, a, allow, now = Date.now(), readFull }) {
     // FAILED/BLOCKED rows are inspected (not skipped outright): only the record
     // BODY can prove that no verification was ever attempted, which is the one
     // condition that permits an automatic re-queue.
-    const inspectable = r.state === 'AWAITING_LAB_ACCEPTANCE' || r.state === 'FAILED' || r.state === 'BLOCKED';
+    const inspectable = r.state === 'AWAITING_LAB_ACCEPTANCE' || r.state === 'FAILED' || r.state === 'BLOCKED' || String(r.state || '').startsWith('REPORTED_');
     if (!inspectable && !a.correlation) { skipped.push(`${r.correlationId}: state=${r.state}`); continue; }
     if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
     if (String(r.origin).split('#')[0] && !allow.includes(String(r.origin).split('#')[0])) { skipped.push(`${r.correlationId}: origin ${r.origin} not allowlisted`); continue; }

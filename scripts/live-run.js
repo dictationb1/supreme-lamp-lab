@@ -478,7 +478,20 @@ async function cmdLive(a) {
     }
 
     // 3. serialize access to the VM desktop itself ------------------------
-    lock = acquireLock({ name: 'rdp-lab-desktop', owner: `${envOr('GITHUB_RUN_ID', 'local')}-${envOr('GITHUB_RUN_ATTEMPT', '1')}`, timeoutMs: 120000, role: 'live-run' });
+    // The desktop lock is a DIRECTORY lock (lib/lock.js), not a name/owner pair.
+    // Measured 2026-10-23 (lab run 39957424394, client VM): the call passed
+    // `name`/`owner`, acquireLock threw LOCK_DIR_REQUIRED, and the whole live
+    // verification aborted at CLAIMED before the origin was ever verified -
+    // while the run still exited 0, so the queue recorded a verdict it did not
+    // have. One desktop owner is a safety property: it must actually be taken.
+    const lockRoot = process.env.LAB_LOCK_DIR || path.join(os.tmpdir(), 'slab-locks');
+    lock = acquireLock({
+      lockDir: path.join(lockRoot, 'rdp-lab-desktop'),
+      runId: envOr('GITHUB_RUN_ID', 'local'),
+      runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
+      timeoutMs: 120000,
+      role: 'live-run'
+    });
     timings.desktopLockMs = Date.now() - t0;
 
     // 4. verify the origin against GitHub, not against the caller ---------
@@ -727,8 +740,15 @@ async function cmdAckState(a) {
   const descriptor = { originRepo: a.originRepo, originRunId: a.originRunId, originAttempt: a.originAttempt, correlationId: a.correlationId };
   if (!descriptor.originRepo || !descriptor.originRunId) return printExit(EXIT.USAGE, { code: 'ACK_TARGET_MISSING' });
   const jobResult = String(a.jobResult || 'unknown').toLowerCase();
+  // A JOB's success is not a VERDICT. The verify job exits 0 for every
+  // non-fatal outcome (BLOCKED/NO_EVIDENCE/UNCONFIRMED are all "not a crash"),
+  // so mapping success -> REPORTED_VERIFIED let a run that never reached the
+  // origin be recorded as verified (measured 2026-10-23: LOCK_DIR_REQUIRED
+  // aborted at CLAIMED and the queue then said REPORTED_VERIFIED). Only the
+  // in-process report may set a passing state; a gap-fill is BLOCKED and says
+  // so, which also permits the bounded re-queue.
   const map = {
-    success: 'REPORTED_VERIFIED',
+    success: 'BLOCKED',
     failure: 'FAILED',
     cancelled: 'BLOCKED',
     timed_out: 'BLOCKED',
@@ -742,7 +762,7 @@ async function cmdAckState(a) {
     return printExit(EXIT.OK, { code: 'ACK_ALREADY_REPORTED', state: existing.record.state, detail: 'the verify job already wrote the authoritative report; the job-level write-back stands down' });
   }
   const state = map[jobResult] || 'BLOCKED';
-  const detail = `job-level write-back: verify job result=${jobResult} (${state === 'BLOCKED' ? 'the run did not reach a report; this is not a failure of the product' : 'the verify job exited without an in-process report'})`;
+  const detail = `job-level write-back: verify job result=${jobResult} (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)`;
   const res = await store.updateRecordState({ repo: a.labRepo, descriptor, state, by: `dictationb1/supreme-lamp-lab@${envOr('GITHUB_REPOSITORY_OWNER', 'lab')}`, detail });
   return printExit(state === 'REPORTED_VERIFIED' ? EXIT.OK : EXIT.BLOCKED, { code: 'ACK_STATE_WRITTEN', state, updated: Boolean(res && res.updated), detail });
 }

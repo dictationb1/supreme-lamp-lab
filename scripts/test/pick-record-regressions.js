@@ -179,3 +179,35 @@ module.exports.requeue = async function requeueTests({ test, assert }) {
     assert.strictEqual(r.proceed, 'no', r.reason);
   });
 };
+
+// ---- a state that claims a verdict without a report is inconsistent ---------
+module.exports.inconsistent = async function inconsistentTests({ test, assert }) {
+  const { selectRecord } = require('../pick-record');
+  const REPO = 'dictationb1/supreme-lamp';
+  const SHA = '24ddaa9904c92dbbba39e3cc7aba458769e6bbe4';
+  const now = Date.now();
+  const desc = {
+    protocol: 'slab-live-run/1', originRepo: REPO, originWorkflow: '.github/workflows/main.yml',
+    originRunId: 39952421153, originAttempt: 1, appSha: SHA, uiBuild: `ui-dist-${SHA}`,
+    backendIdentity: '100.87.91.3:7331', authorizedEndpoint: 'http://100.87.91.3:7331',
+    issuedAt: new Date(now - 60000).toISOString(), expiresAt: new Date(now + 3600000).toISOString(),
+    labRevision: 'f'.repeat(40), correlationId: 'lr-39952421153-1',
+    dashTokenFingerprint: 'a'.repeat(64), clientTailnetIp: '', mode: 'live-origin'
+  };
+  const rows = [{ path: 'records/x.json', correlationId: 'lr-39952421153-1', origin: `${REPO}#39952421153/1`, appSha: SHA.slice(0, 12), mode: 'live-origin', state: 'REPORTED_VERIFIED', claimedBy: null, expiresInSeconds: 18000, pickable: false }];
+  const a = { correlation: '', origin: '', run: 0, attempt: 1 };
+  const readFull = rec => async () => ({ json: rec, sha: 'x' });
+
+  await test('inconsistent: REPORTED_VERIFIED with no report object is re-queued (gap-fill, never a real pass)', async () => {
+    const rec = { descriptor: desc, state: 'REPORTED_VERIFIED', history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, { state: 'REPORTED_VERIFIED', by: 'lab', detail: 'job-level write-back: verify job result=success' }] };
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(rec) });
+    assert.strictEqual(r.proceed, 'yes', r.reason);
+    assert.match(r.reason, /REQUEUE_NO_VERIFICATION_WAS_ATTEMPTED/);
+  });
+
+  await test('inconsistent: the same state WITH a report is never re-queued', async () => {
+    const rec = { descriptor: desc, state: 'REPORTED_VERIFIED', report: { verdict: { code: 'VERIFIED' } }, history: [{ state: 'AWAITING_LAB_ACCEPTANCE', by: 'origin' }, { state: 'REPORTED_VERIFIED', by: 'lab:1' }] };
+    const r = await selectRecord({ rows, a, allow: [REPO], now, readFull: readFull(rec) });
+    assert.strictEqual(r.proceed, 'no', r.reason);
+  });
+};
