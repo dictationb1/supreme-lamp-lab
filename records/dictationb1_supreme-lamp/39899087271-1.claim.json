@@ -8,5 +8,7 @@
   "descriptorId": "0bfb978d03fe5c20",
   "correlationId": "lr-39899087271-1",
   "superseded": "claimant run 39906977464 is completed/failure",
-  "nonce": "84954d7f73d40244"
+  "nonce": "84954d7f73d40244",
+  "supersededAt": "2026-10-23T05:55:53.077Z",
+  "supersededReason": "claimant run 39907360830 is completed/failure"
 }
