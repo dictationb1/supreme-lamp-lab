@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "13ceb3f0d25d3107"
   },
-  "state": "CLAIMED_BY_LAB",
+  "state": "REPORTED_FAILED",
   "history": [
     {
       "at": "2026-10-23T04:22:25.748Z",
@@ -224,6 +224,12 @@
       "state": "CLAIMED_BY_LAB",
       "by": "lab:39913711978",
       "detail": "SUPERSEDED_DEAD_CLAIMANT"
+    },
+    {
+      "at": "2026-10-23T07:20:30.265Z",
+      "state": "REPORTED_FAILED",
+      "by": "lab:39913711978",
+      "detail": "auth.dash_token_gate; 3/14 mandatory features PASS; correlation lr-39899087271-1"
     }
   ],
   "envelopeTransport": {
@@ -237,7 +243,23 @@
     "exists": true,
     "created": true
   },
-  "updatedAt": "2026-10-23T06:49:32.666Z",
+  "updatedAt": "2026-10-23T07:20:30.265Z",
   "retryable": true,
-  "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified"
+  "retryableReason": "no in-process report was produced by the lab attempt; the origin run was not verified",
+  "report": {
+    "labRunId": "39913711978",
+    "attempt": "1",
+    "verdict": "auth.dash_token_gate",
+    "accepted": false,
+    "counts": {
+      "PASS": 3,
+      "FAIL": 7,
+      "BLOCKED": 6,
+      "NOT_RUN": 0,
+      "SKIPPED": 4,
+      "SIMULATED": 0
+    },
+    "url": "https://github.com/dictationb1/supreme-lamp-lab/actions/runs/39913711978",
+    "correlationId": "lr-39899087271-1"
+  }
 }
