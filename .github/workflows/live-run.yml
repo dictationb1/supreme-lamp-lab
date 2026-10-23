@@ -591,7 +591,7 @@ jobs:
           foreach ($alt in @(7331, 7332)) { if ($probePorts -notcontains $alt) { $probePorts += $alt } }
           $rows = @()
           foreach ($p in $probePorts) {
-            foreach ($route in @('/api/ping', '/health', '/api/version', '/')) {
+            foreach ($route in @('/api/ping', '/health', '/api/version', '/', '/v2', '/api/native-status', '/api/status')) {
               $sw = [System.Diagnostics.Stopwatch]::StartNew()
               $c = & curl.exe -s -o NUL -m 15 -w '%{http_code} %{size_download} %{time_total}' ("{0}://{1}:{2}{3}" -f $u.Scheme, $hostName, $p, $route) 2>$null
               $ce = $LASTEXITCODE
@@ -714,6 +714,9 @@ jobs:
           # the limiting factor. The report goes into the branch instead.
           $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
           if (-not (Test-Path $dir)) { Write-Host "::notice title=evidence publish::no artifact dir this run"; exit 0 }
+          # the listener classification lives beside the artifact dir, not inside it
+          $probe = Join-Path $env:RUNNER_TEMP 'probe'
+          if (Test-Path (Join-Path $probe 'listeners.json')) { Copy-Item (Join-Path $probe 'listeners.json') (Join-Path $dir 'listeners.json') -Force }
           $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
           $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
           $dest = "reports/mission-control/$runId-$attempt/evidence"

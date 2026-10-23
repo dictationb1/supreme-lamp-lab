@@ -1,0 +1,183 @@
+name: App Candidate (lab-built, lab-served, real client VM)
+
+# ---------------------------------------------------------------------------
+# Builds the PATCHED application from its pinned base commit, serves that exact
+# bundle to a real headed browser on the self-hosted Windows client, and records
+# per-control verdicts.
+#
+# Honesty rules this file obeys:
+#   * The backend used by the sweep is scripts/candidate/stub-server.js, a
+#     LAB STUB that reproduces the live origin's three measured backend states
+#     (refused / empty / healthy). It is labelled as a stub in every artifact.
+#     It is NEVER described as the application's server.
+#   * The bundle under test IS the real production build path
+#     (`npx vite build` -> single-file ui/dist/index.html, VITE_BUILD_SHA set).
+#   * Controls that require a real backend or a real RDP session are recorded as
+#     BLOCKED with the exact prerequisite. They are never counted as passes.
+#   * Everything is published into the lab repository, because artifact ZIPs and
+#     step logs redirect to hosts an automation environment cannot reach
+#     (measured 2026-10-23: productionresultssa9.blob.core.windows.net /
+#     results-receiver.actions.githubusercontent.com -> EOF).
+#
+# Trigger: a `candidate-run` label on a same-repository pull request, or the
+# workflow_dispatch inputs below (dispatch needs actions:write, which the
+# automation token does not have - that is why the label path exists).
+# ---------------------------------------------------------------------------
+
+run-name: app-candidate ${{ github.event.pull_request.head.ref || github.ref_name }}
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      app_sha:
+        description: 'supreme-lamp base commit (40-hex) to patch and build'
+        required: false
+        default: 'e432d3df4cf00a8528d574f8410f6a76e590db31'
+        type: string
+
+concurrency:
+  group: app-candidate
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  candidate:
+    name: build + serve + drive the patched UI
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.label.name == 'candidate-run')
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 40
+    env:
+      APP_SHA: ${{ inputs.app_sha || 'e432d3df4cf00a8528d574f8410f6a76e590db31' }}
+      HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Runner identity (read, never assume)
+        run: |
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=candidate runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s"
+          if ($s -le 0) { Write-Host "::error title=no interactive desktop::session=$s"; exit 4 }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the pinned application base and apply the patch series
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $env:RUNNER_TEMP "cand-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $zip = Join-Path $work 'app.zip'
+          curl.exe -fsSL -o $zip "https://codeload.github.com/dictationb1/supreme-lamp/zip/$env:APP_SHA"
+          if ($LASTEXITCODE -ne 0) { throw 'codeload download failed' }
+          $zipSha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "::notice title=app base::sha=$env:APP_SHA zipSha256=$zipSha"
+          Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
+          $app = Join-Path $work "supreme-lamp-$env:APP_SHA"
+          if (-not (Test-Path $app)) { throw "unexpected archive layout under $work" }
+          Write-Host "APP_DIR=$app" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          foreach ($p in (Get-ChildItem -Path 'reports/mission-control/40022345749-1/app-patches' -Filter '*.patch' | Sort-Object Name)) {
+            Write-Host "::notice title=patch::applying $($p.Name)"
+            & git -C $app apply --whitespace=nowarn $p.FullName
+            if ($LASTEXITCODE -ne 0) { throw "patch failed: $($p.Name)" }
+          }
+          & git -C $app status --short | Out-String | Write-Host
+
+      - name: Install + unit-test the patched tree (the app's own suite)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:APP_DIR
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          # The suite is the app's own regression gate; a failure here means the
+          # patch changed behaviour the app relies on.
+          npx vitest run --reporter=dot 2>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'app-tests.log') | Select-Object -Last 12
+          $code = $LASTEXITCODE
+          "APP_TEST_EXIT=$code" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Pop-Location
+          exit 0
+
+      - name: Build the single-file bundle (production build path)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location $env:APP_DIR
+          $env:VITE_BUILD_SHA = "cand-$($env:GITHUB_SHA.Substring(0,12))"
+          npx vite build
+          if ($LASTEXITCODE -ne 0) { throw 'vite build failed' }
+          $bundle = Join-Path $env:APP_DIR 'ui\dist\index.html'
+          if (-not (Test-Path $bundle)) { throw 'ui/dist/index.html missing after build' }
+          $bytes = (Get-Item $bundle).Length
+          $sha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "::notice title=candidate bundle::$bytes bytes sha256=$sha build=cand-$($env:GITHUB_SHA.Substring(0,12))"
+          "BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUNDLE_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Pop-Location
+
+      - name: Install lab dependencies + Chromium (headed)
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'lab npm ci failed' }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'playwright chromium install failed' }
+
+      - name: Drive the candidate UI in three backend states (refused / empty / healthy)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = Join-Path $env:RUNNER_TEMP "artifacts\candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($mode in @('refuse','empty','healthy')) {
+            $modeOut = Join-Path $out $mode
+            New-Item -ItemType Directory -Force -Path $modeOut | Out-Null
+            $stub = Start-Process -FilePath node -PassThru -WindowStyle Hidden `
+              -ArgumentList @("scripts\candidate\stub-server.js", "--port", "7331", "--fault", $mode, "--ui", $env:BUNDLE, "--sha", "cand-$($env:GITHUB_SHA.Substring(0,12))")
+            Start-Sleep -Seconds 2
+            try {
+              node scripts\candidate\sweep.js --base http://127.0.0.1:7331 --out $modeOut --sha "cand-$($env:GITHUB_SHA.Substring(0,12))" --bundle $env:BUNDLE --modes $mode
+              $rc = $LASTEXITCODE
+              Write-Host "::notice title=candidate sweep::$mode exit=$rc"
+            } finally {
+              if ($stub -and -not $stub.HasExited) { Stop-Process -Id $stub.Id -Force -ErrorAction SilentlyContinue }
+            }
+          }
+          Copy-Item -Path (Join-Path $env:RUNNER_TEMP 'app-tests.log') -Destination (Join-Path $out 'app-tests.log') -ErrorAction SilentlyContinue
+          @{ appBase = $env:APP_SHA; bundleSha256 = $env:BUNDLE_SHA; build = "cand-$($env:GITHUB_SHA.Substring(0,12))"; labSha = $env:GITHUB_SHA; appTestExit = $env:APP_TEST_EXIT } |
+            ConvertTo-Json | Out-File -FilePath (Join-Path $out 'candidate-provenance.json') -Encoding utf8
+          Get-ChildItem -Recurse $out | Select-Object FullName, Length | Out-String | Write-Host
+          exit 0
+
+      - name: Publish sanitized candidate evidence into the repository
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (-not (Test-Path $dir)) { Write-Host '::notice title=candidate evidence::nothing to publish'; exit 0 }
+          # Flatten to one directory of files (the report/CSV/PNG/log/provenance).
+          $flat = Join-Path $env:RUNNER_TEMP 'candidate-evidence-flat'
+          if (Test-Path $flat) { Remove-Item -Recurse -Force $flat }
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          Get-ChildItem -Recurse -File $dir | ForEach-Object {
+            $name = if ($_.Directory.Name -eq 'shots' -or $_.Directory.Name -like 'refuse*' -or $_.Directory.Name -like 'empty*' -or $_.Directory.Name -like 'healthy*') { $_.Name } else { $_.Name }
+            $target = Join-Path $flat $name
+            if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
+            Copy-Item $_.FullName $target
+          }
+          node scripts/publish-evidence.js --dir $flat --dest 'reports/mission-control/40022345749-1/candidate' --branch $env:HEAD_BRANCH --message "evidence: candidate sweep $env:GITHUB_RUN_ID [skip ci]"
+          exit 0
+
+      - name: Postflight (stop anything this attempt started)
+        if: always()
+        run: |
+          Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like '*candidate\stub-server.js*' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          node scripts/cleanup-lab.js --mode postflight
+          exit 0

@@ -1,0 +1,526 @@
+diff --git a/src/components/domain/PrimaryActions.tsx b/src/components/domain/PrimaryActions.tsx
+index 7e41863..3e0f993 100644
+--- a/src/components/domain/PrimaryActions.tsx
++++ b/src/components/domain/PrimaryActions.tsx
+@@ -56,6 +56,8 @@ export function PrimaryActions({
+   const fqdn = useSessionStore((s) => s.fqdn);
+   const user = useSessionStore((s) => s.user);
+   const listenerOkFlag = useSessionStore((s) => s.listenerOkFlag);
++  const probes = useSessionStore((s) => s.probes);
++  const configLoaded = useSessionStore((s) => s.configLoaded);
+   const runnerDnsOk = useSessionStore((s) => s.runnerDnsOk);
+   const autoLogin = useSessionStore((s) => s.autoLogin);
+   const fireAutoLogin = useSessionStore((s) => s.fireAutoLogin);
+@@ -82,23 +84,61 @@ export function PrimaryActions({
+ 
+   const webdeskUrl = validWebdeskUrl(s.webdeskUrl);
+ 
+-  // Auto-login gate: valid fqdn+user AND listener all green AND runner DNS ok.
+-  const autoOk = credOkLocal && listenerOkFlag && runnerDnsOk;
++  // [F201 §4] A probe that did not succeed is NOT evidence about credentials,
++  // DNS or the listener. When /api/native-status (or /api/config) was refused or
++  // unreachable, the gate names THAT and the remediation; the credential/DNS/
++  // listener wording is only reachable from a trusted 200 answer.
++  // TRUSTED = a 200 body arrived (state "ok"), OR the probe has not run yet but
++  // a store already holds status data (a seeded/pushed snapshot, or a render
++  // before the first poll). "pending" with NO data is NOT trust: nothing has
++  // been measured, and the gate says exactly that.
++  const nativeTrusted =
++    probes.native.state === "ok" || (probes.native.state === "pending" && !!native);
++  const configTrusted =
++    probes.config.state === "ok" || (probes.config.state === "pending" && configLoaded);
++  const probeBlocker = (which: "native" | "config"): string => {
++    const pr = probes[which];
++    const status = pr.status ? " (HTTP " + pr.status + ")" : "";
++    switch (pr.state) {
++      case "unauthorized":
++        return t("overview.connect.probeUnauthorized") + status;
++      case "forbidden":
++        return t("overview.connect.probeForbidden") + status;
++      case "transport":
++        return t("overview.connect.probeUnreachable");
++      case "schema":
++        return t("overview.connect.probeSchema") + status;
++      case "http":
++        return t("overview.connect.probeHttp") + status;
++      default:
++        return t("overview.connect.probePending");
++    }
++  };
++
++  // Auto-login gate: a TRUSTED status probe AND valid fqdn+user AND listener all
++  // green AND runner DNS ok.
++  const autoOk = nativeTrusted && credOkLocal && listenerOkFlag && runnerDnsOk;
+   const autoNote = autoOk
+     ? "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails"
+-    : !runnerDnsOk
+-      ? "Runner DNS broken"
+-      : credOkLocal
+-        ? "RDP LISTENER probe not all green (listening/fw/cert/nla) - fix the failed field in the RDP LISTENER row; AUTO-LOGIN stays disabled"
+-        : "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails";
++    : !nativeTrusted
++      ? probeBlocker("native")
++      : !runnerDnsOk
++        ? "Runner DNS broken"
++        : credOkLocal
++          ? "RDP LISTENER probe not all green (listening/fw/cert/nla) - fix the failed field in the RDP LISTENER row; AUTO-LOGIN stays disabled"
++          : "fullscreen native mstsc via one-time ticket; Windows prompts for your password (cmdkey) only if redemption fails";
+ 
+   // [F94 §3.3] A disabled <button> swallows its click entirely - no hover, no
+   // tooltip, no toast. Every failing gate is named here, in the tooltip AND on
+   // the page, so a dead button always says which gate killed it.
+   const autoBlockers: string[] = [];
+-  if (!credOkLocal) autoBlockers.push(t("autoLoginBlocked.credentials"));
+-  if (!runnerDnsOk) autoBlockers.push(t("autoLoginBlocked.dns"));
+-  if (!listenerOkFlag) autoBlockers.push(t("autoLoginBlocked.listener"));
++  if (!nativeTrusted) autoBlockers.push(probeBlocker("native"));
++  else {
++    if (!credOkLocal) autoBlockers.push(t("autoLoginBlocked.credentials"));
++    if (!runnerDnsOk) autoBlockers.push(t("autoLoginBlocked.dns"));
++    if (!listenerOkFlag) autoBlockers.push(t("autoLoginBlocked.listener"));
++  }
++  if (nativeTrusted && !configTrusted) autoBlockers.push(probeBlocker("config"));
+   const autoWhy = autoBlockers.join("; ");
+   const autoTitle = autoOk ? autoNote : t("autoLoginBlocked.title") + " " + autoWhy;
+ 
+diff --git a/src/components/layout/AppShell.tsx b/src/components/layout/AppShell.tsx
+index a398aa9..bf0ab24 100644
+--- a/src/components/layout/AppShell.tsx
++++ b/src/components/layout/AppShell.tsx
+@@ -100,6 +100,10 @@ function TopBar() {
+   const wsAttempts = useTelemetryStore((s) => s.wsAttempts);
+   const requestWsReconnect = useTelemetryStore((s) => s.requestWsReconnect);
+   const progressLost = useTelemetryStore((s) => s.progressLost);
++  // [F201 §5] An open socket is a VIEWING MODE, not a measurement of the
++  // backend's data. While either status probe is refused or unreachable the
++  // glanceable chip must say so instead of "Live".
++  const probes = useSessionStore((s) => s.probes);
+   const mirror = useTelemetryStore((s) => s.mirror);
+   const serverNow = useTelemetryStore((s) => s.serverNow);
+   useNow(1000);
+@@ -117,16 +121,24 @@ function TopBar() {
+ 
+   // The worst state wins, so the one indicator can never read "fine" while a
+   // producer underneath is failing.
++  const dataUnavailable =
++    probes.native.state !== "ok" && probes.native.state !== "pending"
++      ? true
++      : probes.config.state !== "ok" && probes.config.state !== "pending";
+   const summaryKey = progressLost
+     ? "topbar.status.lost"
+     : wsDead
+       ? "topbar.status.socketDown"
+-      : wsLive
+-        ? "topbar.status.live"
+-        : wsAvailable
+-          ? "topbar.status.socketIdle"
+-          : "topbar.status.socketAbsent";
+-  const summaryTone = progressLost || wsDead ? "danger" : wsLive ? "success" : "warning";
++      : dataUnavailable
++        ? "topbar.status.dataUnavailable"
++        : wsLive
++          ? "topbar.status.live"
++          : wsAvailable
++            ? "topbar.status.socketIdle"
++            : "topbar.status.socketAbsent";
++  // The worst state wins, so the one indicator can never read "fine" while a
++  // producer underneath is failing - including the two status probes.
++  const summaryTone = progressLost || wsDead || dataUnavailable ? "danger" : wsLive ? "success" : "warning";
+ 
+   // [#214 §4] 44px minimum on every top-bar control; the glyph stays 20px.
+   const barBtn =
+diff --git a/src/hooks/useDashboardPolling.ts b/src/hooks/useDashboardPolling.ts
+index adc4b8a..065d826 100644
+--- a/src/hooks/useDashboardPolling.ts
++++ b/src/hooks/useDashboardPolling.ts
+@@ -5,7 +5,7 @@
+ // [F56-d §3] Search surface reads window.__GHRDP_SEARCH_ENABLED from /diag at boot + polling.
+ import { useEffect } from "react";
+ import { announceSearchLane } from "@/lib/search/lane";
+-import { configUrl, getJson, nativeStatusUrl } from "@/lib/api";
++import { configUrl, getJson, nativeStatusUrl, probeJson } from "@/lib/api";
+ // [F95 §3.4 / R4] the dash token the /ws upgrade needs (and the storage key to
+ // watch so a token change rebuilds the socket instead of silently failing).
+ import { DASH_TOKEN_STORAGE_KEY, getDashToken } from "@/lib/dashToken";
+@@ -26,6 +26,7 @@ export function useDashboardPolling(): void {
+   const setConfig = useSessionStore((s) => s.setConfig);
+   const setNativeStatus = useSessionStore((s) => s.setNativeStatus);
+   const markNativeLost = useSessionStore((s) => s.markNativeLost);
++  const setProbe = useSessionStore((s) => s.setProbe);
+   const setProgress = useTelemetryStore((s) => s.setProgress);
+   const setWire = useTelemetryStore((s) => s.setWire);
+   const setWsLive = useTelemetryStore((s) => s.setWsLive);
+@@ -42,15 +43,29 @@ export function useDashboardPolling(): void {
+     };
+     if (typeof window !== 'undefined') window.addEventListener('ghrdp-force-poll', forcePoll);
+ 
++    // [F201 §3] The PROBE RESULT is recorded next to the data. A refused or
++    // unreachable read sets the probe state and leaves the last known values
++    // alone; it never silently becomes "the server says this field is empty".
+     const pollConfig = async () => {
+-      const cf = await getJson(configUrl());
+-      if (alive) setConfig(cf);
++      const r = await probeJson(configUrl());
++      if (!alive) return;
++      if (r.ok && r.data) {
++        setConfig(r.data);
++        setProbe("config", "ok", r.status);
++      } else {
++        setProbe("config", r.failure || "schema", r.status);
++      }
+     };
+     const pollNative = async () => {
+-      const s = await getJson(nativeStatusUrl());
++      const r = await probeJson(nativeStatusUrl());
+       if (!alive) return;
+-      if (s) setNativeStatus(s);
+-      else markNativeLost();
++      if (r.ok && r.data) {
++        setNativeStatus(r.data);
++        setProbe("native", "ok", r.status);
++      } else {
++        setProbe("native", r.failure || "schema", r.status);
++        markNativeLost();
++      }
+     };
+ 
+     const pollDiagForSearch = async () => {
+diff --git a/src/i18n/en.json b/src/i18n/en.json
+index 5551e85..7eb4f56 100644
+--- a/src/i18n/en.json
++++ b/src/i18n/en.json
+@@ -1526,7 +1526,13 @@
+       "fqdnUnset": "(not set)",
+       "beaconSeen": "launcher beacon received",
+       "evidence": "Evidence",
+-      "detailSummary": "Launch detail (certificate, NLA, CredSSP)"
++      "detailSummary": "Launch detail (certificate, NLA, CredSSP)",
++      "probeUnauthorized": "the dashboard refused this page: no valid run key was presented, so nothing about credentials, DNS or the listener has been measured. Open the page with this run's ?key= and reload",
++      "probeForbidden": "the dashboard denied this source address (policy), so no live status was measured",
++      "probeUnreachable": "the dashboard did not answer (network/transport), so no live status was measured",
++      "probeSchema": "the dashboard answered with a body this build cannot read (schema/build mismatch)",
++      "probeHttp": "the dashboard answered with an error status, so no live status was measured",
++      "probePending": "waiting for the first status answer; nothing has been measured yet"
+     },
+     "workspace": {
+       "title": "Workspace",
+@@ -1638,7 +1644,8 @@
+       "socketDown": "Socket down",
+       "socketIdle": "Socket idle",
+       "socketAbsent": "No /ws endpoint",
+-      "detail": "Status detail"
++      "detail": "Status detail",
++      "dataUnavailable": "Data unavailable"
+     }
+   },
+   "health": {
+diff --git a/src/i18n/si.json b/src/i18n/si.json
+index d1c2e74..6601bd6 100644
+--- a/src/i18n/si.json
++++ b/src/i18n/si.json
+@@ -1526,7 +1526,13 @@
+       "fqdnUnset": "(සකසා නැත)",
+       "beaconSeen": "දියත්කරු බීකනය ලැබුණි",
+       "evidence": "සාක්ෂිය",
+-      "detailSummary": "දියත් විස්තර (සහතිකය, NLA, CredSSP)"
++      "detailSummary": "දියත් විස්තර (සහතිකය, NLA, CredSSP)",
++      "probeUnauthorized": "මෙම පිටුවට ධාවන යතුර (?key=) ඉදිරිපත් කර නැති නිසා උපකරණාගාරය (dashboard) ප්‍රතික්ෂේප කළේය. එබැවින් අක්තපත්‍ර, DNS හෝ RDP ඇසුරුම ගැන කිසිවක් මනින ලද නැත. මෙම ධාවනයේ ?key= සමඟ පිටුව නැවත විවෘත කරන්න",
++      "probeForbidden": "මූලාශ්‍ර ලිපිනයට අවසර නැත (ප්‍රතිපත්තිය). එබැවින් සජීවී තත්ත්වයක් මනින ලද නැත",
++      "probeUnreachable": "උපකරණාගාරය පිළිතුරු දුන්නේ නැත (ජාලය). එබැවින් සජීවී තත්ත්වයක් මනින ලද නැත",
++      "probeSchema": "මෙම ගොඩනැගීමට කියවිය නොහැකි පිළිතුරක් ලැබිණි (යෝජනා ක්‍රම/ගොඩනැගීම් නොගැලපීම)",
++      "probeHttp": "උපකරණාගාරය දෝෂ තත්ත්වයක් සමඟ පිළිතුරු දුන්නේය. එබැවින් සජීවී තත්ත්වයක් මනින ලද නැත",
++      "probePending": "පළමු තත්ත්ව පිළිතුර එනතුරු බලා සිටී; තවම කිසිවක් මනින ලද නැත"
+     },
+     "workspace": {
+       "title": "වැඩබිම",
+@@ -1638,7 +1644,8 @@
+       "socketDown": "සොකට් බිඳී ඇත",
+       "socketIdle": "සොකට් නිෂ්ක්‍රීය",
+       "socketAbsent": "/ws නැත",
+-      "detail": "තත්ත්ව විස්තර"
++      "detail": "තත්ත්ව විස්තර",
++      "dataUnavailable": "දත්ත නොමැත"
+     }
+   },
+   "health": {
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+index 059a8f1..f827f1b 100644
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -40,6 +40,50 @@ export async function getJson<T = unknown>(url: string, init?: RequestInit): Pro
+   }
+ }
+ 
++// [F201 §1] A PROBE THAT FAILED IS NOT A MEASUREMENT.
++//
++// `getJson` collapses every outcome into `null`: a 401 (no dashboard key, or a
++// key from an earlier run), a 403 (source policy), a network error and an empty
++// but successful answer are all indistinguishable to the caller. The stores then
++// keep their empty defaults, and the Overview screen renders those defaults as
++// measured facts: "FQDN/user validation failed", "runner tailnet IP did not
++// resolve", "RDP LISTENER probe not all green" - three accusations against the
++// server, produced by a request the server refused or never received.
++//
++// `probeJson` keeps the STATUS and a stable failure class so the UI can say what
++// actually happened, and so a disabled control can name its real prerequisite.
++export type ProbeFailure = "" | "unauthorized" | "forbidden" | "http" | "transport" | "schema";
++
++export interface ProbeResult<T = unknown> {
++  ok: boolean;
++  /** HTTP status, or 0 when the request never produced one. */
++  status: number;
++  failure: ProbeFailure;
++  data: T | null;
++}
++
++function classifyStatus(status: number): ProbeFailure {
++  if (status === 401) return "unauthorized";
++  if (status === 403) return "forbidden";
++  return "http";
++}
++
++export async function probeJson<T = unknown>(url: string, init?: RequestInit): Promise<ProbeResult<T>> {
++  let r: Response;
++  try {
++    r = await fetch(url, { cache: "no-store", ...init });
++  } catch {
++    return { ok: false, status: 0, failure: "transport", data: null };
++  }
++  if (!r.ok) return { ok: false, status: r.status, failure: classifyStatus(r.status), data: null };
++  try {
++    return { ok: true, status: r.status, failure: "", data: (await r.json()) as T };
++  } catch {
++    // A 200 that is not JSON is a schema/build mismatch, not a healthy read.
++    return { ok: false, status: r.status, failure: "schema", data: null };
++  }
++}
++
+ export function configUrl(): string {
+   const key = getKey();
+   return apiBase() + "/api/config" + (key ? "?key=" + encodeURIComponent(key) : "");
+diff --git a/src/stores/sessionStore.ts b/src/stores/sessionStore.ts
+index 936e5e6..5c40f56 100644
+--- a/src/stores/sessionStore.ts
++++ b/src/stores/sessionStore.ts
+@@ -28,6 +28,17 @@ interface AutoLoginState {
+   helloSeen: boolean;
+ }
+ 
++// [F201 §2] Data-trust state, per probe. `pending` = no answer yet this session;
++// `ok` = the last answer was a 200 with a JSON body; every other value is the
++// class of failure, and the UI must not derive measurements from an untrusted probe.
++export type ProbeState = "pending" | "ok" | "unauthorized" | "forbidden" | "http" | "transport" | "schema";
++
++export interface ProbeReport {
++  state: ProbeState;
++  status: number;
++  at: number;
++}
++
+ interface SessionState {
+   configLoaded: boolean;
+   fqdn: string;
+@@ -52,6 +63,8 @@ interface SessionState {
+   lastHandlerTs: string;
+   diagOpen: boolean;
+   diagText: string;
++  probes: { config: ProbeReport; native: ProbeReport };
++  setProbe: (which: "config" | "native", state: ProbeState, status?: number) => void;
+ 
+   setConfig: (cf: Any) => void;
+   setNativeStatus: (s: Any) => void;
+@@ -101,6 +114,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
+   compBundleLastFetched: 0,
+   diagOpen: false,
+   diagText: "",
++  probes: {
++    config: { state: "pending", status: 0, at: 0 },
++    native: { state: "pending", status: 0, at: 0 },
++  },
++
++  setProbe: (which, state, status) =>
++    set((prev) => ({
++      probes: {
++        ...prev.probes,
++        [which]: { state, status: Number(status || 0), at: Date.now() },
++      },
++    })),
+ 
+   setConfig: (cf) => {
+     if (!cf) return;
+diff --git a/candidate/src/tests/smoke/f201-probe-honesty.test.tsx b/src/tests/smoke/f201-probe-honesty.test.tsx
+new file mode 100644
+index 0000000..d036761
+--- /dev/null
++++ b/src/tests/smoke/f201-probe-honesty.test.tsx
+@@ -0,0 +1,170 @@
++// [F201] A REFUSED PROBE IS NOT A MEASUREMENT.
++//
++// Operator-visible baseline (application SHA e432d3df4cf00a8528d574f8410f6a76e590db31,
++// live run 40022345749/1): the Overview screen said
++//   "WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed
++//    validation; the runner tailnet IP did not resolve; the RDP LISTENER probe
++//    is not all green"
++// while the same page showed "(not set)" for the FQDN and no Web Desktop URL -
++// i.e. the client had never received a status body at all. `getJson()` returned
++// `null` for a 401, a 403, a network error and an empty 200 alike, the stores
++// kept their empty defaults, and those defaults were rendered as measurements
++// of the server's credentials, DNS and listener.
++//
++// This suite pins the three behaviours that make the lie impossible:
++//   1. the transport keeps the STATUS and a stable failure class;
++//   2. the store records the probe result next to the data;
++//   3. the Overview gate names the probe failure (and its remediation) instead
++//      of accusing credentials/DNS/listener that were never measured - and it
++//      still names the real credential gate once a trusted answer arrives.
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { render, screen, cleanup } from "@testing-library/react";
++import { MemoryRouter } from "react-router-dom";
++import "@/i18n";
++import { probeJson } from "@/lib/api";
++import { useSessionStore } from "@/stores/sessionStore";
++import Overview from "@/pages/Overview";
++
++// The Overview page mounts the composed cards (PrimaryActions included); the
++// gate wording is asserted through the same data-testid the operator sees.
++function renderOverview() {
++  return render(
++    <MemoryRouter>
++      <Overview />
++    </MemoryRouter>
++  );
++}
++
++const realFetch = globalThis.fetch;
++
++function respond(status: number, body: unknown = {}, isJson = true): void {
++  globalThis.fetch = vi.fn(async () =>
++    new Response(isJson ? JSON.stringify(body) : "<html>not json</html>", {
++      status,
++      headers: { "content-type": isJson ? "application/json" : "text/html" },
++    })
++  ) as unknown as typeof fetch;
++}
++
++function resetStore(): void {
++  useSessionStore.setState({
++    configLoaded: false,
++    fqdn: "",
++    user: "",
++    ip: "",
++    native: null,
++    nativeLost: false,
++    listenerOkFlag: false,
++    runnerResolvedIP: "",
++    runnerDnsOk: false,
++    probes: {
++      config: { state: "pending", status: 0, at: 0 },
++      native: { state: "pending", status: 0, at: 0 },
++    },
++  });
++}
++
++beforeEach(() => {
++  resetStore();
++});
++
++afterEach(() => {
++  cleanup();
++  globalThis.fetch = realFetch;
++  vi.restoreAllMocks();
++});
++
++describe("F201 probe transport", () => {
++  it("keeps the HTTP status and class for a refused read (401 / 403)", async () => {
++    respond(401, { error: "unauthorized" });
++    const r = await probeJson("/api/native-status");
++    expect(r.ok).toBe(false);
++    expect(r.status).toBe(401);
++    expect(r.failure).toBe("unauthorized");
++    expect(r.data).toBeNull();
++
++    respond(403, { error: "forbidden" });
++    const f = await probeJson("/api/native-status");
++    expect(f.status).toBe(403);
++    expect(f.failure).toBe("forbidden");
++  });
++
++  it("separates a transport failure (status 0) from an error status", async () => {
++    globalThis.fetch = vi.fn(async () => {
++      throw new TypeError("network down");
++    }) as unknown as typeof fetch;
++    const r = await probeJson("/api/native-status");
++    expect(r).toMatchObject({ ok: false, status: 0, failure: "transport", data: null });
++  });
++
++  it("separates a non-JSON 200 (schema/build mismatch) from a good read", async () => {
++    respond(200, {}, false);
++    const bad = await probeJson("/api/native-status");
++    expect(bad).toMatchObject({ ok: false, status: 200, failure: "schema" });
++
++    respond(200, { fqdn: "host.tailnet.ts.net" });
++    const good = await probeJson<{ fqdn: string }>("/api/native-status");
++    expect(good.ok).toBe(true);
++    expect(good.status).toBe(200);
++    expect(good.data?.fqdn).toBe("host.tailnet.ts.net");
++  });
++});
++
++describe("F201 store", () => {
++  it("records a probe result without pretending the data arrived", () => {
++    useSessionStore.getState().setProbe("native", "unauthorized", 401);
++    const pr = useSessionStore.getState().probes.native;
++    expect(pr.state).toBe("unauthorized");
++    expect(pr.status).toBe(401);
++    expect(pr.at).toBeGreaterThan(0);
++    // The measurement fields are untouched: no fqdn was invented.
++    expect(useSessionStore.getState().fqdn).toBe("");
++  });
++});
++
++describe("F201 Overview gate wording", () => {
++  it("names the refused status read, not credentials/DNS/listener, when nothing was measured", () => {
++    useSessionStore.getState().setProbe("native", "unauthorized", 401);
++    renderOverview();
++    const note = screen.getByTestId("overview-auto-login-note");
++    const text = note.textContent || "";
++    expect(text).toMatch(/refused this page/i);
++    expect(text).toMatch(/no valid run key/i);
++    expect(text).toMatch(/HTTP 401/);
++    // The three accusations must NOT appear: they describe measurements that
++    // were never made.
++    expect(text).not.toMatch(/FQDN\/user pair failed validation/i);
++    expect(text).not.toMatch(/tailnet IP did not resolve/i);
++    expect(text).not.toMatch(/LISTENER probe is not all green/i);
++  });
++
++  it("says the transport failed when the dashboard did not answer at all", () => {
++    useSessionStore.getState().setProbe("native", "transport", 0);
++    renderOverview();
++    const text = screen.getByTestId("overview-auto-login-note").textContent || "";
++    expect(text).toMatch(/did not answer/i);
++    expect(text).not.toMatch(/FQDN\/user pair failed validation/i);
++  });
++
++  it("still names the real credential gate once a trusted answer arrived", () => {
++    useSessionStore.setState({
++      native: { rdpListener: { listening: true, fw: true, cert: true, nla: true } },
++      listenerOkFlag: true,
++      runnerResolvedIP: "100.99.208.107",
++      runnerDnsOk: true,
++      fqdn: "",
++      user: "",
++    });
++    useSessionStore.getState().setProbe("native", "ok", 200);
++    useSessionStore.getState().setProbe("config", "ok", 200);
++    renderOverview();
++    const text = screen.getByTestId("overview-auto-login-note").textContent || "";
++    expect(text).toMatch(/FQDN\/user pair failed validation/i);
++  });
++
++  it("keeps the button disabled in every one of those states", () => {
++    useSessionStore.getState().setProbe("native", "unauthorized", 401);
++    renderOverview();
++    expect(screen.getByTestId("overview-auto-login")).toBeDisabled();
++  });
++});
