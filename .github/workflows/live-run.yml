@@ -764,6 +764,10 @@ jobs:
             '--origin-attempt', $env:ORIGIN_ATTEMPT,
             '--correlation-id', $env:ORIGIN_CORRELATION,
             '--timeout-ms', '1800000',
+            # Per-evaluator bound: one hanging evaluator must cost its own budget,
+            # never the run. MEASURED (run 39920375772) a 45-minute job died with
+            # zero feature verdicts because one evaluator never returned.
+            '--feature-timeout-ms', '300000',
             '--ready-timeout-ms', '240000',
             '--native-handoff', 'handler'
           )

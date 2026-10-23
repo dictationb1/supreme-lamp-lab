@@ -133,6 +133,28 @@ module.exports = async function register({ test, assert, fs, path }) {
     } finally { srv.close(); }
   });
 
+  await test('live: no evaluator can hang the pass (watchdog + dialogs + no bare in-page fetch)', async () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'live-run.js'), 'utf8');
+    const featSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'live-features.js'), 'utf8');
+    // MEASURED (run 39920375772): the job was killed at 45 minutes with ZERO
+    // feature verdicts. Three guards, each pinned:
+    assert.match(src, /EVALUATOR_TIMEOUT/, 'a per-evaluator watchdog must exist');
+    assert.match(src, /Promise\.race\(\[fn\(\), guard\]\)/, 'the evaluator must be raced against its budget');
+    assert.match(src, /'--feature-timeout-ms'/, 'the budget must be settable, not magic');
+    assert.match(src, /page\.on\('dialog'/, 'a script dialog blocks every evaluate; it must be answered and recorded');
+    assert.match(featSrc, /AbortController/, 'an in-page fetch needs its own deadline');
+    assert.match(featSrc, /PROBE_TIMEOUT_AFTER_8S/, 'and its timeout must be a reported verdict');
+    // every page.evaluate goes through withTimeout: Playwright gives evaluate no
+    // default timeout, and the auth gate's DOM read is the first thing the pass does.
+    const evals = (src.match(/page\.evaluate\(/g) || []).length;
+    const guarded = (src.match(/withTimeout\(page\.evaluate\(/g) || []).length;
+    assert.strictEqual(guarded, evals, `every page.evaluate must be bounded (${guarded}/${evals})`);
+    assert.match(src, /function withTimeout\(/, 'the bounded-evaluate helper must exist');
+    // the stage timeline is on the run page, so a dead job still says where it was
+    assert.match(src, /annotate\.notice\('stage'/, 'every stage transition must be visible on the run page');
+    assert.match(src, /annotate\.notice\('feature start'/, 'long evaluators must announce their start');
+  });
+
   await test('live: the UI pass measures the shipped dashboard, not invented hash routes', async () => {
     const feat = require('../lib/live-features');
     const live = require('../live-run');

@@ -74,7 +74,7 @@ function parseArgs(argv) {
     appSha: '', uiBuild: '', backendHostname: '', target: '', port: 7331, correlationId: '',
     labRepo: process.env.GITHUB_REPOSITORY || 'dictationb1/supreme-lamp-lab',
     ttlMs: 45 * 60 * 1000, envelopeOut: '', envelopeInline: '', artifactOnly: false,
-    timeoutMs: 22 * 60 * 1000, readyTimeoutMs: 180000, headless: false,
+    timeoutMs: 26 * 60 * 1000, readyTimeoutMs: 180000, headless: false, featureTimeoutMs: 300000,
     nativeHandoff: 'auto', allowDestructive: false, queueWaitMs: 10 * 60 * 1000,
     claim: true, reportPath: '', skipBrowser: false, clientIp: '', rdpUser: '',
     profileDir: '', outDir: '', ackPollMs: 20000, expectRunning: true,
@@ -111,6 +111,7 @@ function parseArgs(argv) {
     else if (k === '--envelope-inline') a.envelopeInline = v();
     else if (k === '--artifact-only') a.artifactOnly = true;
     else if (k === '--timeout-ms') a.timeoutMs = Number(v());
+    else if (k === '--feature-timeout-ms') a.featureTimeoutMs = Number(v());
     else if (k === '--ready-timeout-ms') a.readyTimeoutMs = Number(v());
     else if (k === '--headless') a.headless = true;
     else if (k === '--native-handoff') a.nativeHandoff = v();
@@ -364,7 +365,14 @@ async function cmdLive(a) {
     timestamps: {}, identity: {}, authorization: {}, capabilities: {}, features: null, manual: { interventionOccurred: false, note: 'a live run that needs any human input is reported BLOCKED, never VERIFIED' },
     verdict: { status: STATUS.NOT_RUN, accepted: false, code: 'NOT_STARTED' }, cleanup: {}, stages: []
   };
-  const setStage = (s, extra = {}) => { stage = s; report.stages.push({ at: new Date().toISOString(), stage: s, ...extra }); log('stage', s, extra.code || ''); };
+  const setStage = (s, extra = {}) => {
+    stage = s;
+    report.stages.push({ at: new Date().toISOString(), stage: s, ...extra });
+    log('stage', s, extra.code || '');
+    // The stage timeline must be visible from the run page: a job that dies at
+    // the job timeout otherwise leaves no trace of where it was.
+    annotate.notice('stage', `${s}${extra.code ? ' ' + extra.code : ''} elapsedSec=${Math.round((Date.now() - t0) / 1000)}`);
+  };
 
   try {
     if (process.platform !== 'win32' && !a.skipBrowser) {
@@ -713,8 +721,21 @@ async function cmdLive(a) {
         browserHolder = context;
         await context.addInitScript({ content: auth.storageInitScript(envelope.dashboardToken) });
         page = context.pages()[0] || await context.newPage();
+        // A page-level default so no locator/navigation waits forever; evaluate()
+        // has no default, which is what the per-feature watchdog is for.
+        page.setDefaultTimeout(20000);
         const pageErrors = { n: 0, samples: [] };
         page.__errors = pageErrors;
+        // A script dialog (alert/confirm/prompt/beforeunload) BLOCKS every
+        // page.evaluate until it is answered, and Playwright does not answer one
+        // by itself: that alone can hang a pass with no verdict. Each dialog is
+        // recorded (redacted) and dismissed so the page can continue - browser or
+        // OS security prompts are NOT touched here.
+        const dialogs = [];
+        page.on('dialog', async d => {
+          try { dialogs.push({ type: d.type(), message: redact(String(d.message() || '')).slice(0, 200) }); } catch (e) { }
+          try { await d.dismiss(); } catch (e) { }
+        });
         // Keep the LAST samples, not the first: a per-route delta ("what did THIS
         // route add") is only readable from the tail, and the first sample is
         // usually the shell's own startup noise.
@@ -723,7 +744,7 @@ async function cmdLive(a) {
         page.on('pageerror', err => { pageErrors.n++; pushSample(redact(String(err && err.message || err)).slice(0, 160)); });
         page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; pushSample((redact(m.text()).slice(0, 140) + (where(m) ? ` @ ${where(m)}` : '')).slice(0, 180)); } });
         report.timestamps.browserLaunchedAt = new Date().toISOString();
-        report.browser = { profile, headed: !a.headless, pageErrors, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
+        report.browser = { profile, headed: !a.headless, pageErrors, dialogs, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
       } catch (e) {
         // NEVER fall back to headless silently (documented lab defect #3).
         results['nav.routes_reachable'] = feat.blocked(`HEADED_LAUNCH_FAILED: ${redact(e.message).split('\n')[0]}`);
@@ -741,11 +762,28 @@ async function cmdLive(a) {
     const order = ['auth.dash_token_gate', 'auth.no_stale_key_reuse', 'nav.build_provenance', 'session.live_binding', 'telemetry.live_stream', 'keys.acl_view', 'errors.classified_not_spinner', 'files.list', 'search.lane', 'mirror.matrix', 'health.readiness_contract', 'connection.native_rdp_launch', 'connection.ticket_single_use', 'webdesktop.frames', 'webdesktop.interaction', 'nav.routes_reachable', 'settings.read_modify_restore', 'files.fixture_roundtrip', 'connection.credential_hygiene', 'lifecycle.teardown'];
     ctx.resultsRef = results;
   const runners = makeRunners(ctx, a, deadline);
+    // WATCHDOG. MEASURED (run 39920375772): one evaluator never returned (its
+    // in-page fetch had no deadline), the feature loop never saw the global
+    // deadline again, and the job was killed at 45 minutes with ZERO feature
+    // verdicts - the run page said nothing about which feature hung. Each
+    // evaluator is now bounded on its own, reported as a FAIL with its name, and
+    // the pass continues; the abandoned promise is left to the process exit.
+    const budgetMs = Number(a.featureTimeoutMs) > 0 ? Number(a.featureTimeoutMs) : 300000;
+    // Only the evaluators that drive the browser or the RDP session can hang for
+    // long; announcing every one of the 20 would crowd the annotation channel
+    // that carries the verdicts.
+    const announce = new Set(['connection.native_rdp_launch', 'webdesktop.frames', 'nav.routes_reachable', 'files.list', 'search.lane', 'errors.classified_not_spinner', 'keys.acl_view']);
     for (const id of order) {
       if (Date.now() > deadline - 20000) { results[id] = feat.blocked('RUN_DEADLINE_REACHED before this feature was attempted'); continue; }
+      if (announce.has(id)) annotate.notice('feature start', `${id} elapsedSec=${Math.round((Date.now() - t0) / 1000)} budgetSec=${Math.round(budgetMs / 1000)}`);
       const fn = runners[id];
-      try { results[id] = fn ? await fn() : feat.notRun('NO_EVALUATOR_REGISTERED'); }
+      let timer = null;
+      try {
+        const guard = new Promise(resolve => { timer = setTimeout(() => resolve(feat.bad(`EVALUATOR_TIMEOUT: ${id} produced no verdict within ${Math.round(budgetMs / 1000)}s — bounded so the pass could continue; the evaluator is reported as FAIL, never as PASS or SKIPPED`)), budgetMs); if (timer.unref) timer.unref(); });
+        results[id] = fn ? await Promise.race([fn(), guard]) : feat.notRun('NO_EVALUATOR_REGISTERED');
+      }
       catch (e) { results[id] = feat.bad(`EVALUATOR_THREW: ${redact(e.message).split('\n')[0]}`); }
+      finally { if (timer) clearTimeout(timer); }
       if (id === 'nav.routes_reachable') report.timestamps.firstRouteEvaluatedAt = new Date().toISOString();
     }
     const summary = summarizeInventory(inventory, results);
@@ -835,6 +873,9 @@ async function cmdLive(a) {
     };
     report.latency = latency;
     annotate.notice('latency', Object.entries(latency).filter(([k, v]) => typeof v === 'number').map(([k, v]) => `${k}=${Math.round(v / 1000)}s`).join(' ') + ` note="${latency.note}"`);
+    if (report.browser && Array.isArray(report.browser.dialogs) && report.browser.dialogs.length) {
+      annotate.warning('ui dialogs', `${report.browser.dialogs.length} script dialog(s) appeared and were dismissed: ${report.browser.dialogs.map(d => `${d.type}: ${d.message}`).join(' | ').slice(0, 600)}`);
+    }
     annotate.notice('verdict', `features ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory PASS; counts=${JSON.stringify(report.features.counts)}; vetoing=${(report.features.vetoing || []).join(',') || 'none'}`);
 
     // RETRY BOOK-KEEPING: the record must say which verification this was, so a
@@ -1444,6 +1485,15 @@ function sessionId() {
   } catch (e) { return null; }
 }
 
+// Resolve a promise or return a fallback after `ms`. Playwright's page.evaluate
+// has no default timeout, so every evaluate that could block the pass goes
+// through this.
+function withTimeout(promise, ms, fallback) {
+  let timer = null;
+  const guard = new Promise(resolve => { timer = setTimeout(() => resolve(fallback), ms); if (timer.unref) timer.unref(); });
+  return Promise.race([Promise.resolve(promise), guard]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 function makeMarkers() {
   return {
     async gateCleared(page) {
@@ -1452,31 +1502,34 @@ function makeMarkers() {
         // only real address. A hash-fragment route was the lab's invention.
         await page.goto(`${page.__slabTarget || ''}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
       } catch (e) { /* a nav failure is reported by the marker outcome, not swallowed */ }
-      const gate = await page.evaluate(() => {
+      // page.evaluate has NO default timeout: on a page whose main thread is
+      // blocked it never returns. Bounded here as well as by the feature
+      // watchdog, because this is the FIRST feature of the pass.
+      const gate = await withTimeout(page.evaluate(() => {
         const t = (document.body.innerText || '');
         const looksLikeGate = /dashboard permission missing|paste the key|authorization required|DashTokenGate|enter the key/i.test(t);
         const hasShell = Boolean(document.querySelector('#topbar, [data-testid="app-shell"], header'));
         return { looksLikeGate, hasShell, textLen: t.length };
-      }).catch(() => ({ error: true }));
-      if (gate.error) return { cleared: false, detail: 'DOM unreadable' };
+      }), 10000, { error: true, detail: 'DOM unreadable: page.evaluate did not return within 10s (blocked main thread or an unhandled dialog)' }).catch(() => ({ error: true }));
+      if (gate.error) return { cleared: false, detail: gate.detail || 'DOM unreadable' };
       if (gate.looksLikeGate) return { cleared: false, via: 'dom', detail: 'the token gate is still rendered' };
       return { cleared: Boolean(gate.hasShell), via: 'dom', detail: gate.hasShell ? 'app shell rendered without the gate' : 'no shell marker found' };
     },
     async routeMarker(page, r) {
       if (r.testid) { try { await page.locator(`[data-testid="${r.testid}"]`).first().waitFor({ state: 'visible', timeout: 6000 }); return { found: true, via: `testid:${r.testid}` }; } catch (e) { } }
       if (r.text) { try { await page.getByText(r.text, { exact: false }).first().waitFor({ state: 'visible', timeout: 6000 }); return { found: true, via: `text:${r.text}` }; } catch (e) { } }
-      const generic = await page.evaluate(() => {
+      const generic = await withTimeout(page.evaluate(() => {
         const bad = /cannot read|404|not found|unauthorized/i.test(document.title);
         return { title: document.title, body: (document.body && document.body.innerText || '').length, bad };
-      }).catch(() => null);
+      }), 10000, null).catch(() => null);
       return { found: Boolean(generic && generic.body > 200 && !generic.bad), via: 'fallback:non-empty body' };
     },
     async buildStamp(page) {
-      const s = await page.evaluate(() => {
+      const s = await withTimeout(page.evaluate(() => {
         const m = document.querySelector('meta[name="ghrdpBuild"], meta[name="ghrdp-build"], #ghrdpBuild');
         const prov = Array.from(document.querySelectorAll('[data-testid*="provenance"], .build-stamp')).map(e => e.textContent).join(' ').slice(0, 80);
         return { stamp: (m && (m.getAttribute('content') || m.textContent)) || prov.match(/[0-9a-f]{7,40}/)?.[0] || '', found: Boolean(m || prov) };
-      }).catch(() => ({ found: false }));
+      }), 10000, { found: false, detail: 'page.evaluate timed out' }).catch(() => ({ found: false }));
       return s;
     },
     errorCount(page) { return (page.__errors && page.__errors.n) || 0; },
@@ -1486,12 +1539,12 @@ function makeMarkers() {
       const out = {};
       for (const id of ids) {
         try {
-          out[id] = await page.evaluate(sel => {
+          out[id] = await withTimeout(page.evaluate(sel => {
             const el = document.querySelector(sel);
             if (!el) return { found: false };
             const r = el.getBoundingClientRect();
             return { found: true, visible: r.width > 0 && r.height > 0, textLen: (el.innerText || el.textContent || '').trim().length };
-          }, id);
+          }, id), 10000, { found: false, detail: 'page.evaluate timed out' });
         } catch (e) { out[id] = { found: false, error: String(e.message || e).slice(0, 80) }; }
       }
       return out;
@@ -1595,12 +1648,12 @@ function makeRunners(ctx, a, deadline) {
           // `#fileRows` is the shipped table body. Its placeholder row ("waiting
           // for watcher...") is NOT a file, so it is excluded: a table that only
           // shows the placeholder is an EMPTY list, not one row of evidence.
-          dom = await page.evaluate(() => {
+          dom = await withTimeout(page.evaluate(() => {
             const tb = document.querySelector('#fileRows');
             if (!tb) return 'no-table';
             const rows = Array.from(tb.querySelectorAll('tr')).filter(tr => tr.children.length > 2);
             return rows.length;
-          });
+          }), 10000, 'dom-timeout');
         } catch (e) { dom = `nav-error: ${e.message.slice(0, 60)}`; }
       }
       const evidence = { serverFilesTotal: total ?? null, domRows: dom };
@@ -1609,6 +1662,7 @@ function makeRunners(ctx, a, deadline) {
       // Three different facts, three different labels (a placeholder is not a
       // file row, and an absent table is not an empty one).
       if (dom === 'no-table') return feat.bad(`FILES_TABLE_ABSENT: the shipped dashboard has no #fileRows table body`, evidence);
+      if (dom === 'dom-timeout') return feat.blocked(`FILES_DOM_UNREADABLE: page.evaluate did not return within 10s`, evidence);
       if (dom === 0 && (!total || Number(total) === 0)) return feat.na(`EMPTY_RUN: this run's watcher indexed nothing, so there is nothing to list (server total=${total ?? 'unknown'})`, evidence);
       return feat.bad(`FILES_LIST_EMPTY_OR_MISMATCH: dom=${JSON.stringify(dom)} server=${JSON.stringify(total)} — the server reports files that the table does not render`, evidence);
     },

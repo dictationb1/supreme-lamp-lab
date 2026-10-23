@@ -303,13 +303,22 @@ async function evalKeysMasked({ page, secrets }) {
 async function evalErrorSurface({ page, target, forgedToken }) {
   if (!page) return blocked('NO_BROWSER: error surfacing is a UI claim');
   const before = Date.now();
+  // An in-page fetch has NO client-side deadline of its own: if the app's route
+  // never answers, page.evaluate waits forever and the whole pass hangs (that is
+  // how a 45-minute job died with no feature verdicts). The probe carries its own
+  // abort so a dead route is a reported timeout, not a lost run.
   const res = await page.evaluate(async (tk) => {
     try {
-      const r = await fetch('/api/rdp-token', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: '{}' });
-      return { status: r.status, text: (await r.text()).slice(0, 120) };
-    } catch (e) { return { error: String(e).slice(0, 120) }; }
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 8000);
+      const r = await fetch('/api/rdp-token', { method: 'POST', headers: { Authorization: 'Bearer ' + tk, 'Content-Type': 'application/json' }, body: '{}', signal: ac.signal });
+      const body = (await r.text()).slice(0, 120);
+      clearTimeout(t);
+      return { status: r.status, text: body };
+    } catch (e) { return { error: String(e && e.name === 'AbortError' ? 'PROBE_TIMEOUT_AFTER_8S' : String(e)).slice(0, 120) }; }
   }, forgedToken);
   const evidence = { fromPage: res, ms: Date.now() - before };
+  if (res && res.error) return bad(`ERROR_PROBE_FAILED: ${res.error}`, evidence);
   const refused = res.status === 401 || res.status === 403;
   if (!refused) return bad(`CONTROLLED_FAILURE_NOT_REFUSED: HTTP ${JSON.stringify(res.status)}`, evidence);
   const spinner = await page.evaluate(() => {
