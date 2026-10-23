@@ -1,6 +1,6 @@
 {
   "kind": "slab-live-run-report/1",
-  "generatedAt": "2026-10-23T21:51:56.999Z",
+  "generatedAt": "2026-10-23T22:01:22.950Z",
   "protocol": "slab-live-run/1",
   "origin": {
     "repo": "dictationb1/supreme-lamp",
@@ -9,14 +9,14 @@
     "attempt": 1,
     "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40022345749",
     "correlationId": "lr-40022345749-1",
-    "descriptorId": "3f9752d5dfe6d018",
+    "descriptorId": "3ff2da7c6d7fdc94",
     "appSha": "e432d3df4cf00a8528d574f8410f6a76e590db31",
     "uiBuild": "ui-dist-e432d3df4cf00a8528d574f8410f6a76e590db31"
   },
   "lab": {
-    "runId": "40028824511",
+    "runId": "40030104565",
     "attempt": "1",
-    "revision": "8deca01172fdd93e9c69ed927c42f7cf5f6943d9",
+    "revision": "7a405d28fbf15038d1f75d22a1b2fdbb3ce79a47",
     "repo": "dictationb1/supreme-lamp-lab"
   },
   "runner": {
@@ -27,8 +27,8 @@
     "psHint": "headed browser + native mstsc require the interactive desktop"
   },
   "timestamps": {
-    "discoveredAt": "2026-10-23T21:51:59.846Z",
-    "advertisedAt": "2026-10-23T21:51:58.153Z",
+    "discoveredAt": "2026-10-23T22:01:25.544Z",
+    "advertisedAt": "2026-10-23T22:01:23.793Z",
     "expiresAt": "2026-10-24T02:50:46.000Z"
   },
   "identity": {
@@ -92,20 +92,20 @@
   "cleanup": {},
   "stages": [
     {
-      "at": "2026-10-23T21:51:57.215Z",
+      "at": "2026-10-23T22:01:23.160Z",
       "stage": "AWAITING_READINESS"
     },
     {
-      "at": "2026-10-23T21:51:58.152Z",
+      "at": "2026-10-23T22:01:23.793Z",
       "stage": "AWAITING_READINESS",
       "code": "DISCOVERING_ORIGIN"
     },
     {
-      "at": "2026-10-23T21:51:59.847Z",
+      "at": "2026-10-23T22:01:25.544Z",
       "stage": "CLAIMED"
     },
     {
-      "at": "2026-10-23T21:52:06.226Z",
+      "at": "2026-10-23T22:01:32.130Z",
       "stage": "CONNECTING_VM"
     }
   ],
@@ -132,8 +132,8 @@
     }
   },
   "descriptorRefreshed": {
-    "queuedId": "d11840ef3c04e0a7",
-    "derivedId": "3f9752d5dfe6d018",
+    "queuedId": "3a160f52a73ec134",
+    "derivedId": "3ff2da7c6d7fdc94",
     "stableIdentity": "8763658ea0a98710fffbd6bc240133cc"
   },
   "transport": {
