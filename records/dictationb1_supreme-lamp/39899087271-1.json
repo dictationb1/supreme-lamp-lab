@@ -1,0 +1,42 @@
+{
+  "kind": "slab-live-run-record/1",
+  "publishedAt": "2026-10-23T04:22:25.748Z",
+  "descriptor": {
+    "protocol": "slab-live-run/1",
+    "originRepo": "dictationb1/supreme-lamp",
+    "originWorkflow": ".github/workflows/main.yml",
+    "originRunId": 39899087271,
+    "originAttempt": 1,
+    "appSha": "c470531e4739be072daea20425a1de203d0ed326",
+    "uiBuild": "ui-dist-c470531e4739be072daea20425a1de203d0ed326",
+    "backendIdentity": "100.124.43.82:7331",
+    "authorizedEndpoint": "http://100.124.43.82:7331",
+    "issuedAt": "2026-10-23T04:22:24.284Z",
+    "expiresAt": "2026-10-23T10:12:31.000Z",
+    "labRevision": "0499ff2ce50155cba325d83c1a24870a4a8aea31",
+    "correlationId": "lr-39899087271-1",
+    "dashTokenFingerprint": "2945b0d573322555fce40486c4d798b725efd7bbd14f2831272783a262d805c0",
+    "clientTailnetIp": "",
+    "mode": "live-origin",
+    "descriptorId": "13ceb3f0d25d3107"
+  },
+  "state": "AWAITING_LAB_ACCEPTANCE",
+  "history": [
+    {
+      "at": "2026-10-23T04:22:25.748Z",
+      "state": "AWAITING_LAB_ACCEPTANCE",
+      "by": "origin"
+    }
+  ],
+  "envelopeTransport": {
+    "kind": "artifact",
+    "repository": "dictationb1/supreme-lamp",
+    "runId": 39899087271,
+    "attempt": 1,
+    "name": "live-run-39899087271-1-envelope"
+  },
+  "branch": {
+    "exists": true,
+    "created": true
+  }
+}
