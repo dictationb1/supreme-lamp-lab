@@ -717,6 +717,7 @@ async function cmdLive(a) {
         page.__errors = pageErrors;
         page.on('pageerror', err => { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(String(err && err.message || err)).slice(0, 160)); });
         page.on('console', m => { if (m.type() === 'error' && !/favicon|DevTools|Download the React/i.test(m.text())) { pageErrors.n++; if (pageErrors.samples.length < 5) pageErrors.samples.push(redact(m.text()).slice(0, 160)); } });
+        report.timestamps.browserLaunchedAt = new Date().toISOString();
         report.browser = { profile, headed: !a.headless, pageErrors, note: 'a dedicated per-run profile: the operator profile, cookies and password store are never read or copied' };
       } catch (e) {
         // NEVER fall back to headless silently (documented lab defect #3).
@@ -740,6 +741,7 @@ async function cmdLive(a) {
       const fn = runners[id];
       try { results[id] = fn ? await fn() : feat.notRun('NO_EVALUATOR_REGISTERED'); }
       catch (e) { results[id] = feat.bad(`EVALUATOR_THREW: ${redact(e.message).split('\n')[0]}`); }
+      if (id === 'nav.routes_reachable') report.timestamps.firstRouteEvaluatedAt = new Date().toISOString();
     }
     const summary = summarizeInventory(inventory, results);
     report.features = summary;
@@ -812,6 +814,24 @@ async function cmdLive(a) {
       const badRoutes = routeRows.filter(x => x.status !== 'rendered');
       if (badRoutes.length) annotate.warning('ui routes', badRoutes.map(x => `${x.route}=${x.status}${x.newErrors ? `(errors=${x.newErrors})` : ''}`).join(', '));
     }
+    // LATENCY, as an explicit measurement (the acceptance question is
+    // "readiness -> visible UI", and a 10-minute cron is not "immediate"). Each
+    // leg is stamped by the process that did the work.
+    const tstamp = k => (report.timestamps[k] ? Date.parse(report.timestamps[k]) : null);
+    const firstRoute = tstamp('firstRouteEvaluatedAt');
+    const runStart = report.identity.process && report.identity.process.runStartedAt ? Date.parse(report.identity.process.runStartedAt) : null;
+    const latency = {
+      runStartToAuthMs: runStart && tstamp('authenticatedAt') ? tstamp('authenticatedAt') - runStart : null,
+      authToBrowserMs: tstamp('authenticatedAt') && tstamp('browserLaunchedAt') ? tstamp('browserLaunchedAt') - tstamp('authenticatedAt') : null,
+      browserToFirstRouteMs: tstamp('browserLaunchedAt') && firstRoute ? firstRoute - tstamp('browserLaunchedAt') : null,
+      runStartToFirstRouteMs: runStart && firstRoute ? firstRoute - runStart : null,
+      totalMs: Date.now() - t0,
+      note: 'runStart is the origin run\'s own start; the lab\'s wake-up cadence (schedule */10) is separate and is NOT included in these legs'
+    };
+    report.latency = latency;
+    annotate.notice('latency', Object.entries(latency).filter(([k, v]) => typeof v === 'number').map(([k, v]) => `${k}=${Math.round(v / 1000)}s`).join(' ') + ` note="${latency.note}"`);
+    annotate.notice('verdict', `features ${report.features.mandatoryPass}/${report.features.mandatoryTotal} mandatory PASS; counts=${JSON.stringify(report.features.counts)}; vetoing=${(report.features.vetoing || []).join(',') || 'none'}`);
+
     writeLiveEvidence(out, report);
     const repPath = a.reportPath || path.join(out, 'live-run-report.json');
     fs.writeFileSync(repPath, JSON.stringify(report, null, 2), { mode: 0o600 });
