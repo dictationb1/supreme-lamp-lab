@@ -460,6 +460,14 @@ async function cmdLive(a) {
           originLogPubliclyReadable: disc.evidence.originLogPubliclyReadable === true
         } : null
       };
+      if (disc.evidence) {
+        // What the credential actually came from, on the run page: a sealed
+        // check-run signal and a plaintext-log fallback must never look alike,
+        // and an operator needs the heartbeat age to judge staleness without
+        // downloading an artifact.
+        const ev = disc.evidence;
+        annotate.notice('discovery', `transport=${ev.transport || '?'} signalFormat=${ev.signalFormat || '-'} signalLive=${ev.signalLive === true} state=${ev.signalState || '-'} heartbeatAgeMs=${ev.heartbeatAgeMs === undefined ? '-' : ev.heartbeatAgeMs} keyId=${ev.keyId || '-'}/${ev.expectedKeyId || '-'} alg=${ev.envelopeAlg || '-'} uiMatchesRunSha=${ev.uiMatchesRunSha} fallback=${ev.signalFallback || '-'}`);
+      }
       if (!disc.ok) return done(EXIT.BLOCKED, setFinal('AWAITING_READINESS', `BLOCKED_${disc.code}`, disc.detail));
       // The queue names a run, not a moment: `issuedAt`/`expiresAt` are
       // re-derived by every sweep, so a changed descriptor id alone is not a
