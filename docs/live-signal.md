@@ -67,10 +67,19 @@ either key.
 
 ## Wake-up, honestly
 
-* The guaranteed path is the `*/10` cron on the default branch: **up to ~10
-  minutes** from publication to a queued claim, plus runner pickup. It is not
-  immediate and no maximum of exactly 600 s is promised (GitHub delays scheduled
-  runs under load).
+* The guaranteed path is the `*/10` cron on the default branch. It asks for every
+  10 minutes and does not deliver that. **MEASURED (2026-10-23) on this
+  repository**: scheduled sweeps began at 06:52:20Z, 07:41:17Z and 08:21:20Z —
+  gaps of **48.9 and 40.1 minutes**, not 10. GitHub treats `schedule` as
+  best-effort, delays it under load, and drops it on quiet repositories, so the
+  honest statement is "tens of minutes", never "up to 10 minutes" and never
+  "immediate". Two consequences are deliberate:
+  * the LAB measures its own legs (`latency` annotation: run start → auth →
+    browser → first UI surface) and reports the sweep delay separately, so the
+    scheduler's delay is never presented as the lab's latency;
+  * a push or a `live-verify` label on a PR run starts a sweep in seconds
+    (measured: 10–30 s from push to a queued job), and that is the pre-merge
+    path this repository is validated on.
 * `repository_dispatch` (`mission-control.live-run`) is supported by the workflow
   but only fires if the application sets `LAB_SIGNAL_LAB_REPO` **and** a
   cross-repo secret `LAB_SIGNAL_DISPATCH_TOKEN`; an application `GITHUB_TOKEN`

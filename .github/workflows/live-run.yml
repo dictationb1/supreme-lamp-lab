@@ -49,9 +49,9 @@ name: Live-Run Integration (Mission Control -> client VM)
 #     would need an app-side `repository_dispatch` carrying a token that can
 #     write to this private repository; that token does not exist today
 #     (app-repo secret writes are refused). Measured fallback: the `*/10` cron,
-#     i.e. up to ~10 minutes from publication to a queued claim, plus runner
-#     pickup. docs/live-signal.md records the measurement; do not call it
-#     immediate.
+#     which in practice ran at 06:52, 07:41 and 08:21 on 2026-10-23 - gaps of
+#     48.9 and 40.1 minutes, not ten. docs/live-signal.md records the measurement;
+#     never call it immediate, and never quote 10 minutes as a maximum.
 #   * `workflow_run` (run-completed) is deliberately NOT used: by then the
 #     ephemeral server is gone, which is exactly this file's reason to exist.
 #   * Discovery is per (run id, attempt) and requires the run to still be
@@ -661,6 +661,26 @@ jobs:
             Write-Host '::notice title=preflight cleanup::exit 0'
           }
           if ($detail) { Write-Host ("::warning title=preflight cleanup detail::" + $detail) }
+          # HOST CAPACITY, on the run page. MEASURED (run 39926882469): the
+          # self-hosted runner "lost communication with the server" ten minutes
+          # into a verification, and the run page could not say whether the VM
+          # was starved (two Chromium profiles had been driven by earlier
+          # attempts). This costs milliseconds and makes that diagnosis possible
+          # next time instead of a guess.
+          try {
+            $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+            $freeMb = [math]::Round($os.FreePhysicalMemory / 1024)
+            $totalMb = [math]::Round($os.TotalVisibleMemorySize / 1024)
+            $diskGb = [math]::Round((Get-PSDrive C -ErrorAction Stop).Free / 1GB, 1)
+            $chrome = @(Get-Process chrome -ErrorAction SilentlyContinue).Count
+            $node = @(Get-Process node -ErrorAction SilentlyContinue).Count
+            Write-Host ("::notice title=host capacity::freeMb=" + $freeMb + " totalMb=" + $totalMb + " freeDiskGb=" + $diskGb + " chromeProcs=" + $chrome + " nodeProcs=" + $node)
+            if ($freeMb -lt 700 -or $diskGb -lt 2) {
+              Write-Host ("::warning title=host capacity::the client VM is low on resources before the pass (freeMb=" + $freeMb + " freeDiskGb=" + $diskGb + ") - a lost runner is likely; the pass continues and this is recorded, not treated as a product failure")
+            }
+          } catch {
+            Write-Host ("::warning title=host capacity::unreadable: " + $_.Exception.Message)
+          }
           exit 0
 
       - name: Install lab dependencies + Chromium (headed)
