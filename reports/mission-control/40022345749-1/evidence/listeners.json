@@ -5,7 +5,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15022,
+        "wallMs":  15063,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -14,7 +14,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15026,
+        "wallMs":  15039,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -23,7 +23,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15026,
+        "wallMs":  15054,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -32,7 +32,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15037,
+        "wallMs":  15071,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -41,7 +41,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15036,
+        "wallMs":  15046,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -50,7 +50,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15064,
+        "wallMs":  15062,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -59,7 +59,7 @@
         "httpCode":  "000",
         "bytes":  "0",
         "curlExit":  28,
-        "wallMs":  15043,
+        "wallMs":  15022,
         "classification":  "ACCEPTED_NO_HTTP"
     },
     {
@@ -68,7 +68,7 @@
         "httpCode":  "404",
         "bytes":  "0",
         "curlExit":  0,
-        "wallMs":  660,
+        "wallMs":  642,
         "classification":  "ANSWERING"
     },
     {
@@ -77,7 +77,7 @@
         "httpCode":  "200",
         "bytes":  "129",
         "curlExit":  0,
-        "wallMs":  645,
+        "wallMs":  704,
         "classification":  "ANSWERING"
     },
     {
@@ -86,7 +86,7 @@
         "httpCode":  "404",
         "bytes":  "0",
         "curlExit":  0,
-        "wallMs":  620,
+        "wallMs":  664,
         "classification":  "ANSWERING"
     },
     {
@@ -95,7 +95,7 @@
         "httpCode":  "200",
         "bytes":  "323111",
         "curlExit":  0,
-        "wallMs":  1760,
+        "wallMs":  1829,
         "classification":  "ANSWERING"
     },
     {
@@ -104,7 +104,7 @@
         "httpCode":  "404",
         "bytes":  "0",
         "curlExit":  0,
-        "wallMs":  638,
+        "wallMs":  615,
         "classification":  "ANSWERING"
     },
     {
@@ -113,7 +113,7 @@
         "httpCode":  "404",
         "bytes":  "0",
         "curlExit":  0,
-        "wallMs":  616,
+        "wallMs":  626,
         "classification":  "ANSWERING"
     },
     {
@@ -122,7 +122,7 @@
         "httpCode":  "404",
         "bytes":  "0",
         "curlExit":  0,
-        "wallMs":  648,
+        "wallMs":  642,
         "classification":  "ANSWERING"
     }
 ]
