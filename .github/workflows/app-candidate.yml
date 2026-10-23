@@ -104,7 +104,10 @@ jobs:
             Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
             $app = Get-ChildItem -Path $work -Directory | Where-Object { $_.Name -like 'supreme-lamp-*' } | Select-Object -First 1
             if (-not $app) { throw "no 'supreme-lamp-*' directory under $work" }
-            Write-Host "APP_DIR=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            # GITHUB_ENV is a FILE: Write-Host prints to the console and appends
+            # NOTHING (measured: runs 40031606940 / 40032011903 then ran npm in the
+            # lab checkout, where 'npm run build' does not exist).
+            "APP_DIR=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
             $patches = Get-ChildItem -Path 'reports/mission-control/40022345749-1/app-patches' -Filter '*.patch' | Sort-Object Name
             Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
             foreach ($p in $patches) {
@@ -149,6 +152,12 @@ jobs:
           # annotated - a failing suite must produce evidence, not a dead job.
           $ErrorActionPreference = 'Continue'
           $log = Join-Path $env:RUNNER_TEMP 'app-tests.log'
+          if (-not $env:APP_DIR -or -not (Test-Path (Join-Path $env:APP_DIR 'package.json'))) {
+            Write-Host "::error title=app dir::APP_DIR is not a package root ($env:APP_DIR)"
+            'no APP_DIR' | Out-File -FilePath $log -Encoding utf8
+            "APP_CI_EXIT=99" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            exit 0
+          }
           Push-Location $env:APP_DIR
           npm ci --no-audit --no-fund *> $log
           $ci = $LASTEXITCODE
@@ -171,6 +180,7 @@ jobs:
           # error, and a failed build keeps the job alive long enough to publish
           # why it failed.
           $ErrorActionPreference = 'Continue'
+          if (-not $env:APP_DIR) { Write-Host '::error title=build::APP_DIR missing'; exit 0 }
           Push-Location $env:APP_DIR
           if ($env:APP_CI_EXIT -ne '0') { Write-Host "::warning title=build skipped::npm ci failed (exit $env:APP_CI_EXIT)"; Pop-Location; exit 0 }
           $env:VITE_BUILD_SHA = "cand-$($env:GITHUB_SHA.Substring(0,12))"
