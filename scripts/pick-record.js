@@ -139,8 +139,12 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } 
     // preflight died) leaves the record `retryable`. The origin server is still
     // alive and nothing was verified, so a later sweep may serve it again. A
     // real report (REPORTED_VERIFIED / REPORTED_FAILED) is never re-served.
-    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation && !(r.retryable === true && (r.state === 'FAILED' || r.state === 'BLOCKED'))) {
-      skipped.push(`${r.correlationId}: state=${r.state}${r.retryable === true ? ' (not retryable for this state)' : ''}`);
+    // The flag lives in the record BODY (and, for operators, on the row); the
+    // row alone is not trusted for it, so a queue listing that predates the
+    // flag still behaves correctly.
+    const rowMayBeRetryable = ['FAILED', 'BLOCKED'].includes(r.state) || r.retryable === true;
+    if (r.state !== 'AWAITING_LAB_ACCEPTANCE' && !a.correlation && !rowMayBeRetryable) {
+      skipped.push(`${r.correlationId}: state=${r.state}`);
       continue;
     }
     if (!(r.expiresInSeconds > 0)) { skipped.push(`${r.correlationId}: expired`); continue; }
@@ -152,8 +156,9 @@ async function pickFromRows(rows, a, { now = Date.now(), readFull, allow = [] } 
     try {
       d = rd.validateDescriptor({ ...rec.descriptor, clientTailnetIp: rec.descriptor.clientTailnetIp || '' }, { now });
     } catch (e) { skipped.push(`${r.correlationId}: ${e.message}`); continue; }
-    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation || (rec.retryable === true && (rec.state === 'FAILED' || rec.state === 'BLOCKED'))) {
-      return { proceed: 'yes', reason: `SELECTED ${detail(r)}${rec.state !== 'AWAITING_LAB_ACCEPTANCE' ? ` retryable=${rec.state}` : ''}`, descriptor: d };
+    const retryable = rec.retryable === true && ['FAILED', 'BLOCKED'].includes(rec.state);
+    if (rec.state === 'AWAITING_LAB_ACCEPTANCE' || a.correlation || retryable) {
+      return { proceed: 'yes', reason: `SELECTED ${detail(r)}${rec.state !== 'AWAITING_LAB_ACCEPTANCE' ? ` retryable=${rec.state}` : ''}`, descriptor: d, retryable: retryable || undefined };
     }
     skipped.push(`${r.correlationId}: state=${rec.state}`);
   }

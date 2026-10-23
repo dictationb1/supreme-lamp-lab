@@ -1213,16 +1213,21 @@ async function cmdPoll(a) {
     const d = rec.descriptor || {};
     const claim = await store.readClaim({ repo: a.labRepo, descriptor: { originRepo: d.originRepo, originRunId: d.originRunId, originAttempt: d.originAttempt, correlationId: d.correlationId } }).catch(() => null);
     const remaining = Date.parse(rec.descriptor.expiresAt || 0) - Date.now();
+    // `retryable` is carried on the row, not only in the record body, so that a
+    // sweep can decide about a record it did not fetch and so that the pending
+    // count matches what pick-record would actually serve.
+    const retryable = rec.retryable === true && (rec.state === 'FAILED' || rec.state === 'BLOCKED');
+    const serveable = remaining > 0 && !claim && (rec.state === 'AWAITING_LAB_ACCEPTANCE' || retryable);
     rows.push({
       path: p, correlationId: d.correlationId, origin: `${d.originRepo || '?'}#${d.originRunId || '?'}/${d.originAttempt || '?'}`,
-      appSha: String(d.appSha || '').slice(0, 12), mode: d.mode, state: rec.state,
+      appSha: String(d.appSha || '').slice(0, 12), mode: d.mode, state: rec.state, retryable,
       claimedBy: claim && claim.claimant ? claim.claimant.labRunId : null,
-      expiresInSeconds: Math.round(remaining / 1000), pickable: remaining > 0 && !claim
+      expiresInSeconds: Math.round(remaining / 1000), pickable: serveable
     });
   }
   const out = { generatedAt: new Date().toISOString(), branch: store.RECORDS_BRANCH, records: rows, pending: rows.filter(r => r.pickable).length };
   const now = Date.now();
-  out.dispatchable = rows.filter(r => r.pickable && r.state === 'AWAITING_LAB_ACCEPTANCE')
+  out.dispatchable = rows.filter(r => r.pickable && (r.state === 'AWAITING_LAB_ACCEPTANCE' || r.retryable === true))
     .sort((x, y) => String(x.correlationId).localeCompare(String(y.correlationId)))
     .slice(0, 1);
   fs.writeFileSync(path.join(artifactDir(), 'records.json'), JSON.stringify(out, null, 2));
