@@ -20,7 +20,7 @@
     "mode": "live-origin",
     "descriptorId": "f4cefe4692df73f0"
   },
-  "state": "BLOCKED",
+  "state": "FAILED",
   "history": [
     {
       "at": "2026-10-23T12:41:16.974Z",
@@ -122,6 +122,12 @@
       "state": "BLOCKED",
       "by": "dictationb1/supreme-lamp-lab@dictationb1",
       "detail": "job-level write-back: verify job result=success (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
+    },
+    {
+      "at": "2026-10-23T14:07:59.633Z",
+      "state": "FAILED",
+      "by": "dictationb1/supreme-lamp-lab@dictationb1",
+      "detail": "job-level write-back: verify job result=failure (the verify job did not reach an in-process report; this is NOT a product verdict and it is never a pass)"
     }
   ],
   "envelopeTransport": {
@@ -134,5 +140,5 @@
   "branch": {
     "exists": true
   },
-  "updatedAt": "2026-10-23T13:53:49.868Z"
+  "updatedAt": "2026-10-23T14:07:59.633Z"
 }
