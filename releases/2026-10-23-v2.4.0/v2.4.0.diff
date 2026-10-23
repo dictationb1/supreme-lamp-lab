@@ -1,0 +1,2989 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f007019..2260bfb 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,46 @@
+ # Changelog
+ 
++## 2.4.0 (v16) — 2026-10-23 (Animated swan badge, glass headline, Settings mixer, zero-lag 60 FPS)
++
++- **The water drop is now an animated Liquid Glass swan.** `#credit` carries a
++  custom `.c-swan` SVG (dual white → aqua → mint gradients, bright specular
++  wing, amber beak) with three independent, continuously running animations:
++  `swanFloat` (3.2 s float/rotate), `swanWing` (2.4 s alternate wing beat) and
++  `swanRipple` (2.8 s expanding water ring). The badge still springs in, holds
++  for 5.2 s, exits and repeats, pauses on hover/touch, and toasts the full
++  credits on click — in **both** Full and Lite modes.
++- **The hero headline *is* the Liquid Glass.** The trailing
++  `<span class="hollow">Liquid Glass</span>` is gone. `#homeTitle`
++  (`.liquid-glass-text`) renders “Session 7 - Travel & Transport” as refractive
++  glass: translucent crystal gradient with `background-clip: text`,
++  `-webkit-text-stroke: 1.35px` specular rim, cyan/mint prism shimmer and a
++  matching opaque light-theme treatment.
++- **Material Mixer moved Home → Settings.** `#lgStage` (bubbles, chips,
++  draggable warm orb, `Liquid Glass Material Mixer` panel with Blur 4–40 px,
++  Saturate 100–260, Bright 90–130, Clear/Frost/Smoke and Auto/Lite 60FPS/Full
++  pills) now renders at the top of Settings under “Appearance · Liquid Glass”.
++  Home is a clean full-width single column: anatomy stage → three Bento stat
++  tiles → Past sessions.
++- **Saved material applies on boot.** New `UI.applyGlassSettings()` restores
++  `glassBlur`, `glassSat`, `glassBrt` and `glassTint` before any screen paints,
++  and is re-applied whenever the mixer binds.
++- **Zero-lag 60 FPS pass.** One backdrop shader per surface (nested
++  `.glass .glass`, `.card.glass .glass`, `.word-item.glass`,
++  `.comm-item.glass`, `#homeStats .statbox-in` use a flat translucent gradient
++  with `backdrop-filter: none !important`); `.topbar.glass` and `#tabbar.glass`
++  are promoted to their own GPU layer with `translate3d(-50%, 0, 0)`,
++  `will-change: transform` and `backface-visibility: hidden`; `#credit.glass`
++  gets `will-change: transform, opacity`; blobs are pre-blurred radial
++  gradients with `filter: none !important`; `#grain` stays `display: none`.
++- **Capsule motion everywhere.** `#tabInd`, `.seg .thumb`, `.seg .seg-ind`,
++  `.seg-tint .seg-ind` and the new `.seg-perf .seg-ind` all glide with
++  `translate3d` on the `.48s cubic-bezier(.2, .9, .25, 1.35)` spring, in both
++  performance modes; clicking a pill never rebuilds the bar it animates.
++- **Storage & data.** Schema 16 under `sdp.v16_swan` (v15 data migrates in
++  place), Session 7 Travel & Transport unchanged (30 words, 5 s timer,
++  ×2 repeats, Amy en-GB), dictionary answers from memory with zero requests and
++  the shared `#sdpAudio` element replays its buffered MP3 on repeat.
++
+ ## 2.3.0 (v15) — 2026-10-23 (Universal Liquid Glass sliding pill transitions)
+ 
+ - **Sliding capsule everywhere.** `#tabbar` now hosts `<span class="tab-ind"
+diff --git a/data/config.json b/data/config.json
+index e557805..85a8625 100644
+--- a/data/config.json
++++ b/data/config.json
+@@ -28,8 +28,8 @@
+     "perf": "auto",
+     "glassTint": 0
+   },
+-  "ver": 15,
+-  "version": "2.3.0",
++  "ver": 16,
++  "version": "2.4.0",
+   "buildDate": "2026-10-23",
+   "credits": {
+     "createdBy": "Hansana",
+@@ -48,8 +48,8 @@
+     "community": "https://ntfy.sh/sdp_dictationb1_comm_v8",
+     "inbox": "https://ntfy.sh/sdp_dictationb1_inbox_v8"
+   },
+-  "appVersion": "2.3.0",
+-  "settingsRev": 15,
++  "appVersion": "2.4.0",
++  "settingsRev": 16,
+   "performance": {
+     "mode": "auto",
+     "lite": {
+diff --git a/data/session.json b/data/session.json
+index 9f3748b..e69c4c1 100644
+--- a/data/session.json
++++ b/data/session.json
+@@ -1,6 +1,6 @@
+ {
+   "ok": true,
+-  "ver": 15,
++  "ver": 16,
+   "session": {
+     "no": "7",
+     "day": "Thursday",
+@@ -218,6 +218,6 @@
+   ],
+   "announcement": null,
+   "comments": [],
+-  "appVersion": "2.3.0",
++  "appVersion": "2.4.0",
+   "updatedAt": "2026-10-23T00:00:00Z"
+ }
+diff --git a/data/version.json b/data/version.json
+index c8b081a..6b63b89 100644
+--- a/data/version.json
++++ b/data/version.json
+@@ -1,11 +1,11 @@
+ {
+-  "ver": 15,
+-  "appVersion": "2.3.0",
+-  "version": "2.3.0",
++  "ver": 16,
++  "appVersion": "2.4.0",
++  "version": "2.4.0",
+   "buildDate": "2026-10-23",
+   "session": "7",
+   "title": "Session 7 - Travel & Transport",
+-  "settingsRev": 15,
++  "settingsRev": 16,
+   "updatedAt": "2026-10-23T00:00:00Z",
+   "updatedAtMs": 1792713600000
+ }
+diff --git a/index.html b/index.html
+index 3694bf2..e7dcfcb 100644
+--- a/index.html
++++ b/index.html
+@@ -17,11 +17,10 @@
+ <title>Smart Dictation Player</title>
+ <style>
+ *, *::before, *::after { box-sizing: border-box; }
+-:root {--font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans Sinhala", "Iskoola Pota", "Nirmala UI", Arial, sans-serif;--r1: 14px; --r2: 20px; --r3: 26px; --r4: 32px;--tap: 44px;--safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);--safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);--fs: 16px;--dur: 220ms;--ease: cubic-bezier(.2, .9, .25, 1.35); --ease-spring: cubic-bezier(.2, .9, .25, 1.35); --dim: var(--ink-2); --shadow: inset 0 -14px 28px rgba(255,255,255,.07), var(--shadow1);/* Apple WWDC25 Liquid Glass material - live, tuned by the Settings mixer */
+---gb: 14px;   /* backdrop blur */
+---gs: 1.6;    /* saturate */
+---gbr: 1.03;  /* brightness */
+-/* drift accents */
++:root {--font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans Sinhala", "Iskoola Pota", "Nirmala UI", Arial, sans-serif;--r1: 14px; --r2: 20px; --r3: 26px; --r4: 32px;--tap: 44px;--safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);--safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);--fs: 16px;--dur: 220ms;--ease: cubic-bezier(.2, .9, .25, 1.35); --ease-spring: cubic-bezier(.2, .9, .25, 1.35); --dim: var(--ink-2); --shadow: inset 0 -14px 28px rgba(255,255,255,.07), var(--shadow1);
++--gb: 14px;   
++--gs: 1.6;    
++--gbr: 1.03;  
+ --aqua: #53c7f0; --coral: #ff6f61; --amber: #ffc247; --violet: #8f7bff; --mint: #39d4b8;--tabbar: 76px;}
+ :root[data-size="s"] { --fs: 14.5px; }
+ :root[data-size="m"] { --fs: 16px; }
+@@ -29,7 +28,6 @@
+ :root[data-size="xl"] { --fs: 20.5px; }
+ :root[data-theme="light"] {--bg1: #e8ecf4; --bg2: #dde4f2;--ink: #0e1424; --ink-2: rgba(14,20,36,.66); --ink-3: rgba(14,20,36,.42);--acc: #3a5cf0; --acc-2: #7a3cf0;--good: #0f8a4d; --warn: #a8620a; --bad: #c62c3d;--glass: rgba(255,255,255,.55); --glass-tint: rgba(255,255,255,.55); --glass-2: rgba(255,255,255,.68); --glass-3: rgba(255,255,255,.48);--glass-solid: #fbfcff; --glass-solid-2: #eef1f8;--line: rgba(14,20,36,.14); --line-2: rgba(14,20,36,.12);--edge: rgba(255,255,255,.85);--inset-hi: rgba(255,255,255,.95);--shadow1: 0 18px 50px rgba(20,30,60,.16); --shadow2: 0 24px 60px rgba(20,30,60,.22);--inner: inset 0 1px 0 rgba(255,255,255,.9);--ring: rgba(58,92,240,.5);--scr: rgba(13,18,32,.34);--blob1: rgba(83,199,240,.42); --blob2: rgba(255,111,97,.42); --blob3: rgba(255,194,71,.42); --blob4: rgba(143,123,255,.42);}
+ :root[data-theme="dark"] {--bg1: #0a0f1e; --bg2: #0f172e;--ink: #f1f4ff; --ink-2: rgba(241,244,255,.66); --ink-3: rgba(241,244,255,.42);--acc: #8ea6ff; --acc-2: #c39bff;--good: #37c07f; --warn: #e0a44a; --bad: #ff7285;--glass: rgba(255,255,255,.07); --glass-tint: rgba(255,255,255,.085); --glass-2: rgba(255,255,255,.12); --glass-3: rgba(255,255,255,.09);--glass-solid: #161a29; --glass-solid-2: #1e2336;--line: rgba(255,255,255,.14); --line-2: rgba(255,255,255,.12);--edge: rgba(255,255,255,.22);--inset-hi: rgba(255,255,255,.45);--shadow1: 0 18px 50px rgba(2,6,20,.45); --shadow2: 0 26px 64px rgba(2,6,20,.58);--inner: inset 0 1px 0 rgba(255,255,255,.1);--ring: rgba(142,166,255,.6);--scr: rgba(0,0,0,.6);--blob1: rgba(83,199,240,.5); --blob2: rgba(255,111,97,.5); --blob3: rgba(255,194,71,.5); --blob4: rgba(143,123,255,.5);}
+-/* v14: dramatic Clear / Frost / Smoke presets, inherited by every glass pane. */
+ body.tint-clear { --glass-tint: rgba(255, 255, 255, .085); --inset-hi: rgba(255, 255, 255, .45); --line: rgba(255, 255, 255, .14); }
+ :root[data-theme="light"] body.tint-clear { --glass-tint: rgba(255, 255, 255, .55); --inset-hi: rgba(255, 255, 255, .95); --line: rgba(14,20,36,.14); }
+ body.tint-frost { --glass-tint: rgba(220, 238, 255, .22); --inset-hi: rgba(255, 255, 255, .82); --line: rgba(255, 255, 255, .32); --shadow: var(--shadow1); }
+@@ -81,12 +79,10 @@ h3 { font-size: 1.02rem; font-weight: 650; }
+ @keyframes drift4 { to { transform: translate3d(8vmax, -10vmax, 0) scale(1.06); } }
+ #grain { display: none !important; }
+ @media (prefers-reduced-transparency: reduce) {.glass { background: var(--glass-solid); }}
+-/* Apple WWDC25 Liquid Glass: the exact 4-layer recipe on every glass surface */
+ .glass { position: relative; background-color: var(--glass-tint); border-radius: 24px; -webkit-backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); box-shadow: inset 0 1px 0 var(--inset-hi), inset 0 0 0 1px var(--line), var(--shadow); transition: transform .42s cubic-bezier(.2, .9, .25, 1.35), background-color .48s cubic-bezier(.2, .9, .25, 1.35), background .48s ease, box-shadow .48s cubic-bezier(.2, .9, .25, 1.35), border-color .38s ease, color .32s ease; }
+ #tabbar, .sheet, .modal, .toast {background-color: var(--glass-tint);border-radius: 24px;border: 0;-webkit-backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr));backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr));box-shadow: inset 0 1px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -14px 28px rgba(255,255,255,.07), var(--shadow1);position: relative;}
+ .glass.strong { background: var(--glass-2); }
+ .glass.deep { box-shadow: inset 0 1px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -14px 28px rgba(255,255,255,.07), var(--shadow2); }
+-/* pointer-tracked specular hotspot on every .glass surface */
+ .glass::before {content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;background: radial-gradient(380px circle at var(--mx, 50%) var(--my, -30%), rgba(255,255,255,.16), transparent 62%);}
+ .glass::after {content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;border-radius: inherit; pointer-events: none;background: linear-gradient(90deg, rgba(255,255,255,0), var(--edge), rgba(255,255,255,0));opacity: .9;}
+ :root[data-hc="on"] .glass::after { display: none; }
+@@ -174,7 +170,7 @@ input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; border-radius
+ .brand .t b { display: block; font-size: 1rem; font-weight: 700; letter-spacing: -.02em; }
+ .brand .t span { font-size: .72rem; color: var(--ink-2); }
+ .brand .t #brandCredit { display: block; font-size: .6rem; line-height: 1.3; font-weight: 600; color: var(--ink-2); white-space: normal; }
+-#tabbar {position: fixed; bottom: calc(12px + var(--safe-b)); left: 50%; transform: translateX(-50%); z-index: 50; width: min(560px, calc(100vw - 16px)); display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch; gap: 0; padding: 6px; border-radius: 999px; background: rgba(10, 15, 30, .74); -webkit-backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); box-shadow: inset 0 1px 0 rgba(255,255,255,.38), inset 0 0 0 1px rgba(127,214,247,.28), 0 18px 46px rgba(2,6,20,.58); overflow: hidden;}
++#tabbar {position: fixed; bottom: calc(12px + var(--safe-b)); left: 50%; transform: translate3d(-50%, 0, 0); will-change: transform; backface-visibility: hidden; z-index: 50; width: min(560px, calc(100vw - 16px)); display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch; gap: 0; padding: 6px; border-radius: 999px; background: rgba(10, 15, 30, .74); -webkit-backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr)); box-shadow: inset 0 1px 0 rgba(255,255,255,.38), inset 0 0 0 1px rgba(127,214,247,.28), 0 18px 46px rgba(2,6,20,.58); overflow: hidden;}
+ #tabInd, .tab-ind {position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 5); border-radius: 999px; background: radial-gradient(circle at 50% 15%, rgba(160, 185, 255, .28), rgba(255, 255, 255, .09) 72%); box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, .62), inset 0 0 0 1.5px rgba(155, 180, 255, .52), 0 6px 18px rgba(0, 0, 0, .38); transition: transform .48s cubic-bezier(.2, .9, .25, 1.35), background .35s ease, box-shadow .35s ease !important; pointer-events: none; z-index: 0; will-change: transform;}
+ #tabbar button {position: relative; z-index: 1; border: 0; background: transparent !important; border-radius: 999px; min-height: 58px; padding: 6px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: rgba(241, 244, 255, .70); font: 700 12px "Manrope", system-ui, sans-serif; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; transition: color .35s ease, transform .35s cubic-bezier(.2, .9, .25, 1.35) !important;}
+ #tabbar button svg { width: 22px; height: 22px; }
+@@ -182,7 +178,6 @@ input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; border-radius
+ #tabbar button[aria-selected="true"] svg { color: #96b6ff; filter: drop-shadow(0 0 8px rgba(150, 182, 255, .35)); transition: transform .38s cubic-bezier(.2, .9, .25, 1.35), color .35s ease; }
+ #tabbar button .badge { position: absolute; margin-left: 22px; margin-top: -18px; }
+ .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff;font-size: .66rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+-/* top bar floats; the dock stays centred at every width. */
+ .hero { padding: 18px; border-radius: var(--r4); overflow: hidden; }
+ .hero .kicker { font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--acc); }
+ .hero .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+@@ -347,15 +342,12 @@ table th, table td { text-align: left; padding: 6px; border-bottom: 1px solid va
+ .paste-scroll input { font-size: 16px; min-width: 130px; }
+ .paste-scroll td:last-child { min-width: 175px; }
+ 
+-/* v13: automatic Lite mode keeps 100% of the Apple_liquid.html material.
+-   Only the paint cost changes - every surface stays glass. */
+ body[data-perf="lite"] { --gb: 8px; --gs: 1.35; --gbr: 1.02; }
+ body[data-perf="lite"] .blob, body[data-perf="lite"] .bubble, body[data-perf="lite"] .chip-a, body[data-perf="lite"] .chip-b { animation: none !important; }
+ body[data-perf="lite"] .glass::before { display: none !important; }
+ body[data-perf="lite"] .topbar.glass, body[data-perf="lite"] #homeHero.glass, body[data-perf="lite"] .panel.glass, body[data-perf="lite"] .wordcard.glass, body[data-perf="lite"] .sheet, body[data-perf="lite"] .modal {-webkit-backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr));backdrop-filter: blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr));box-shadow: inset 0 1.5px 0 0 var(--inset-hi), inset 0 0 0 1px var(--line), 0 14px 32px rgba(4, 8, 22, .4); }
+-/* repeated inner rows: hardware-accelerated translucent glass, still the same look */
+ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[data-perf="lite"] .comm-item.glass, body[data-perf="lite"] .guide-step, body[data-perf="lite"] .bento-sessions > .glass {-webkit-backdrop-filter: none;backdrop-filter: none;background-image: linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.05)); }
+-.topbar.glass { position: fixed; top: calc(12px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 50; width: min(1100px, calc(100vw - 20px)); margin: 0; padding: 7px 14px; border-radius: 999px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; box-shadow: inset 0 1px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -12px 24px rgba(255,255,255,.06), 0 14px 42px rgba(0,0,0,.28); }
++.topbar.glass { position: fixed; top: calc(12px + var(--safe-t)); left: 50%; transform: translate3d(-50%, 0, 0); will-change: transform; backface-visibility: hidden; z-index: 50; width: min(1100px, calc(100vw - 20px)); margin: 0; padding: 7px 14px; border-radius: 999px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; box-shadow: inset 0 1px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -12px 24px rgba(255,255,255,.06), 0 14px 42px rgba(0,0,0,.28); }
+ .topbar .brand { gap: 9px; }
+ .topbar .brand .mark { width: 38px; height: 38px; border-radius: 62% 38% 58% 42%; color: #062530; background: linear-gradient(135deg, #5cd0f4, #3ce0b8); transform: rotate(45deg); box-shadow: 0 0 24px rgba(60,224,184,.25), inset 0 1px 0 rgba(255,255,255,.75); }
+ .topbar .brand .mark svg { transform: rotate(-45deg); }
+@@ -365,7 +357,7 @@ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[d
+ .top-controls { flex-wrap: nowrap !important; margin-left: 12px; }
+ .top-controls > * { margin: 0; }
+ .theme-btn { font-size: 1.15rem; line-height: 1; }
+-.lg-hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 28px; align-items: center; }
++.lg-hero { display: block; }
+ .lg-hero > * { min-width: 0; }
+ #homeHero.hero { padding: 26px; overflow: visible; background-image: linear-gradient(158deg, rgba(9,14,28,.58), rgba(12,20,38,.46)); }
+ :root[data-theme="light"] #homeHero.hero { background-image: linear-gradient(158deg, rgba(255,255,255,.74), rgba(244,248,255,.64)); }
+@@ -373,7 +365,9 @@ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[d
+ :root[data-theme="light"] .stage .chip { color: #0e1424; }
+ .eyebrow { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .68rem; letter-spacing: .105em; color: var(--aqua); }
+ #homeHero h1 { margin: 12px 0 14px; font-size: clamp(2rem, 3.6vw, 3.4rem); line-height: 1.02; letter-spacing: -.025em; font-weight: 760; }
+-.hollow { color: transparent; -webkit-text-stroke: 1.5px var(--ink); }
++.hero-h1 { margin: 12px 0 14px; }
++#homeTitle, .liquid-glass-text { display: inline-block; font-family: "Space Grotesk", system-ui, sans-serif; font-size: clamp(2.1rem, 4.8vw, 3.85rem); font-weight: 700; line-height: 1.06; letter-spacing: -0.025em; background: linear-gradient(135deg, rgba(255,255,255,.96) 0%, rgba(165,232,255,.38) 32%, rgba(92,208,244,.14) 54%, rgba(255,255,255,.92) 78%, rgba(60,224,184,.48) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 1.35px rgba(255, 255, 255, .78); text-shadow: 0 10px 28px rgba(83, 199, 240, .24); }
++:root[data-theme="light"] #homeTitle, body[data-theme="light"] #homeTitle { background: linear-gradient(135deg, #0e1424 0%, rgba(18,58,103,.45) 45%, #0d4a41 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: 1.25px rgba(14, 20, 36, .75); }
+ #homeSub.lede { font-size: .94rem; line-height: 1.55; color: var(--ink-2); }
+ .hero-credit { margin-top: 16px; padding: 9px 13px; border-radius: 999px; font-size: .69rem; line-height: 1.4; text-align: center; color: var(--ink-2); }
+ #homeHero .meta { margin: 14px 0; }
+@@ -404,7 +398,6 @@ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[d
+ .chip-a { left: 4px; top: 12px; }
+ .chip-b { right: 4px; bottom: 6px; animation-delay: -2s !important; }
+ @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+-/* ===== v12 Apple_liquid.html: colour-refracting bento + stage surfaces ===== */
+ #homeStats { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-top: 24px; }
+ #homeStats .statbox { min-height: 118px; display: flex; padding: 0; overflow: hidden; border-radius: 26px; border: 1px solid var(--line); box-shadow: var(--shadow1); }
+ #homeStats .statbox:nth-child(1) { background: linear-gradient(140deg, #0d3a4a, #123a67); }
+@@ -415,15 +408,12 @@ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[d
+ #homeStats .statbox span { color: rgba(241,244,255,.76); }
+ .home-lower { margin-top: 14px; }
+ .bento-sessions { border-radius: 26px; padding: 10px; border: 1px solid var(--line); box-shadow: var(--shadow1); background: repeating-linear-gradient(120deg, rgba(57,212,184,.18) 0 14px, transparent 14px 34px), linear-gradient(150deg, #0d4a41, #14635b); }
+-/* the anatomy stage: stripes + coral disc sit DIRECTLY behind #homeHero.glass */
+ .anatomy-stage { position: relative; border-radius: 32px; overflow: hidden; padding: 22px; background: radial-gradient(circle at 88% 88%, rgba(255,111,97,.28), transparent 52%), linear-gradient(140deg, #12314b, #12203f); border: 1px solid var(--line); box-shadow: var(--shadow1); }
+ .anatomy-stage > .glass { position: relative; z-index: 2; }
+ .stripes { position: absolute; inset: 0; z-index: 0; pointer-events: none; background: repeating-linear-gradient(115deg, rgba(127,214,247,.40) 0 22px, rgba(255,255,255,.07) 22px 44px, rgba(255,194,71,.34) 44px 66px, rgba(255,255,255,.06) 66px 88px); }
+ .disc { position: absolute; z-index: 0; width: 220px; height: 220px; border-radius: 50%; right: -30px; bottom: -50px; pointer-events: none; background: radial-gradient(circle at 35% 30%, #ff6f61, #7a1f4a); filter: blur(2px); }
+-/* orb stage: clamped so #orb never causes horizontal scroll */
+ #lgStage.stage { position: relative; min-height: 470px; border-radius: 32px; overflow: hidden; padding: 20px; isolation: isolate; background: radial-gradient(circle at 80% 20%, rgba(83,199,240,.22), transparent 55%), linear-gradient(160deg, #13244d, #0b1530 55%, #182a52); border: 1px solid var(--line); box-shadow: var(--shadow1); }
+ .orb { right: 12%; top: 14%; left: auto; }
+-/* dictation player: same refraction through .wordcard.glass and .lens */
+ .layer { background: rgba(10,15,30,.74); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
+ :root[data-theme="light"] .layer { background: rgba(232,236,244,.82); }
+ .layer > .lhead, .layer > .lbody, .layer > .lfoot { position: relative; z-index: 1; }
+@@ -454,16 +444,20 @@ body[data-perf="lite"] .listrow, body[data-perf="lite"] .word-item.glass, body[d
+ .chip.good { color: #0a6b3d; background: rgba(15,138,77,.12); }
+ html[data-theme="dark"] .chip.good { color: #7fe0ac; }
+ 
+-/* tint rim/glow also beats the Lite surface optimisation. */
+ body.tint-frost[data-perf] .glass { box-shadow: inset 0 1.5px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -18px 32px rgba(180, 225, 255, .14), var(--shadow); }
+ body.tint-smoke[data-perf] .glass { box-shadow: inset 0 1.5px 0 var(--inset-hi), inset 0 0 0 1px var(--line), inset 0 -18px 32px rgba(0, 0, 0, .35), var(--shadow); }
+-/* floating liquid-glass credit: animated in Full AND Lite. */
+ .credit { position: fixed; right: 22px; bottom: max(20px, env(safe-area-inset-bottom)); z-index: 70; display: flex; align-items: center; gap: 11px; padding: 11px 18px 11px 13px; border-radius: 99px; overflow: hidden; cursor: pointer; opacity: 0; transform: translateY(90px) scale(.6); filter: blur(10px); transition: transform .85s var(--ease-spring), opacity .55s ease, filter .55s ease; }
+ .credit.in { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+ .credit.out { opacity: 0; transform: translateY(-72px) scale(.75); filter: blur(8px); transition: transform .7s cubic-bezier(.55,-.15,.6,1), opacity .55s ease, filter .55s ease; }
+ .credit.snap { transition: none !important; }
+ .credit.in:hover { transform: translateY(-4px) scale(1.05); }
+-.c-drop { width: 24px; height: 24px; flex: none; }
++.c-swan { width: 30px; height: 30px; flex: none; overflow: visible; filter: drop-shadow(0 2px 8px rgba(92, 208, 244, .45)); }
++.c-swan .swan-group { transform-origin: 18px 22px; animation: swanFloat 3.2s ease-in-out infinite; }
++.c-swan .swan-wing { transform-origin: 20px 21px; animation: swanWing 2.4s ease-in-out infinite alternate; }
++.c-swan .swan-ripple { transform-origin: 19px 29.5px; animation: swanRipple 2.8s ease-out infinite; }
++@keyframes swanFloat { 0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); } 50% { transform: translate3d(0, -2.5px, 0) rotate(-2.5deg); } }
++@keyframes swanWing { 0% { transform: scaleY(1) rotate(0deg); } 100% { transform: scaleY(1.08) translate3d(0, -1px, 0) rotate(3deg); } }
++@keyframes swanRipple { 0% { transform: scaleX(.75); opacity: .85; } 100% { transform: scaleX(1.22); opacity: 0; } }
+ .c-text { display: flex; flex-direction: column; line-height: 1.15; }
+ .c-text small { font: 600 9.5px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); }
+ .c-text b { font: 700 16px "Space Grotesk", system-ui, sans-serif; letter-spacing: .01em; color: var(--ink); }
+@@ -477,6 +471,11 @@ body.tint-morph .panel.glass::before, body.tint-morph #homeHero.glass::before {
+ @keyframes tintMorph { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.012); } }
+ @keyframes tintShimmer { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+ @media (max-width: 680px) { #tabbar button { min-height: 50px; } .credit { right: 14px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); padding: 9px 14px 9px 11px; } }
++#s-home .tile .glass, .card.glass .glass, .glass .glass, .tile .glass, .word-item.glass, .comm-item.glass, #homeStats .statbox-in, .bento-sessions > .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); }
++#credit.glass { will-change: transform, opacity; backface-visibility: hidden; }
++.blob { --blob-c: var(--blob-color); background: radial-gradient(circle, var(--blob-c) 0%, transparent 70%); filter: none !important; }
++.seg-tint .seg-ind, .seg .thumb, .seg .seg-ind, .seg-perf .seg-ind, #tabInd { transition: transform .48s cubic-bezier(.2, .9, .25, 1.35), width .48s cubic-bezier(.2, .9, .25, 1.35), background .35s ease !important; }
++.seg .seg-ind, .seg-perf .seg-ind { position: absolute; top: 4px; bottom: 4px; left: 4px; width: 0; border-radius: 999px; background: radial-gradient(circle at 50% 15%, rgba(160, 185, 255, .30), rgba(92, 208, 244, .16) 75%); box-shadow: inset 0 1.5px 0 rgba(255,255,255,.68), inset 0 0 0 1.5px rgba(155, 180, 255, .50), 0 4px 14px rgba(0,0,0,.34); pointer-events: none; z-index: 0; will-change: transform, width; }
+ </style>
+ </head>
+ <body class="tint-clear" data-theme="dark" data-perf="full">
+@@ -571,9 +570,9 @@ body.tint-morph .panel.glass::before, body.tint-morph #homeHero.glass::before {
+         <div class="disc" aria-hidden="true"></div>
+         <div class="glass card hero" id="homeHero">
+         <div class="kicker eyebrow" id="homeKicker">SESSION 7 · 22/10/2026 ● CCBE GALLE BRANCH</div>
+-        <h1><span id="homeTitle">Session 7 - Travel &amp; Transport</span> <span class="hollow" aria-hidden="true">Liquid Glass</span></h1>
++        <h1 class="hero-h1"><span id="homeTitle" class="liquid-glass-text">Session 7 - Travel &amp; Transport</span></h1>
+         <p class="lede muted" id="homeSub">30 words · 5s timer · Word ×2 · British Female Professor Voice (Amy · en-GB)</p>
+-        <div class="glass hero-credit">💧 Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini</div>
++        <div class="glass hero-credit">🦢 Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini</div>
+         <div class="meta" id="homeMeta"></div>
+         <div class="glass card r2 hidden" id="homeResume">
+           <div class="spread"><div><b id="resumeText">Welcome back</b><p class="muted small" id="resumeSub"></p></div><span class="row"><button type="button" class="btn sm soft" id="btnResumeNo">Start again</button><button type="button" class="btn sm primary" id="btnResumeYes">Continue</button></span></div>
+@@ -588,31 +587,11 @@ body.tint-morph .panel.glass::before, body.tint-morph #homeHero.glass::before {
+         </div>
+       </div>
+       </div>
+-      <div class="stage" id="lgStage" role="group" aria-label="Interactive Liquid Glass material playground">
+-        <span class="bubble bubble-1" aria-hidden="true"></span><span class="bubble bubble-2" aria-hidden="true"></span><span class="bubble bubble-3" aria-hidden="true"></span><span class="bubble bubble-4" aria-hidden="true"></span>
+-        <div id="orb" class="orb" role="button" tabindex="0" aria-label="Glowing orb. Drag it, use arrow keys to move, or press Enter to centre it."></div>
+-        <div class="glass panel" id="materialMixer">
+-          <h2>Liquid Glass <span>Material Mixer</span></h2>
+-          <div class="mix-row ctl"><div class="mix-head"><label for="sBlur">Blur</label><output id="outBlur" for="sBlur">14px</output></div><input id="sBlur" type="range" min="4" max="40" value="14" step="1" aria-label="Glass blur"></div>
+-          <div class="mix-row ctl"><div class="mix-head"><label for="sSat">Saturate</label><output id="outSat" for="sSat">1.6×</output></div><input id="sSat" type="range" min="100" max="260" value="160" step="1" aria-label="Glass saturation"></div>
+-          <div class="mix-row ctl"><div class="mix-head"><label for="sBrt">Bright</label><output id="outBrt" for="sBrt">1.03</output></div><input id="sBrt" type="range" min="90" max="130" value="103" step="1" aria-label="Glass brightness"></div>
+-          <div class="seg-tint" id="segTint" role="group" aria-label="Glass tint mode">
+-            <span class="seg-ind"></span>
+-            <button type="button" data-tint="0">Clear</button>
+-            <button type="button" data-tint="1">Frost</button>
+-            <button type="button" data-tint="2">Smoke</button>
+-          </div>
+-          <div class="seg" id="segPerf" role="group" aria-label="Performance mode" style="margin-top:8px"><span class="thumb" aria-hidden="true"></span><button type="button" data-perf="auto" aria-pressed="true">Auto</button><button type="button" data-perf="lite" aria-pressed="false">Lite 60FPS</button><button type="button" data-perf="full" aria-pressed="false">Full</button></div>
+-          <p class="mixer-hint" id="perfStatus">⚡ Auto Lite (60 FPS)</p>
+-          <p class="mixer-hint">↖ drag the glowing orb behind this glass pane</p>
+-        </div>
+-        <span class="glass chip chip-a">💧 Liquid Glass: Live</span><span class="glass chip chip-b">🇬🇧 Amy UK Voice ⚡︎</span>
+-      </div>
+-    </div>
+     <div class="grid3" id="homeStats"></div>
+     <div class="stack home-lower">
+       <div class="bento-sessions"><div class="glass card pad-s"><div class="spread" style="margin-bottom:8px"><h3>Past sessions</h3><span class="row"><button type="button" class="btn sm ghost" id="btnRefresh" aria-label="Refresh now"><svg aria-hidden="true"><use xlink:href="#i-refresh" href="#i-refresh"></use></svg></button></span></div><div id="homeSessions"></div></div></div>
+       <p class="credit-note center small" id="homeCredits" data-i18n="creditFull">Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini</p>
++      </div>
+     </div>
+   </section>
+ 
+@@ -696,526 +675,543 @@ body.tint-morph .panel.glass::before, body.tint-morph #homeHero.glass::before {
+ 
+ <script type="text/plain" id="gas-source">
+ /**
+- * Smart Dictation Player - Google Apps Script backend (Code.gs)
+- * Deploy: Web app, Execute as "Me", Access "Anyone".
+- * Script property ADMIN_PIN must contain the lecturer PIN (never written in this file).
+- */
++* Smart Dictation Player - Google Apps Script backend (Code.gs)
++* Deploy: Web app, Execute as "Me", Access "Anyone".
++* Script property ADMIN_PIN must contain the lecturer PIN (never written in this file).
++*/
+ var TAB = {
+-  Config: 'Config', Lists: 'Lists', Plan: 'Plan', Sessions: 'Sessions',
+-  Announcement: 'Announcement', Comments: 'Comments', Inbox: 'Inbox', Results: 'Results'
++Config: 'Config', Lists: 'Lists', Plan: 'Plan', Sessions: 'Sessions',
++Announcement: 'Announcement', Comments: 'Comments', Inbox: 'Inbox', Results: 'Results'
+ };
+ 
+ function doGet(e) {
+-  return respond(handleGet(e));
++return respond(handleGet(e));
+ }
+ 
+ function doPost(e) {
+-  return respond(handlePost(e));
++return respond(handlePost(e));
+ }
+ 
+ function handleGet(e) {
+-  var p = (e && e.parameter) ? e.parameter : {};
+-  var action = String(p.action || 'state');
+-  if (action === 'ver') {
+-    var ver = Number(getCfg('ver') || 0);
+-    return { ok: true, ver: ver };
+-  }
+-  if (action === 'state') {
+-    return readState();
+-  }
+-  if (action === 'comments') {
+-    return { ok: true, comments: readComments(true), session: currentSession() };
+-  }
+-  if (action === 'stats') {
+-    if (!adminOk(p)) return { ok: false, err: 'unauthorised' };
+-    return { ok: true, stats: buildStats() };
+-  }
+-  if (action === 'inbox') {
+-    if (!adminOk(p)) return { ok: false, err: 'unauthorised' };
+-    return { ok: true, inbox: readInbox(false), results: readResults() };
+-  }
+-  return { ok: false, err: 'unknown action' };
++var p = (e && e.parameter) ? e.parameter : {};
++var action = String(p.action || 'state');
++if (action === 'ver') {
++var ver = Number(getCfg('ver') || 0);
++return { ok: true, ver: ver };
++}
++if (action === 'state') {
++return readState();
++}
++if (action === 'comments') {
++return { ok: true, comments: readComments(true), session: currentSession() };
++}
++if (action === 'stats') {
++if (!adminOk(p)) return { ok: false, err: 'unauthorised' };
++return { ok: true, stats: buildStats() };
++}
++if (action === 'inbox') {
++if (!adminOk(p)) return { ok: false, err: 'unauthorised' };
++return { ok: true, inbox: readInbox(false), results: readResults() };
++}
++return { ok: false, err: 'unknown action' };
+ }
+ 
+ function handlePost(e) {
+-  var body = {};
+-  try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { body = {}; }
+-  if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
+-  var action = String(body.action || '');
+-  var cid = clip(String(body.cid || ''), 60);
+-
+-  if (action === 'login') return adminLogin(body);
+-  if (action === 'ping') return { ok: true, pong: true, ver: Number(getCfg('ver') || 0) };
+-
+-  if (action === 'comment') return addComment(body, cid);
+-  if (action === 'message') return addMessage(body, cid);
+-  if (action === 'result') return addResult(body, cid);
+-  if (action === 'report') return reportComment(body, cid);
+-
+-  if (!adminOk(body)) return { ok: false, err: 'unauthorised' };
+-  var lock = LockService.getScriptLock();
+-  try { lock.waitLock(20000); } catch (err2) { return { ok: false, err: 'busy' }; }
+-  try {
+-    if (action === 'readInbox') return { ok: true, inbox: readInbox(true), comments: readComments(false), results: readResults() };
+-    if (action === 'publish') return publish(body);
+-    if (action === 'announce') return setAnnouncement(body);
+-    if (action === 'moderate') return moderate(body);
+-    if (action === 'inbox') return inboxAction(body);
+-    if (action === 'setPin') return { ok: false, err: 'set ADMIN_PIN in Script properties' };
+-    return { ok: false, err: 'unknown action' };
+-  } finally {
+-    try { lock.releaseLock(); } catch (err3) {}
+-  }
++var body = {};
++try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { body = {}; }
++if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
++var action = String(body.action || '');
++var cid = clip(String(body.cid || ''), 60);
++
++if (action === 'login') return adminLogin(body);
++if (action === 'ping') return { ok: true, pong: true, ver: Number(getCfg('ver') || 0) };
++
++if (action === 'comment') return addComment(body, cid);
++if (action === 'message') return addMessage(body, cid);
++if (action === 'result') return addResult(body, cid);
++if (action === 'report') return reportComment(body, cid);
++
++if (!adminOk(body)) return { ok: false, err: 'unauthorised' };
++var lock = LockService.getScriptLock();
++try { lock.waitLock(20000); } catch (err2) { return { ok: false, err: 'busy' }; }
++try {
++if (action === 'readInbox') return { ok: true, inbox: readInbox(true), comments: readComments(false), results: readResults() };
++if (action === 'publish') return publish(body);
++if (action === 'announce') return setAnnouncement(body);
++if (action === 'moderate') return moderate(body);
++if (action === 'inbox') return inboxAction(body);
++if (action === 'setPin') return { ok: false, err: 'set ADMIN_PIN in Script properties' };
++return { ok: false, err: 'unknown action' };
++} finally {
++try { lock.releaseLock(); } catch (err3) {}
++}
+ }
+ 
+ /* ---------- shared helpers ---------- */
+ 
+ function respond(obj) {
+-  var out = ContentService.createTextOutput(JSON.stringify(obj || { ok: false }));
+-  out.setMimeType(ContentService.MimeType.JSON);
+-  return out;
++var out = ContentService.createTextOutput(JSON.stringify(obj || { ok: false }));
++out.setMimeType(ContentService.MimeType.JSON);
++return out;
+ }
+ 
+ function clip(s, n) {
+-  s = String(s == null ? '' : s);
+-  s = s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+-  return s.length > n ? s.substring(0, n) : s;
++s = String(s == null ? '' : s);
++s = s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
++return s.length > n ? s.substring(0, n) : s;
+ }
+ 
+ function ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
+ 
+ function sheet(name, headers) {
+-  var s = ss().getSheetByName(name);
+-  if (!s) {
+-    s = ss().insertSheet(name);
+-    if (headers && headers.length) {
+-      s.getRange(1, 1, 1, headers.length).setValues([headers]);
+-      s.setFrozenRows(1);
+-    }
+-  }
+-  return s;
++var s = ss().getSheetByName(name);
++if (!s) {
++s = ss().insertSheet(name);
++if (headers && headers.length) {
++s.getRange(1, 1, 1, headers.length).setValues([headers]);
++s.setFrozenRows(1);
++}
++}
++return s;
+ }
+ 
+ function rows(name) {
+-  var s = ss().getSheetByName(name);
+-  if (!s) return [];
+-  var last = s.getLastRow();
+-  if (last < 2) return [];
+-  return s.getRange(2, 1, last - 1, s.getLastColumn()).getValues();
++var s = ss().getSheetByName(name);
++if (!s) return [];
++var last = s.getLastRow();
++if (last < 2) return [];
++return s.getRange(2, 1, last - 1, s.getLastColumn()).getValues();
+ }
+ 
+ function append(name, headers, values) {
+-  var s = sheet(name, headers);
+-  s.appendRow(values.map(function (value) { return typeof value === 'string' && /^[=+\-@]/.test(value) ? "'" + value : value; }));
+-  return s.getLastRow();
++var s = sheet(name, headers);
++s.appendRow(values.map(function (value) { return typeof value === 'string' && /^[=+\-@]/.test(value) ? "'" + value : value; }));
++return s.getLastRow();
+ }
+ 
+ function getCfg(key) {
+-  var s = ss().getSheetByName(TAB.Config);
+-  if (!s) return '';
+-  var last = s.getLastRow();
+-  if (last < 2) return '';
+-  var data = s.getRange(2, 1, last - 1, 2).getValues();
+-  for (var i = 0; i < data.length; i++) {
+-    if (String(data[i][0]) === key) return data[i][1];
+-  }
+-  return '';
++var s = ss().getSheetByName(TAB.Config);
++if (!s) return '';
++var last = s.getLastRow();
++if (last < 2) return '';
++var data = s.getRange(2, 1, last - 1, 2).getValues();
++for (var i = 0; i < data.length; i++) {
++if (String(data[i][0]) === key) return data[i][1];
++}
++return '';
+ }
+ 
+ function setCfg(key, value) {
+-  var s = sheet(TAB.Config, ['key', 'value']);
+-  var last = s.getLastRow();
+-  if (last >= 2) {
+-    var data = s.getRange(2, 1, last - 1, 2).getValues();
+-    for (var i = 0; i < data.length; i++) {
+-      if (String(data[i][0]) === key) {
+-        s.getRange(i + 2, 2).setValue(value);
+-        bumpVer();
+-        return;
+-      }
+-    }
+-  }
+-  s.appendRow([key, value]);
++var s = sheet(TAB.Config, ['key', 'value']);
++var last = s.getLastRow();
++if (last >= 2) {
++var data = s.getRange(2, 1, last - 1, 2).getValues();
++for (var i = 0; i < data.length; i++) {
++if (String(data[i][0]) === key) {
++  s.getRange(i + 2, 2).setValue(value);
+   bumpVer();
++  return;
++}
++}
++}
++s.appendRow([key, value]);
++bumpVer();
+ }
+ 
+ function bumpVer() {
+-  var s = sheet(TAB.Config, ['key', 'value']);
+-  var v = Number(getCfg('ver') || 0) + 1;
+-  var last = s.getLastRow();
+-  if (last >= 2) {
+-    var data = s.getRange(2, 1, last - 1, 2).getValues();
+-    for (var i = 0; i < data.length; i++) {
+-      if (String(data[i][0]) === 'ver') { s.getRange(i + 2, 2).setValue(v); return; }
+-    }
+-  }
+-  s.appendRow(['ver', v]);
++var s = sheet(TAB.Config, ['key', 'value']);
++var v = Number(getCfg('ver') || 0) + 1;
++var last = s.getLastRow();
++if (last >= 2) {
++var data = s.getRange(2, 1, last - 1, 2).getValues();
++for (var i = 0; i < data.length; i++) {
++if (String(data[i][0]) === 'ver') { s.getRange(i + 2, 2).setValue(v); return; }
++}
++}
++s.appendRow(['ver', v]);
+ }
+ 
+ function cacheGet(key) {
+-  try { return CacheService.getScriptCache().get(key); } catch (err) { return null; }
++try { return CacheService.getScriptCache().get(key); } catch (err) { return null; }
+ }
+ 
+ function cachePut(key, value, secs) {
+-  try { CacheService.getScriptCache().put(key, value, secs || 10); } catch (err) {}
++try { CacheService.getScriptCache().put(key, value, secs || 10); } catch (err) {}
+ }
+ 
+ /* ---------- admin auth ---------- */
+ 
+ function adminLogin(body) {
+-  var pin = String((body && body.pin) || '');
+-  var expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '');
+-  if (!expected) return { ok: false, err: 'admin_pin_unset' };
+-  var fails = Number(cacheGet('adminFails') || 0);
+-  var until = Number(cacheGet('adminUntil') || 0);
+-  if (until && until > Date.now()) {
+-    return { ok: false, err: 'locked', retrySec: Math.ceil((until - Date.now()) / 1000) };
+-  }
+-  if (pin !== expected) {
+-    fails = fails + 1;
+-    if (fails >= 5) { cachePut('adminFails', 0, 3600); cachePut('adminUntil', Date.now() + 300000, 3600); }
+-    else { cachePut('adminFails', fails, 3600); }
+-    return { ok: false, err: 'bad_pin', triesLeft: Math.max(0, 5 - fails) };
+-  }
+-  cachePut('adminFails', 0, 3600);
+-  return { ok: true, token: makeToken(), ver: Number(getCfg('ver') || 0) };
++var pin = String((body && body.pin) || '');
++var expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '');
++if (!expected) return { ok: false, err: 'admin_pin_unset' };
++var fails = Number(cacheGet('adminFails') || 0);
++var until = Number(cacheGet('adminUntil') || 0);
++if (until && until > Date.now()) {
++return { ok: false, err: 'locked', retrySec: Math.ceil((until - Date.now()) / 1000) };
++}
++if (pin !== expected) {
++fails = fails + 1;
++if (fails >= 5) { cachePut('adminFails', 0, 3600); cachePut('adminUntil', Date.now() + 300000, 3600); }
++else { cachePut('adminFails', fails, 3600); }
++return { ok: false, err: 'bad_pin', triesLeft: Math.max(0, 5 - fails) };
++}
++cachePut('adminFails', 0, 3600);
++return { ok: true, token: makeToken(), ver: Number(getCfg('ver') || 0) };
+ }
+ 
+ function makeToken() {
+-  var raw = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '') + ':' + Date.now();
+-  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw)).substring(0, 24);
++var raw = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '') + ':' + Date.now();
++return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw)).substring(0, 24);
+ }
+ 
+ function adminOk(body) {
+-  var pin = String((body && body.pin) || '');
+-  var expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '');
+-  if (!expected) return false;
+-  var until = Number(cacheGet('adminUntil') || 0);
+-  if (until && until > Date.now()) return false;
+-  return pin === expected;
++var pin = String((body && body.pin) || '');
++var expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PIN') || '');
++if (!expected) return false;
++var until = Number(cacheGet('adminUntil') || 0);
++if (until && until > Date.now()) return false;
++return pin === expected;
+ }
+ 
+ /* ---------- reads ---------- */
+ 
+ function readState() {
+-  var cached = cacheGet('state');
+-  if (cached) {
+-    try { return JSON.parse(cached); } catch (err) {}
+-  }
+-  var lists = [], activeVersions = Object.create(null);
+-  var lr = rows(TAB.Lists);
+-  for (var i = 0; i < lr.length; i++) {
+-    var items = [];
+-    try { items = JSON.parse(String(lr[i][2] || '[]')); } catch (err2) { items = []; }
+-    if (!Array.isArray(items)) items = [];
+-    var listKey = String(lr[i][0]);
+-    if (!Object.prototype.hasOwnProperty.call(activeVersions, listKey)) activeVersions[listKey] = getCfg('listVer:' + listKey);
+-    var committed = activeVersions[listKey];
+-    if (committed !== '' && Number(lr[i][3] || 1) !== Number(committed)) continue;
+-    var existing = null;
+-    for (var li = 0; li < lists.length; li++) if (lists[li].id === String(lr[i][0])) existing = lists[li];
+-    if (existing) existing.words = existing.words.concat(items);
+-    else lists.push({ id: String(lr[i][0]), name: String(lr[i][1]), version: Number(lr[i][3] || 1), words: items });
+-  }
+-  var plan = [];
+-  var pr = rows(TAB.Plan);
+-  for (var j = 0; j < pr.length; j++) {
+-    plan.push({ key: String(pr[j][0]), listId: String(pr[j][1]), pinned: String(pr[j][2]) === 'yes' });
+-  }
+-  var out = {
+-    ok: true, ver: Number(getCfg('ver') || 0), lists: lists, plan: plan,
+-    session: currentSession(), announcement: currentAnnouncement(), sessions: lastSessions(10), contact: readJsonCfg('contact'), defaults: readJsonCfg('defaults')
+-  };
+-  cachePut('state', JSON.stringify(out), 10);
+-  return out;
++var cached = cacheGet('state');
++if (cached) {
++try { return JSON.parse(cached); } catch (err) {}
++}
++var lists = [], activeVersions = Object.create(null);
++var lr = rows(TAB.Lists);
++for (var i = 0; i < lr.length; i++) {
++var items = [];
++try { items = JSON.parse(String(lr[i][2] || '[]')); } catch (err2) { items = []; }
++if (!Array.isArray(items)) items = [];
++var listKey = String(lr[i][0]);
++if (!Object.prototype.hasOwnProperty.call(activeVersions, listKey)) activeVersions[listKey] = getCfg('listVer:' + listKey);
++var committed = activeVersions[listKey];
++if (committed !== '' && Number(lr[i][3] || 1) !== Number(committed)) continue;
++var existing = null;
++for (var li = 0; li < lists.length; li++) if (lists[li].id === String(lr[i][0])) existing = lists[li];
++if (existing) existing.words = existing.words.concat(items);
++else lists.push({ id: String(lr[i][0]), name: String(lr[i][1]), version: Number(lr[i][3] || 1), words: items });
++}
++var plan = [];
++var pr = rows(TAB.Plan);
++for (var j = 0; j < pr.length; j++) {
++plan.push({ key: String(pr[j][0]), listId: String(pr[j][1]), pinned: String(pr[j][2]) === 'yes' });
++}
++var out = {
++ok: true, ver: Number(getCfg('ver') || 0), lists: lists, plan: plan,
++session: currentSession(), announcement: currentAnnouncement(), sessions: lastSessions(10), contact: readJsonCfg('contact'), defaults: readJsonCfg('defaults')
++};
++cachePut('state', JSON.stringify(out), 10);
++return out;
+ }
+ 
+ function readJsonCfg(key) { try { var obj = JSON.parse(getCfg(key) || '{}'); return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {}; } catch (err) { return {}; } }
+ function currentSession() {
+-  var r = rows(TAB.Sessions);
+-  if (!r.length) return null;
+-  var last = r[r.length - 1];
+-  return {
+-    no: String(last[0] || ''), day: String(last[1] || ''), date: String(last[2] || ''),
+-    title: String(last[3] || ''), listId: String(last[4] || ''), ready: readJsonCfg('sessionExtras').ready, praise: readJsonCfg('sessionExtras').praise
+-  };
++var r = rows(TAB.Sessions);
++if (!r.length) return null;
++var last = r[r.length - 1];
++return {
++no: String(last[0] || ''), day: String(last[1] || ''), date: String(last[2] || ''),
++title: String(last[3] || ''), listId: String(last[4] || ''), ready: readJsonCfg('sessionExtras').ready, praise: readJsonCfg('sessionExtras').praise
++};
+ }
+ 
+ function lastSessions(n) {
+-  var r = rows(TAB.Sessions);
+-  var out = [];
+-  for (var i = r.length - 1; i >= 0 && out.length < n; i--) {
+-    out.push({
+-      no: String(r[i][0] || ''), day: String(r[i][1] || ''), date: String(r[i][2] || ''),
+-      title: String(r[i][3] || ''), listId: String(r[i][4] || '')
+-    });
+-  }
+-  return out;
++var r = rows(TAB.Sessions);
++var out = [];
++for (var i = r.length - 1; i >= 0 && out.length < n; i--) {
++out.push({
++no: String(r[i][0] || ''), day: String(r[i][1] || ''), date: String(r[i][2] || ''),
++title: String(r[i][3] || ''), listId: String(r[i][4] || '')
++});
++}
++return out;
+ }
+ 
+ function currentAnnouncement() {
+-  var a = getCfg('announcement');
+-  if (!a) return null;
+-  try {
+-    var o = JSON.parse(a);
+-    if (!o || typeof o !== 'object') return null;
+-    if (o.expires && new Date(o.expires + 'T23:59:59').getTime() < Date.now()) return null;
+-    return o;
+-  } catch (err) { return null; }
++var a = getCfg('announcement');
++if (!a) return null;
++try {
++var o = JSON.parse(a);
++if (!o || typeof o !== 'object') return null;
++if (o.expires && new Date(o.expires + 'T23:59:59').getTime() < Date.now()) return null;
++return o;
++} catch (err) { return null; }
+ }
+ 
+ function readComments(publicOnly) {
+-  var r = rows(TAB.Comments);
+-  var out = [];
+-  for (var i = 0; i < r.length; i++) {
+-    if (publicOnly && String(r[i][8]) === 'yes') continue;
+-    out.push({
+-      id: String(r[i][0]), ts: Number(r[i][1] || 0), name: String(r[i][2] || ''), status: String(r[i][3] || ''),
+-      text: String(r[i][4] || ''), meta: String(r[i][5] || ''), pinned: String(r[i][6]) === 'yes',
+-      reported: String(r[i][7]) === 'yes', hidden: String(r[i][8]) === 'yes', reply: String(r[i][9] || '')
+-    });
+-  }
+-  out.sort(function (a, b) {
+-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+-    return b.ts - a.ts;
+-  });
+-  return out.slice(0, 200);
++var r = rows(TAB.Comments);
++var out = [];
++for (var i = 0; i < r.length; i++) {
++if (publicOnly && String(r[i][8]) === 'yes') continue;
++out.push({
++id: String(r[i][0]), ts: Number(r[i][1] || 0), name: String(r[i][2] || ''), status: String(r[i][3] || ''),
++text: String(r[i][4] || ''), meta: String(r[i][5] || ''), pinned: String(r[i][6]) === 'yes',
++reported: String(r[i][7]) === 'yes', hidden: String(r[i][8]) === 'yes', reply: String(r[i][9] || '')
++});
++}
++out.sort(function (a, b) {
++if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
++return b.ts - a.ts;
++});
++return out.slice(0, 200);
+ }
+ 
+ function readInbox(allRows) {
+-  var r = rows(TAB.Inbox);
+-  var out = [];
+-  for (var i = r.length - 1; i >= 0; i--) {
+-    if (!allRows && String(r[i][6]) === 'yes') continue;
+-    out.push({
+-      id: String(r[i][0]), ts: Number(r[i][1] || 0), name: String(r[i][2] || ''), cat: String(r[i][3] || ''),
+-      text: String(r[i][4] || ''), contact: String(r[i][5] || ''), read: String(r[i][6]) === 'yes',
+-      meta: String(r[i][7] || ''), reply: String(r[i][8] || '')
+-    });
+-  }
+-  return out;
++var r = rows(TAB.Inbox);
++var out = [];
++for (var i = r.length - 1; i >= 0; i--) {
++if (!allRows && String(r[i][6]) === 'yes') continue;
++out.push({
++id: String(r[i][0]), ts: Number(r[i][1] || 0), name: String(r[i][2] || ''), cat: String(r[i][3] || ''),
++text: String(r[i][4] || ''), contact: String(r[i][5] || ''), read: String(r[i][6]) === 'yes',
++meta: String(r[i][7] || ''), reply: String(r[i][8] || '')
++});
++}
++return out;
+ }
+ 
+ function readResults() {
+-  var r = rows(TAB.Results);
+-  var out = [];
+-  for (var i = r.length - 1; i >= 0; i--) {
+-    out.push({
+-      id: String(r[i][0]), ts: Number(r[i][1] || 0), sessionNo: String(r[i][2] || ''),
+-      day: String(r[i][3] || ''), list: String(r[i][4] || ''), mode: String(r[i][5] || ''),
+-      words: Number(r[i][6] || 0), score: Number(r[i][7] || 0), secs: Number(r[i][8] || 0),
+-      voice: String(r[i][9] || ''), uk: String(r[i][10] || ''), device: String(r[i][11] || '')
+-    });
+-  }
+-  return out;
++var r = rows(TAB.Results);
++var out = [];
++for (var i = r.length - 1; i >= 0; i--) {
++out.push({
++id: String(r[i][0]), ts: Number(r[i][1] || 0), sessionNo: String(r[i][2] || ''),
++day: String(r[i][3] || ''), list: String(r[i][4] || ''), mode: String(r[i][5] || ''),
++words: Number(r[i][6] || 0), score: Number(r[i][7] || 0), secs: Number(r[i][8] || 0),
++voice: String(r[i][9] || ''), uk: String(r[i][10] || ''), device: String(r[i][11] || '')
++});
++}
++return out;
+ }
+ 
+ function buildStats() {
+-  var res = readResults();
+-  var com = readComments(false);
+-  var bySession = {};
+-  var devices = {};
+-  var noUk = 0;
+-  var i;
+-  for (i = 0; i < res.length; i++) {
+-    var k = res[i].sessionNo || 'unknown';
+-    if (!bySession[k]) bySession[k] = { session: k, count: 0, total: 0, words: 0 };
+-    bySession[k].count = bySession[k].count + 1;
+-    bySession[k].total = bySession[k].total + res[i].score;
+-    bySession[k].words = bySession[k].words + res[i].words;
+-    var d = res[i].device || 'Other';
+-    devices[d] = (devices[d] || 0) + 1;
+-    if (res[i].uk !== 'yes') noUk = noUk + 1;
+-  }
+-  var counts = { finished: 0, problem: 0, notdone: 0, comment: 0 };
+-  for (i = 0; i < com.length; i++) {
+-    if (com[i].status === 'finished') counts.finished++;
+-    else if (com[i].status === 'problem') counts.problem++;
+-    else if (com[i].status === 'notdone') counts.notdone++;
+-    else counts.comment++;
+-  }
+-  var sessions = [];
+-  for (var key in bySession) {
+-    var b = bySession[key];
+-    b.avg = b.words ? Math.round((b.total / b.words) * 100) : 0;
+-    sessions.push(b);
+-  }
+-  return { results: res.length, bySession: sessions, devices: devices, noUkVoice: noUk, comments: counts };
++var res = readResults();
++var com = readComments(false);
++var bySession = {};
++var devices = {};
++var noUk = 0;
++var i;
++for (i = 0; i < res.length; i++) {
++var k = res[i].sessionNo || 'unknown';
++if (!bySession[k]) bySession[k] = { session: k, count: 0, total: 0, words: 0 };
++bySession[k].count = bySession[k].count + 1;
++bySession[k].total = bySession[k].total + res[i].score;
++bySession[k].words = bySession[k].words + res[i].words;
++var d = res[i].device || 'Other';
++devices[d] = (devices[d] || 0) + 1;
++if (res[i].uk !== 'yes') noUk = noUk + 1;
++}
++var counts = { finished: 0, problem: 0, notdone: 0, comment: 0 };
++for (i = 0; i < com.length; i++) {
++if (com[i].status === 'finished') counts.finished++;
++else if (com[i].status === 'problem') counts.problem++;
++else if (com[i].status === 'notdone') counts.notdone++;
++else counts.comment++;
++}
++var sessions = [];
++for (var key in bySession) {
++var b = bySession[key];
++b.avg = b.words ? Math.round((b.total / b.words) * 100) : 0;
++sessions.push(b);
++}
++return { results: res.length, bySession: sessions, devices: devices, noUkVoice: noUk, comments: counts };
+ }
+ 
+ /* ---------- writes ---------- */
+ 
+ function rateLimited(cid, key, perSec, maxPerHour) {
+-  if (!cid) return false;
+-  var now = Date.now();
+-  var last = Number(cacheGet(key + ':last:' + cid) || 0);
+-  var count = Number(cacheGet(key + ':count:' + cid) || 0);
+-  if (last && now - last < perSec * 1000) return true;
+-  if (count >= maxPerHour) return true;
+-  cachePut(key + ':last:' + cid, now, perSec + 5);
+-  cachePut(key + ':count:' + cid, count + 1, 3600);
+-  return false;
++if (!cid) return false;
++var now = Date.now();
++var last = Number(cacheGet(key + ':last:' + cid) || 0);
++var count = Number(cacheGet(key + ':count:' + cid) || 0);
++if (last && now - last < perSec * 1000) return true;
++if (count >= maxPerHour) return true;
++cachePut(key + ':last:' + cid, now, perSec + 5);
++cachePut(key + ':count:' + cid, count + 1, 3600);
++return false;
+ }
+ 
+ function seen(cid) {
+-  if (!cid) return false;
+-  if (cacheGet('seen:' + cid)) return true;
+-  cachePut('seen:' + cid, 1, 86400);
+-  return false;
++if (!cid) return false;
++if (cacheGet('seen:' + cid)) return true;
++cachePut('seen:' + cid, 1, 86400);
++return false;
+ }
+ 
+ function cleanPublic(text, n) {
+-  return clip(text, n).replace(/(https?:\/\/|www\.)[^\s]+/gi, '[link removed]').replace(/[^\s@]+@[^\s@]+\.[a-z]{2,}/gi, '[e-mail removed]').replace(/\d[\d\s\-()]{4,}\d/g, '[number removed]');
++return clip(text, n).replace(/(https?:\/\/|www\.)[^\s]+/gi, '[link removed]').replace(/[^\s@]+@[^\s@]+\.[a-z]{2,}/gi, '[e-mail removed]').replace(/\d[\d\s\-()]{4,}\d/g, '[number removed]');
+ }
+ 
+ function addComment(body, cid) {
+-  var old = rows(TAB.Comments); for (var oi=0;oi<old.length;oi++) if (String(old[oi][0]) === cid) return {ok:true,id:cid,dup:true};
+-  if (rateLimited(clip(body.deviceId || cid, 60), 'c', 30, 5)) return { ok: false, err: 'rate' };
+-  var status = String(body.status || 'comment');
+-  if (['finished', 'problem', 'notdone', 'comment'].indexOf(status) < 0) status = 'comment';
+-  var id = cid || 'c' + Date.now() + Math.floor(Math.random() * 1000);
+-  append(TAB.Comments, ['id', 'ts', 'name', 'status', 'text', 'meta', 'pinned', 'reported', 'hidden', 'reply'],
+-    [id, Date.now(), cleanPublic(body.name, 24), status, cleanPublic(body.text, 280), clip(body.meta, 200), 'no', 'no', 'no', '']);
+-  return { ok: true, id: id };
++var old = rows(TAB.Comments); for (var oi=0;oi<old.length;oi++) if (String(old[oi][0]) === cid) return {ok:true,id:cid,dup:true};
++if (rateLimited(clip(body.deviceId || cid, 60), 'c', 30, 5)) return { ok: false, err: 'rate' };
++var status = String(body.status || 'comment');
++if (['finished', 'problem', 'notdone', 'comment'].indexOf(status) < 0) status = 'comment';
++var id = cid || 'c' + Date.now() + Math.floor(Math.random() * 1000);
++append(TAB.Comments, ['id', 'ts', 'name', 'status', 'text', 'meta', 'pinned', 'reported', 'hidden', 'reply'],
++[id, Date.now(), cleanPublic(body.name, 24), status, cleanPublic(body.text, 280), clip(body.meta, 200), 'no', 'no', 'no', '']);
++return { ok: true, id: id };
+ }
+ 
+ function addMessage(body, cid) {
+-  var old = rows(TAB.Inbox); for (var oi=0;oi<old.length;oi++) if (String(old[oi][0]) === cid) return {ok:true,id:cid,dup:true};
+-  if (rateLimited(clip(body.deviceId || cid, 60), 'm', 30, 5)) return { ok: false, err: 'rate' };
+-  var id = cid || 'm' + Date.now() + Math.floor(Math.random() * 1000);
+-  append(TAB.Inbox, ['id', 'ts', 'name', 'cat', 'text', 'contact', 'read', 'meta'],
+-    [id, Date.now(), cleanPublic(body.name, 24), clip(body.cat, 20), clip(body.text, 600), clip(body.contact, 120), 'no', clip(body.meta, 200)]);
+-  return { ok: true, id: id };
++var old = rows(TAB.Inbox); for (var oi=0;oi<old.length;oi++) if (String(old[oi][0]) === cid) return {ok:true,id:cid,dup:true};
++if (rateLimited(clip(body.deviceId || cid, 60), 'm', 30, 5)) return { ok: false, err: 'rate' };
++var id = cid || 'm' + Date.now() + Math.floor(Math.random() * 1000);
++append(TAB.Inbox, ['id', 'ts', 'name', 'cat', 'text', 'contact', 'read', 'meta'],
++[id, Date.now(), cleanPublic(body.name, 24), clip(body.cat, 20), clip(body.text, 600), clip(body.contact, 120), 'no', clip(body.meta, 200)]);
++return { ok: true, id: id };
+ }
+ 
+ function addResult(body, cid) {
+-  if (rateLimited(cid, 'r', 10, 60)) return { ok: false, err: 'rate' };
+-  if (seen(cid)) return { ok: true, dup: true };
+-  var id = 'r' + Date.now() + Math.floor(Math.random() * 1000);
+-  append(TAB.Results, ['id', 'ts', 'sessionNo', 'day', 'list', 'mode', 'words', 'score', 'secs', 'voice', 'uk', 'device'],
+-    [id, Date.now(), clip(body.sessionNo, 16), clip(body.day, 24), clip(body.list, 60), clip(body.mode, 12),
+-      Number(body.words) || 0, Number(body.score) || 0, Number(body.secs) || 0,
+-      clip(body.voice, 40), body.uk ? 'yes' : 'no', clip(body.device, 20)]);
+-  return { ok: true, id: id };
++if (rateLimited(cid, 'r', 10, 60)) return { ok: false, err: 'rate' };
++if (seen(cid)) return { ok: true, dup: true };
++var id = 'r' + Date.now() + Math.floor(Math.random() * 1000);
++append(TAB.Results, ['id', 'ts', 'sessionNo', 'day', 'list', 'mode', 'words', 'score', 'secs', 'voice', 'uk', 'device'],
++[id, Date.now(), clip(body.sessionNo, 16), clip(body.day, 24), clip(body.list, 60), clip(body.mode, 12),
++Number(body.words) || 0, Number(body.score) || 0, Number(body.secs) || 0,
++clip(body.voice, 40), body.uk ? 'yes' : 'no', clip(body.device, 20)]);
++return { ok: true, id: id };
+ }
+ 
+ function publish(body) {
+-  var listId = clip(body.listId, 60);
+-  var name = clip(body.name, 80);
+-  var words = body.words;
+-  if (!listId || !name || !words || !words.length) return { ok: false, err: 'bad payload' };
+-  if (!Array.isArray(words)) return { ok: false, err: 'bad words' };
+-  var payload = [];
+-  for (var i = 0; i < words.length; i++) {
+-    var w = words[i] || {};
+-    payload.push({ w: clip(w.w, 60), s: clip(w.s, 200), m: clip(w.m, 120) });
+-  }
+-  var s = sheet(TAB.Lists, ['id', 'name', 'wordsJson', 'version']);
+-  var last = s.getLastRow(), activeValue = getCfg('listVer:' + listId), active = 0, data = [];
+-  if (last >= 2) data = s.getRange(2, 1, last - 1, 4).getValues();
+-  if (activeValue !== '') active = Number(activeValue) || 0;
+-  else {
+-    for (var j = 0; j < data.length; j++) if (String(data[j][0]) === listId) active = Math.max(active, Number(data[j][3] || 1));
+-    setCfg('listVer:' + listId, active);
+-  }
+-  var version = active + 1;
+-  /* Remove only an incomplete retry version. Never delete the committed list first. */
+-  for (var del = data.length - 1; del >= 0; del--) if (String(data[del][0]) === listId && Number(data[del][3]) === version) s.deleteRow(del + 2);
+-  var chunk = [], size = 2;
+-  for (var item = 0; item < payload.length; item++) {
+-    var itemSize = JSON.stringify(payload[item]).length + 1;
+-    if (chunk.length && size + itemSize > 40000) { s.appendRow([listId, name, JSON.stringify(chunk), version]); chunk = []; size = 2; }
+-    chunk.push(payload[item]); size += itemSize;
+-  }
+-  if (chunk.length) s.appendRow([listId, name, JSON.stringify(chunk), version]);
+-  /* All word chunks exist before moving the pointer; old versions remain recoverable. */
+-  setCfg('listVer:' + listId, version);
+-  if (body.contact) setCfg('contact', JSON.stringify(body.contact));
+-  if (body.defaults) setCfg('defaults', JSON.stringify(body.defaults));
+-  if (body.session) setCfg('sessionExtras', JSON.stringify({ready:body.session.ready,praise:body.session.praise}));
+-
+-  if (body.session) {
+-    var se = body.session;
+-    append(TAB.Sessions, ['no', 'day', 'date', 'title', 'listId'],
+-      [clip(se.no, 16), clip(se.day, 24), clip(se.date, 20), clip(se.title, 80), listId]);
+-  }
+-  if (body.plan) {
+-    var ps = sheet(TAB.Plan, ['key', 'listId', 'pinned']);
+-    if (ps.getLastRow() >= 2) ps.deleteRows(2, ps.getLastRow() - 1);
+-    for (var k = 0; k < body.plan.length; k++) {
+-      var p = body.plan[k] || {};
+-      ps.appendRow([clip(p.key, 20), clip(p.listId, 60), p.pinned ? 'yes' : 'no']);
+-    }
+-  }
+-  bumpVer();
+-  return { ok: true, version: version, ver: Number(getCfg('ver') || 0) };
++var listId = clip(body.listId, 60);
++var name = clip(body.name, 80);
++var words = body.words;
++if (!listId || !name || !words || !words.length) return { ok: false, err: 'bad payload' };
++if (!Array.isArray(words)) return { ok: false, err: 'bad words' };
++var payload = [];
++for (var i = 0; i < words.length; i++) {
++var w = words[i] || {};
++payload.push({ w: clip(w.w, 60), s: clip(w.s, 200), m: clip(w.m, 120) });
++}
++var s = sheet(TAB.Lists, ['id', 'name', 'wordsJson', 'version']);
++var last = s.getLastRow(), activeValue = getCfg('listVer:' + listId), active = 0, data = [];
++if (last >= 2) data = s.getRange(2, 1, last - 1, 4).getValues();
++if (activeValue !== '') active = Number(activeValue) || 0;
++else {
++for (var j = 0; j < data.length; j++) if (String(data[j][0]) === listId) active = Math.max(active, Number(data[j][3] || 1));
++setCfg('listVer:' + listId, active);
++}
++var version = active + 1;
++/* Remove only an incomplete retry version. Never delete the committed list first. */
++for (var del = data.length - 1; del >= 0; del--) if (String(data[del][0]) === listId && Number(data[del][3]) === version) s.deleteRow(del + 2);
++var chunk = [], size = 2;
++for (var item = 0; item < payload.length; item++) {
++var itemSize = JSON.stringify(payload[item]).length + 1;
++if (chunk.length && size + itemSize > 40000) { s.appendRow([listId, name, JSON.stringify(chunk), version]); chunk = []; size = 2; }
++chunk.push(payload[item]); size += itemSize;
++}
++if (chunk.length) s.appendRow([listId, name, JSON.stringify(chunk), version]);
++/* All word chunks exist before moving the pointer; old versions remain recoverable. */
++setCfg('listVer:' + listId, version);
++if (body.contact) setCfg('contact', JSON.stringify(body.contact));
++if (body.defaults) setCfg('defaults', JSON.stringify(body.defaults));
++if (body.session) setCfg('sessionExtras', JSON.stringify({ready:body.session.ready,praise:body.session.praise}));
++
++if (body.session) {
++var se = body.session;
++append(TAB.Sessions, ['no', 'day', 'date', 'title', 'listId'],
++[clip(se.no, 16), clip(se.day, 24), clip(se.date, 20), clip(se.title, 80), listId]);
++}
++if (body.plan) {
++var ps = sheet(TAB.Plan, ['key', 'listId', 'pinned']);
++if (ps.getLastRow() >= 2) ps.deleteRows(2, ps.getLastRow() - 1);
++for (var k = 0; k < body.plan.length; k++) {
++var p = body.plan[k] || {};
++ps.appendRow([clip(p.key, 20), clip(p.listId, 60), p.pinned ? 'yes' : 'no']);
++}
++}
++bumpVer();
++return { ok: true, version: version, ver: Number(getCfg('ver') || 0) };
+ }
+ 
+ function setAnnouncement(body) {
+-  if (body.clear) { setCfg('announcement', ''); return { ok: true, cleared: true }; }
+-  var o = {
+-    title: clip(body.title, 80), text: clip(body.text, 500),
+-    priority: clip(body.priority, 10) || 'info', expires: clip(body.expires, 20)
+-  };
+-  setCfg('announcement', JSON.stringify(o));
+-  return { ok: true };
++if (body.clear) { setCfg('announcement', ''); return { ok: true, cleared: true }; }
++var o = {
++title: clip(body.title, 80), text: clip(body.text, 500),
++priority: clip(body.priority, 10) || 'info', expires: clip(body.expires, 20)
++};
++setCfg('announcement', JSON.stringify(o));
++return { ok: true };
+ }
+ 
+ function moderate(body) {
+-  var id = clip(body.id, 60);
+-  var what = String(body.op || '');
+-  var s = ss().getSheetByName(TAB.Comments);
+-  if (!s || !id || s.getLastRow() < 2) return { ok: false, err: 'not found' };
+-  var data = s.getRange(2, 1, s.getLastRow() - 1, 10).getValues();
+-  for (var i = 0; i < data.length; i++) {
+-    if (String(data[i][0]) !== id) continue;
+-    var row = i + 2;
+-    if (what === 'hide') s.getRange(row, 9).setValue('yes');
+-    else if (what === 'unhide') s.getRange(row, 9).setValue('no');
+-    else if (what === 'pin') s.getRange(row, 7).setValue(typeof body.pinned === 'boolean' ? (body.pinned ? 'yes' : 'no') : (String(data[i][6]) === 'yes' ? 'no' : 'yes'));
+-    else if (what === 'report') s.getRange(row, 8).setValue('yes');
+-    else if (what === 'reply') s.getRange(row, 10).setValue(clip(body.text, 500));
+-    else if (what === 'delete') s.deleteRow(row);
+-    else return { ok: false, err: 'unknown op' };
+-    return { ok: true };
+-  }
+-  return { ok: false, err: 'not found' };
++var id = clip(body.id, 60);
++var what = String(body.op || '');
++var s = ss().getSheetByName(TAB.Comments);
++if (!s || !id || s.getLastRow() < 2) return { ok: false, err: 'not found' };
++var data = s.getRange(2, 1, s.getLastRow() - 1, 10).getValues();
++for (var i = 0; i < data.length; i++) {
++if (String(data[i][0]) !== id) continue;
++var row = i + 2;
++if (what === 'hide') s.getRange(row, 9).setValue('yes');
++else if (what === 'unhide') s.getRange(row, 9).setValue('no');
++else if (what === 'pin') s.getRange(row, 7).setValue(typeof body.pinned === 'boolean' ? (body.pinned ? 'yes' : 'no') : (String(data[i][6]) === 'yes' ? 'no' : 'yes'));
++else if (what === 'report') s.getRange(row, 8).setValue('yes');
++else if (what === 'reply') s.getRange(row, 10).setValue(clip(body.text, 500));
++else if (what === 'delete') s.deleteRow(row);
++else return { ok: false, err: 'unknown op' };
++return { ok: true };
++}
++return { ok: false, err: 'not found' };
+ }
+ 
+ /* public, rate-limited: a student flags a comment for the lecturer */
+ function reportComment(body, cid) {
+-  if (rateLimited(cid, 'rep', 10, 20)) return { ok: false, err: 'rate' };
+-  var lock = LockService.getScriptLock();
+-  try { lock.waitLock(10000); } catch (err) {}
+-  try { return moderate({ id: body.id, op: 'report' }); }
+-  finally { try { lock.releaseLock(); } catch (err2) {} }
++if (rateLimited(cid, 'rep', 10, 20)) return { ok: false, err: 'rate' };
++var lock = LockService.getScriptLock();
++try { lock.waitLock(10000); } catch (err) {}
++try { return moderate({ id: body.id, op: 'report' }); }
++finally { try { lock.releaseLock(); } catch (err2) {} }
+ }
+ 
+ function inboxAction(body) {
+-  var id = clip(body.id, 60);
+-  var what = String(body.op || '');
+-  var s = ss().getSheetByName(TAB.Inbox);
+-  if (!s || s.getLastRow() < 2 || !id) return { ok: false, err: 'not found' };
+-  var data = s.getRange(2, 1, s.getLastRow() - 1, 8).getValues();
+-  for (var i = 0; i < data.length; i++) {
+-    if (String(data[i][0]) !== id) continue;
+-    var row = i + 2;
+-    if (what === 'read') s.getRange(row, 7).setValue('yes');
+-    else if (what === 'unread') s.getRange(row, 7).setValue('no');
+-    else if (what === 'delete') s.deleteRow(row);
+-    else if (what === 'reply') s.getRange(row, 9).setValue(clip(body.text, 600));
+-    else return { ok: false, err: 'unknown op' };
+-    return { ok: true };
+-  }
+-  return { ok: false, err: 'not found' };
++var id = clip(body.id, 60);
++var what = String(body.op || '');
++var s = ss().getSheetByName(TAB.Inbox);
++if (!s || s.getLastRow() < 2 || !id) return { ok: false, err: 'not found' };
++var data = s.getRange(2, 1, s.getLastRow() - 1, 8).getValues();
++for (var i = 0; i < data.length; i++) {
++if (String(data[i][0]) !== id) continue;
++var row = i + 2;
++if (what === 'read') s.getRange(row, 7).setValue('yes');
++else if (what === 'unread') s.getRange(row, 7).setValue('no');
++else if (what === 'delete') s.deleteRow(row);
++else if (what === 'reply') s.getRange(row, 9).setValue(clip(body.text, 600));
++else return { ok: false, err: 'unknown op' };
++return { ok: true };
++}
++return { ok: false, err: 'not found' };
+ }
+ 
+ </script>
+ <div class="credit glass" id="credit" role="note" aria-label="Credits go to Hansana">
+   <span class="ring" aria-hidden="true"></span>
+-  <svg class="c-drop" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+-    <path d="M12 2.7C9 7 5.5 11 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 11 15 7 12 2.7Z" fill="url(#dgC)"/>
+-    <defs><linearGradient id="dgC" x1="5" y1="4" x2="19" y2="20"><stop stop-color="#5cd0f4"/><stop offset="1" stop-color="#3ce0b8"/></linearGradient></defs>
++  <svg class="c-swan" viewBox="0 0 36 36" fill="none" aria-hidden="true">
++    <defs>
++      <linearGradient id="swanBody" x1="4" y1="6" x2="32" y2="30" gradientUnits="userSpaceOnUse">
++        <stop offset="0" stop-color="#ffffff"/>
++        <stop offset="0.55" stop-color="#9fe8ff"/>
++        <stop offset="1" stop-color="#3ce0b8"/>
++      </linearGradient>
++      <linearGradient id="swanWing" x1="12" y1="12" x2="29" y2="26" gradientUnits="userSpaceOnUse">
++        <stop offset="0" stop-color="#e8f9ff"/>
++        <stop offset="1" stop-color="#5cd0f4"/>
++      </linearGradient>
++    </defs>
++    <ellipse class="swan-ripple" cx="19" cy="29.5" rx="11" ry="2.2" stroke="#5cd0f4" stroke-width="1.3" stroke-opacity="0.65"/>
++    <g class="swan-group">
++      <path d="M10.5 24.5C10.5 20.5 14.5 18.2 20.2 18.2C24.8 18.2 28.5 20.2 30.2 23.2C28.8 26.4 24.8 28 19.2 28C13.4 28 10.5 26.6 10.5 24.5Z" fill="url(#swanBody)"/>
++      <path class="swan-wing" d="M15.2 21.2C18.2 17.6 23.8 17.5 27.6 21.4C24.8 24.4 19.6 25.2 15.2 23.2Z" fill="url(#swanWing)" stroke="#ffffff" stroke-width="0.7" stroke-opacity="0.8"/>
++      <path d="M12.2 24.2C9.4 20.2 9.2 14.8 11.4 10.8C12.7 8.4 15.2 7.4 16.8 8.6C18.0 9.5 17.6 11.4 16.2 12.2C14.8 13.0 13.8 11.6 13.5 10.6C12.2 11.4 11.8 15.2 13.6 19.8C14.5 22.0 14.2 24.0 12.2 24.2Z" fill="url(#swanBody)"/>
++      <path d="M17.2 9.6L20.4 10.5L17.0 11.4Z" fill="#ffc247"/>
++      <circle cx="15.6" cy="9.7" r="0.8" fill="#062030"/>
++    </g>
+   </svg>
+   <span class="c-text"><small>credits goes to</small><b>Hansana</b></span>
+ </div>
+@@ -1276,15 +1272,15 @@ try { proto[m] = wrapped; } catch (ignored) {}
+ })();
+ 
+ /* SECTION 1 - CONFIG */
+-var APP_VERSION = "2.3.0";
++var APP_VERSION = "2.4.0";
+ var BUILD_DATE = "2026-10-23";
+ function buildStamp() { return "v" + APP_VERSION + " (" + BUILD_DATE + ")"; }
+ 
+ var CLOUD_URL = "";
+ 
+ var CONFIG = {
+-key: "sdp.v15_liquid",
+-schema: 15,
++key: "sdp.v16_swan",
++schema: 16,
+ maxHistory: 200,
+ maxComments: 200,
+ maxInbox: 200,
+@@ -1303,7 +1299,7 @@ ttsBackupHost: "https://api.streamelements.com/kappa/v2/speech?voice=Amy&text=",
+ oxfordMp3: "https://ssl.gstatic.com/dictionary/static/sounds/oxford/",
+ ttsHost: "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-GB&q=",
+ maxDictCache: 200,
+-settingsRev: 15,
++settingsRev: 16,
+ repoOwner: "dictationb1",
+ repoName: "dictationb1.github.io",
+ classDays: [2, 3],
+@@ -1969,9 +1965,8 @@ data: null,
+ saveTimer: null,
+ load: function () {
+ var raw = Store.get(CONFIG.key);
+-/* migrate the previous builds without discarding class results. */
+ if (!raw) {
+-var legacyKeys = ["sdp.v14_liquid", "sdp.v13_fast_liquid", "sdp.v12_liquid"], legacy = "";
++var legacyKeys = ["sdp.v15_liquid", "sdp.v14_liquid", "sdp.v13_fast_liquid", "sdp.v12_liquid"], legacy = "";
+ for (var lk = 0; lk < legacyKeys.length && !legacy; lk++) {
+ try { legacy = Store.get(legacyKeys[lk]) || ""; } catch (eL) { legacy = ""; }
+ }
+@@ -2102,7 +2097,7 @@ if (d.comments.length > CONFIG.maxComments) d.comments = d.comments.slice(0, CON
+ if (d.settings.hc !== true && d.settings.hc !== "on") d.settings.hc = false;
+ if (d.settings.theme === "auto" || ["light","dark"].indexOf(d.settings.theme) < 0) d.settings.theme = "dark";
+ if (["auto","full","lite"].indexOf(d.settings.perf) < 0) d.settings.perf = "auto";
+-d.settingsRev = 15;
++d.settingsRev = 16;
+ d.v = CONFIG.schema;
+ return d;
+ },
+@@ -2177,7 +2172,7 @@ if (!c) return;
+ var keys = Object.keys(c);
+ var over = keys.length - CONFIG.maxDictCache;
+ if (over <= 0) return;
+-for (var i = 0; i < over; i++) delete c[keys[i]];   /* FIFO cap keeps localStorage small */
++for (var i = 0; i < over; i++) delete c[keys[i]];
+ },
+ reset: function () {
+ if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+@@ -2348,7 +2343,7 @@ U.on(credit, "pointerdown", pause);
+ U.on(credit, "mouseleave", resume);
+ U.on(credit, "pointerup", function (e) { if (e.pointerType && e.pointerType !== "mouse") cTimers.push(setTimeout(resume, 1200)); });
+ U.on(credit, "pointercancel", resume);
+-U.on(credit, "click", function () { UI.toast("💧 Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini", { icon: "i-info", ms: 6500 }); });
++U.on(credit, "click", function () { UI.toast("🦢 Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini", { icon: "i-info", ms: 6500 }); });
+ creditLoop();
+ },
+ setTint: function (index, fromUser) {
+@@ -2378,6 +2373,18 @@ DB.data.settings.glassTint = i;
+ if (fromUser) DB.save();
+ }
+ },
++applyGlassSettings: function () {
++var st = (DB.data && DB.data.settings) || {};
++var root = document.documentElement;
++var blur = Number(st.glassBlur), sat = Number(st.glassSat), brt = Number(st.glassBrt);
++if (!(blur >= 4 && blur <= 40)) blur = 14;
++if (!(sat >= 100 && sat <= 260)) sat = 160;
++if (!(brt >= 90 && brt <= 130)) brt = 103;
++root.style.setProperty("--gb", blur + "px");
++root.style.setProperty("--gs", (sat / 100).toFixed(2));
++root.style.setProperty("--gbr", (brt / 100).toFixed(2));
++this.setTint(st.glassTint, false);
++},
+ applyTint: function (tint) { this.setTint(tint, false); },
+ applySize: function () { document.documentElement.setAttribute("data-size", DB.data.settings.size || "m"); },
+ applyHc: function () { var on = DB.data.settings.hc === true || DB.data.settings.hc === "on"; document.documentElement.setAttribute("data-hc", on ? "on" : "off"); },
+@@ -2409,6 +2416,7 @@ if (this.tab === "home") Screens.home();
+ 
+ bindLiquidControls: function (host) {
+ host = host || document;
++if (DB.data && DB.data.settings) UI.applyGlassSettings();
+ var root = document.documentElement;
+ var st = DB.data.settings;
+ function pick(sel) {
+@@ -2576,7 +2584,7 @@ if (t - first >= 1200) { stop(); return; }
+ handle = window.requestAnimationFrame(step);
+ }
+ handle = window.requestAnimationFrame(step);
+-setTimeout(stop, 1600);   /* a hidden first frame must never hang the probe */
++setTimeout(stop, 1600);
+ },
+ recordFrames: function (samples) {
+ if (!samples || !samples.length) { this.applyPerf(); return; }
+@@ -2584,8 +2592,7 @@ var copy = samples.slice(0);
+ copy.sort(function (a, b) { return a - b; });
+ var median = copy[Math.floor(copy.length / 2)];
+ this.frameMs = Math.round(median * 10) / 10;
+-if (median > 19) this.autoDowngraded = true;   /* under ~52 FPS: switch to Lite */
+-this.applyPerf();
++if (median > 19) this.autoDowngraded = true;this.applyPerf();
+ },
+ pauseAnimations: function (paused) {
+ var bg = U.$("#bg");
+@@ -3329,6 +3336,11 @@ settings: function () {
+ var d = DB.data, st = d.settings;
+ var host = U.$("#setBody");
+ host.textContent = "";
++/* v16: the Live Liquid Glass Material Mixer now lives in Settings. */
++var lgTop = U.el("div", "lg-section", null);
++lgTop.appendChild(U.el("div", "tiny muted strong", "Appearance \u00b7 Liquid Glass"));
++lgTop.innerHTML += '<div class="stage" id="lgStage" role="group" aria-label="Interactive Liquid Glass material playground"><span class="bubble bubble-1" aria-hidden="true"></span><span class="bubble bubble-2" aria-hidden="true"></span><span class="bubble bubble-3" aria-hidden="true"></span><span class="bubble bubble-4" aria-hidden="true"></span><div id="orb" class="orb" role="button" tabindex="0" aria-label="Glowing orb. Drag it, use arrow keys to move, or press Enter to centre it."></div><div class="glass panel" id="materialMixer"><h2>Liquid Glass <span>Material Mixer</span></h2><div class="mix-row ctl"><div class="mix-head"><label for="sBlur">Blur</label><output id="outBlur" for="sBlur">14px</output></div><input id="sBlur" type="range" min="4" max="40" value="14" step="1" aria-label="Glass blur"></div><div class="mix-row ctl"><div class="mix-head"><label for="sSat">Saturate</label><output id="outSat" for="sSat">1.60×</output></div><input id="sSat" type="range" min="100" max="260" value="160" step="1" aria-label="Glass saturation"></div><div class="mix-row ctl"><div class="mix-head"><label for="sBrt">Bright</label><output id="outBrt" for="sBrt">1.03</output></div><input id="sBrt" type="range" min="90" max="130" value="103" step="1" aria-label="Glass brightness"></div><div class="seg-tint" id="segTint" role="group" aria-label="Glass tint mode"><span class="seg-ind"></span><button type="button" data-tint="0">Clear</button><button type="button" data-tint="1">Frost</button><button type="button" data-tint="2">Smoke</button></div><div class="seg seg-perf" id="segPerf" role="group" aria-label="Performance mode" style="margin-top:8px"><span class="seg-ind"></span><button type="button" data-perf="auto" aria-pressed="true">Auto</button><button type="button" data-perf="lite" aria-pressed="false">Lite 60FPS</button><button type="button" data-perf="full" aria-pressed="false">Full</button></div><p class="mixer-hint" id="perfStatus">⚡ Auto Lite (60 FPS)</p><p class="mixer-hint">↖ drag the glowing orb behind this glass pane</p></div><span class="glass chip chip-a">🦢 Liquid Glass: Live</span><span class="glass chip chip-b">🇬🇧 Amy UK Voice ⚡︎</span></div>';
++host.appendChild(lgTop);
+ var self = this;
+ 
+ function card(title) {
+@@ -3493,56 +3505,6 @@ ap.appendChild(segRow("Performance", [{ id: "auto", label: "Auto" }, { id: "full
+ var perfInfo = U.el("p", "tiny muted", "Now: " + UI.perfMode + " mode \u00b7 measured frame " + UI.frameMs + " ms");
+ ap.appendChild(perfInfo);
+ 
+-var mix = card("Liquid Glass Mixer");
+-mix.appendChild(U.el("p", "tiny muted", "Blur, saturate and brightness of every glass surface - tune the Apple WWDC25 material live."));
+-function mixerRow(title, prop, min, max, step, def, unit) {
+-var wrap = U.el("div", "ctl", null);
+-wrap.style.margin = "10px 0";
+-var top = U.el("div", "spread", null);
+-top.appendChild(U.el("b", "small", title));
+-var val = U.el("span", "small muted mono", null);
+-top.appendChild(val);
+-wrap.appendChild(top);
+-var r = U.el("input", null, null);
+-r.type = "range";
+-r.min = String(min);
+-r.max = String(max);
+-r.step = String(step);
+-r.value = String(def);
+-r.setAttribute("aria-label", title);
+-function paint() {
+-var v = Number(r.value), min = Number(r.min), max = Number(r.max), value = prop === "--gb" ? v : v / 100;
+-r.style.setProperty("--fill", ((v - min) / (max - min) * 100) + "%");
+-document.documentElement.style.setProperty(prop, prop === "--gb" ? value + "px" : value.toFixed(2));
+-val.textContent = String(value) + unit;
+-var key = prop === "--gb" ? "glassBlur" : (prop === "--gs" ? "glassSat" : "glassBrt");
+-st[key] = v;
+-}
+-U.on(r, "input", function () { paint(); DB.save(); });
+-paint();
+-wrap.appendChild(r);
+-mix.appendChild(wrap);
+-}
+-mixerRow("Blur", "--gb", 4, 40, 1, st.glassBlur || 14, "px");
+-mixerRow("Saturate", "--gs", 100, 260, 1, st.glassSat || 160, "×");
+-mixerRow("Brightness", "--gbr", 90, 130, 1, st.glassBrt || 103, "");
+-var tp = U.el("div", null, null);
+-tp.style.margin = "10px 0";
+-tp.appendChild(U.el("div", "tiny muted strong", "Tint mode"));
+-var tseg = U.el("div", "seg-tint", null);
+-tseg.setAttribute("role", "group");
+-tseg.setAttribute("aria-label", "Glass tint mode");
+-tseg.appendChild(U.el("span", "seg-ind", null));
+-var tints = [["Clear", 0], ["Frost", 1], ["Smoke", 2]];
+-for (var ti = 0; ti < tints.length; ti++) {
+-var b = U.el("button", null, tints[ti][0]);
+-b.type = "button";
+-b.setAttribute("data-tint", String(tints[ti][1]));
+-tseg.appendChild(b);
+-}
+-tp.appendChild(tseg);
+-mix.appendChild(tp);
+-
+ var ins = card(S.installTitle);
+ ins.appendChild(U.el("p", "small muted", "iPhone and iPad: tap Share, then Add to Home Screen. Android: tap the menu, then Install app. This keeps your data safe and gives you a full-screen app."));
+ var instRow = U.el("div", "btn-row tight", null);
+@@ -3772,14 +3734,12 @@ supported: false,
+ voices: [],
+ ukVoices: [],
+ chosen: null,
+-allowNonUK: false, /* retained for old saved code; non-UK speech is never used */
+-textOnly: false,
++allowNonUK: false,textOnly: false,
+ token: 0,
+ activeUtter: null,
+ watchdog: null,
+ pollTimer: null,
+-onInterrupt: null,   /* set by the engine: a call, Siri or another app took the audio */
+-PHON: {
++onInterrupt: null,PHON: {
+ a: "ay", b: "bee", c: "see", d: "dee", e: "ee", f: "eff", g: "jee", h: "aitch", i: "eye",
+ j: "jay", k: "kay", l: "ell", m: "em", n: "en", o: "oh", p: "pee", q: "queue", r: "ar",
+ s: "ess", t: "tee", u: "you", v: "vee", w: "double-you", x: "ex", y: "why", z: "zed"
+@@ -3933,7 +3893,7 @@ if (t) {
+ var cache = DB.data && DB.data.dictCache ? DB.data.dictCache[U.norm(t)] : null;
+ if (cache && cache.audio) push(cache.audio);
+ if (t.length <= 24) {
+-push(ukMp3(t));               /* Oxford / Cambridge CDN, en-GB */
++push(ukMp3(t));
+ if (t.indexOf(" ") < 0 && /^[a-z' \-]+$/.test(t)) {
+ var key = t.replace(/[^a-z]/g, "");
+ push("https://api.dictionaryapi.dev/media/pronunciations/en/" + encodeURIComponent(key) + "-uk.mp3");
+@@ -3942,7 +3902,7 @@ push("https://commons.wikimedia.org/wiki/Special:FilePath/En-uk-" + encodeURICom
+ }
+ }
+ for (i = 0; i < out.length; i++) if (this.isBritishAudio(out[i])) uniq.push(out[i]);
+-return uniq.length ? uniq : out;   /* a real recording always beats a synthetic voice */
++return uniq.length ? uniq : out;
+ },
+ mp3For: function (text, word) {
+ var t = this.normKey(U.trim(String(word || text || "")));
+@@ -4193,8 +4153,6 @@ if (cur) out.push(cur);
+ return out;
+ },
+ 
+-/* one call for any button that speaks a word: reuses the buffered MP3 on a
+-repeat, falls through Amy -> Google en-GB -> the female British device voice */
+ playSmartAudio: function (text, rate, onEnd) {
+ var done = U.once(onEnd || function () {});
+ if (!U.trim(text)) { done({ ok: false }); return; }
+@@ -4397,10 +4355,8 @@ close: function () { this.cardOpen = false; UI.closeSheet(); }
+ 
+ /* SECTION 12 - ENGINE (one scheduler, run-ID tokens) */
+ var Eng = {
+-/* the 5 second per-word timer, readable from the UI and the tests */
+ writeSecs: function () { return writeSecs(); },
+-st: "idle",           /* idle | ready | speaking | waiting | paused | finished */
+-runId: 0,
++st: "idle",runId: 0,
+ words: [],
+ order: [],
+ idx: 0,
+@@ -4529,7 +4485,7 @@ sessionNo: this.sessionNo, sessionDay: this.sessionDay, sessionDate: this.sessio
+ startedAt: this.startedAt, savedAt: Date.now(), seed: this.seed, showWord: this.showWord,
+ settingsAtStart: JSON.parse(JSON.stringify(DB.data.settings))
+ };
+-DB.saveNow(true);   /* A7.3: a word step writes one key, never two */
++DB.saveNow(true);
+ },
+ 
+ runItem: function (i) {
+@@ -4631,8 +4587,7 @@ Speech.stop();
+ this.st = "paused";
+ this.status(S.paused);
+ this.paint();
+-this.flushSnapshot();   /* a pause is written at once, never debounced */
+-this.releaseWake();
++this.flushSnapshot();this.releaseWake();
+ },
+ resume: function () {
+ if (this.st !== "paused") return;
+@@ -5703,7 +5658,7 @@ if (!DB.data.dictCache[key]) DB.data.dictCache[key] = {};
+ var merged = DB.data.dictCache[key];
+ Object.keys(res).forEach(function (k) { if (res[k] !== "" && res[k] !== undefined) merged[k] = res[k]; });
+ DB.trimCache();
+-DB.save(true);   /* light save: a cached lookup never costs a backup copy */
++DB.save(true);
+ return merged;
+ },
+ 
+@@ -6859,8 +6814,7 @@ self.renderTab();
+ });
+ });
+ libAct.appendChild(bDup); libAct.appendChild(bRen); libAct.appendChild(bDel);
+-ed.appendChild(libAct);   /* the list actions stay in the single words card */
+-
++ed.appendChild(libAct);
+ var pl = this.card(host, "Planner (which list on which day)");
+ var published = Lib.published();
+ function optList(sel, cur) {
+@@ -7007,8 +6961,7 @@ function bumpSession(delta) {
+ var n = parseInt(String(d.session.no).replace(/[^0-9]/g, ""), 10);
+ if (!isFinite(n)) n = 1;
+ d.session.no = String(Math.max(1, n + delta)) + String(d.session.no || "").replace(/^[0-9]+/, "");
+-self.manualSession = true;   /* never re-derived from a list name after this */
+-sessNo.textContent = d.session.no;
++self.manualSession = true;sessNo.textContent = d.session.no;
+ DB.saveNow();
+ Screens.home();
+ }
+@@ -9193,7 +9146,6 @@ DB.saveNow();
+ welcomeGuide();
+ }
+ 
+-
+ function initLiquidPlayground() { UI.bindLiquidControls(document); }
+ function initDockMagnification() {
+ var dock = U.$("#tabbar");
+@@ -9236,6 +9188,7 @@ if (Store.blocked) UI.warnStorage();
+ UI.applyTheme();
+ UI.applySize();
+ UI.applyHc();
++UI.applyGlassSettings();
+ UI.applyLang();
+ UI.initCreditBadge();
+ initLiquidPlayground();
+diff --git a/tests/phase1.cjs b/tests/phase1.cjs
+index 503ccd6..ba637bb 100644
+--- a/tests/phase1.cjs
++++ b/tests/phase1.cjs
+@@ -406,13 +406,13 @@ test('1.7 dynamically built class names are filtered by U.cx and U.el', () => wi
+  const blank=a.q.U.el('div', '   ', null); assert.equal(blank.className,'');
+ }));
+ test('1.8 build stamp is exposed, shown in Settings and on the fatal card', () => withApp({}, a => {
+- assert.equal(a.w.SDP.version,'2.3.0'); assert.equal(a.w.SDP.build,'2026-10-23'); assert.equal(a.w.SDP.stamp(),'v2.3.0 (2026-10-23)');
++ assert.equal(a.w.SDP.version,'2.4.0'); assert.equal(a.w.SDP.build,'2026-10-23'); assert.equal(a.w.SDP.stamp(),'v2.4.0 (2026-10-23)');
+  a.q.UI.setTab('set'); const txt=a.w.document.querySelector('#screen-set').textContent;
+- assert(txt.includes('v2.3.0 (2026-10-23)')); assert(txt.includes('My data'));
++ assert(txt.includes('v2.4.0 (2026-10-23)')); assert(txt.includes('My data'));
+ }));
+ test('1.8 fatal card names the running build', () => withApp({bootFailure:true}, a => {
+  assert(a.crash());
+- assert(a.w.document.querySelector('#fatal').textContent.includes('Build v2.3.0 (2026-10-23)'));
++ assert(a.w.document.querySelector('#fatal').textContent.includes('Build v2.4.0 (2026-10-23)'));
+ }));
+ test('1.9 one failing Home widget leaves the other widgets on screen', () => withApp({}, a => {
+  const real=a.q.UI.statBox; a.q.UI.statBox=function(){ throw new Error('Stat widget failed'); };
+diff --git a/tests/upgrade-browser.cjs b/tests/upgrade-browser.cjs
+index 4b076af..38e8f33 100644
+--- a/tests/upgrade-browser.cjs
++++ b/tests/upgrade-browser.cjs
+@@ -1,4 +1,4 @@
+-/* Release 2.3.0 (ver 15) - real-engine checks for the 60 FPS Liquid Glass
++/* Release 2.4.0 (ver 16) - real-engine checks for the 60 FPS Liquid Glass
+    engine, automatic Lite mode, the re-bound Material Mixer and the low-data
+    audio path. Rewritten from scratch for this release.
+ 
+@@ -116,7 +116,10 @@ function material(page) {
+       grain: getComputedStyle(document.querySelector('#grain')).display,
+       blobFilter: getComputedStyle(document.querySelector('#bg .blob')).filter,
+       blobAnimation: getComputedStyle(document.querySelector('#bg .blob')).animationName,
+-      orb: getComputedStyle(document.querySelector('#orb')).backgroundImage,
++      orb: (() => {
++        const stage = document.querySelector('#lgStage #orb') || document.querySelector('#materialMixer');
++        return stage ? getComputedStyle(stage).backgroundImage : '';
++      })(),
+       stripes: getComputedStyle(document.querySelector('.stripes')).backgroundImage,
+       disc: getComputedStyle(document.querySelector('.disc')).backgroundImage
+     };
+@@ -136,7 +139,7 @@ function material(page) {
+     return;
+   }
+ 
+-  await check(engine + ' v15 boots dark with the full Liquid Glass anatomy', async () => {
++  await check(engine + ' v16 boots dark with the full Liquid Glass anatomy', async () => {
+     const { context, page, errors } = await boot(browser, 1280, 800);
+     try {
+       const m = await material(page);
+@@ -149,11 +152,17 @@ function material(page) {
+       assert.notEqual(m.chipShadow, 'none');
+       assert.equal(m.grain, 'none', 'no feTurbulence layer across the viewport');
+       assert.equal(m.blobFilter, 'none', 'no 85px GPU blur on the blobs');
+-      assert.match(m.orb, /radial-gradient/);
++      assert.equal(m.orb, '', 'Home no longer hosts the Material Mixer orb');
+       assert.match(m.stripes, /repeating-linear-gradient/);
+       assert.match(m.disc, /radial-gradient/);
+-      const columns = await page.evaluate(() => getComputedStyle(document.querySelector('.lg-hero')).gridTemplateColumns.split(' ').length);
+-      assert.equal(columns, 2, 'desktop hero keeps two columns');
++      const hero = await page.evaluate(() => ({
++        display: getComputedStyle(document.querySelector('.lg-hero')).display,
++        stage: !!document.querySelector('#screen-home #lgStage'),
++        stats: document.querySelectorAll('#homeStats .statbox').length
++      }));
++      assert.equal(hero.display, 'block', 'Home is a single full-width glass stage');
++      assert.equal(hero.stage, false, 'the Material Mixer left Home');
++      assert.equal(hero.stats, 3, 'the three bento tiles follow the hero');
+       assert.equal(await page.locator('#tabbar button').count(), 5, 'five dock sections');
+       assert.equal(errors.length, 0, 'page errors: ' + errors.join(' | '));
+     } finally {
+@@ -179,7 +188,6 @@ function material(page) {
+       assert.notEqual(lite.topbarBlur, 'none', 'topbar blur kept in lite');
+       assert.notEqual(lite.dockBlur, 'none', 'dock blur kept in lite');
+       assert.notEqual(lite.heroShadow, 'none', 'specular rim kept in lite');
+-      assert.notEqual(lite.orb, 'none', 'the warm orb is still rendered');
+       assert.match(lite.stripes, /repeating-linear-gradient/, 'stripes kept in lite');
+       assert.equal(lite.blobAnimation, 'none', 'no infinite background animation in lite');
+       await page.waitForFunction(() => {
+@@ -211,10 +219,16 @@ function material(page) {
+           opacity: getComputedStyle(credit).opacity,
+           sheen: getComputedStyle(credit, '::after').animationName,
+           ping: getComputedStyle(credit.querySelector('.ring')).animationName,
+-          transition: getComputedStyle(credit).transitionProperty
++          transition: getComputedStyle(credit).transitionProperty,
++          swan: !!credit.querySelector('.c-swan'),
++          drop: !!credit.querySelector('.c-drop'),
++          swanAnimation: getComputedStyle(credit.querySelector('.swan-group')).animationName
+         };
+       });
+       assert.equal(full.inView, true, 'spring entrance completes');
++      assert.equal(full.swan, true, 'the animated swan is in the badge');
++      assert.equal(full.drop, false, 'the water drop is gone');
++      assert.equal(full.swanAnimation, 'swanFloat');
+       assert.equal(full.opacity, '1');
+       assert.equal(full.sheen, 'sheen');
+       assert.equal(full.ping, 'ping');
+@@ -249,7 +263,7 @@ function material(page) {
+     const { context, page, errors } = await boot(browser, 1280, 900);
+     try {
+       await page.locator('#tab-set').click();
+-      await page.locator('#tab-home').click();
++      await page.locator('#setBody #lgStage').waitFor();
+       await page.waitForTimeout(150);
+       await page.evaluate(() => {
+         for (const [id, value] of [['sBlur', 34], ['sSat', 210], ['sBrt', 110]]) {
+@@ -272,18 +286,18 @@ function material(page) {
+       assert.ok(Math.abs(parseFloat(mixed.fills[0]) - 83.3333) < 0.01);
+       assert.equal(mixed.fills[1], '68.75%');
+       assert.equal(mixed.fills[2], '50%');
+-      await page.evaluate(() => { window.__tintHero = document.getElementById('homeHero'); });
++      await page.evaluate(() => { window.__tintHero = document.getElementById('materialMixer'); });
+       const clear = await page.evaluate(() => getComputedStyle(document.getElementById('materialMixer')).backgroundColor);
+       await page.locator('#segTint [data-tint="1"]').click();
+       assert.equal(await page.locator('body.tint-frost').count(), 1);
+       assert.equal(await page.locator('body.tint-morph').count(), 1, 'user switch starts the 420ms liquid pulse');
+-      assert.equal(await page.evaluate(() => window.__tintHero === document.getElementById('homeHero')), true, 'tint never re-renders Home');
++      assert.equal(await page.evaluate(() => window.__tintHero === document.getElementById('materialMixer')), true, 'tint never re-renders Settings');
+       await page.waitForFunction(() => getComputedStyle(document.getElementById('materialMixer')).backgroundColor === 'rgba(220, 238, 255, 0.22)', null, { timeout: 8000 });
+       const frost = await page.evaluate(() => ({
+         bg: getComputedStyle(document.getElementById('materialMixer')).backgroundColor,
+         shadow: getComputedStyle(document.getElementById('materialMixer')).boxShadow,
+         morph: document.body.classList.contains('tint-morph'),
+-        saved: JSON.parse(localStorage.getItem('sdp.v15_liquid')).settings.glassTint,
++        saved: JSON.parse(localStorage.getItem('sdp.v16_swan')).settings.glassTint,
+         indicators: Array.from(document.querySelectorAll('.seg-tint .seg-ind'), (el) => el.style.transform)
+       }));
+       assert.notEqual(frost.bg, clear, 'Frost visibly changes the material');
+@@ -293,7 +307,7 @@ function material(page) {
+       assert.equal(frost.saved, 1);
+       /* browsers normalise the raw `0` channels to `0px` when serialising */
+       const norm = (t) => String(t).replace(/\s+/g, '').replace(/px(?=,|\))/g, '');
+-      assert.deepEqual(frost.indicators.map(norm), ['translate3d(100%,0,0)', 'translate3d(100%,0,0)']);
++      assert.deepEqual(frost.indicators.map(norm), ['translate3d(100%,0,0)'], 'the Settings tint capsule glides');
+       await page.locator('#segTint [data-tint="2"]').click();
+       assert.equal(await page.locator('body.tint-smoke').count(), 1);
+       assert.equal(await page.locator('body.tint-frost').count(), 0);
+@@ -366,11 +380,11 @@ function material(page) {
+       assert.notEqual(m.heroBlur, 'none', 'phone glass still renders');
+       assert.notEqual(m.heroShadow, 'none');
+       const layout = await page.evaluate(() => ({
+-        columns: getComputedStyle(document.querySelector('.lg-hero')).gridTemplateColumns.split(' ').length,
++        display: getComputedStyle(document.querySelector('.lg-hero')).display,
+         overflow: document.documentElement.scrollWidth > window.innerWidth,
+         dock: document.getElementById('tabbar').getBoundingClientRect().width <= window.innerWidth
+       }));
+-      assert.equal(layout.columns, 1, 'the hero stacks on a phone');
++      assert.equal(layout.display, 'block', 'the hero is a single column on a phone');
+       assert.equal(layout.overflow, false, 'no horizontal scroll');
+       assert.equal(layout.dock, true, 'the dock fits the viewport');
+       await page.locator('#btnPerf').click();
+@@ -411,9 +425,9 @@ function material(page) {
+ 
+       /* strictly two spoken repeats of the word, one British female voice */
+       const spoken = await page.evaluate(() => window.__spoken || []);
+-      const word = await page.evaluate(() => JSON.parse(localStorage.getItem('sdp.v15_liquid')).lists[0].words[0].w);
++      const word = await page.evaluate(() => JSON.parse(localStorage.getItem('sdp.v16_swan')).lists[0].words[0].w);
+       assert.equal(spoken.filter((t) => String(t).trim() === word).length, 2, 'spoken exactly twice: ' + JSON.stringify(spoken));
+-      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sdp.v15_liquid')).settings.writeFixed), 5, 'five second timer');
++      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sdp.v16_swan')).settings.writeFixed), 5, 'five second timer');
+ 
+       assert.equal(await clickText(page, 'Finish early'), true, 'Finish early opens');
+       assert.equal(await clickText(page, 'Finish now'), true, 'Finish now confirms');
+@@ -423,7 +437,7 @@ function material(page) {
+       for (let i = 0; i < 3; i++) await marks.nth(i).click();
+       await page.waitForTimeout(600);
+       const saved = await page.evaluate(() => {
+-        const d = JSON.parse(localStorage.getItem('sdp.v15_liquid'));
++        const d = JSON.parse(localStorage.getItem('sdp.v16_swan'));
+         const rec = (d.history || [])[0] || {};
+         return { runs: (d.history || []).length, score: rec.score, percent: rec.percent, marks: (rec.marks || []).length, selfScored: rec.selfScored };
+       });
+diff --git a/tests/upgrade.test.cjs b/tests/upgrade.test.cjs
+index fb105bd..e797d1c 100644
+--- a/tests/upgrade.test.cjs
++++ b/tests/upgrade.test.cjs
+@@ -1,6 +1,7 @@
+-/* Smart Dictation Player 2.3.0 (schema 15) release verification.
+-   This file is regenerated as a complete suite for every release; it never
+-   patches app source and it never depends on regex surgery over old tests. */
++/* Smart Dictation Player 2.4.0 (schema 16) release verification.
++   Rewritten from scratch for v16: animated swan credit badge, Liquid Glass
++   hero headline, Material Mixer moved to Settings and the zero-lag 60 FPS
++   pass. It never patches app source and never edits an older suite. */
+ 'use strict';
+ 
+ const assert = require('node:assert/strict');
+@@ -17,6 +18,8 @@ const PIN = require('./test-pin.cjs');
+ 
+ const TITLE = 'Session 7 - Travel & Transport';
+ const LIST_ID = 'list_session_7_travel';
++const STORE_KEY = 'sdp.v16_swan';
++const CREDIT = 'Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini';
+ const WORDS = [
+   'guidebook', 'handlebars', 'harbour', 'helicopter', 'hitchhike', 'immigration',
+   'journey', 'luggage', 'machine', 'mechanic', 'nationality', 'on business',
+@@ -25,15 +28,14 @@ const WORDS = [
+   'tourist information centre', 'traffic lights', 'tunnel', 'tyre/tire',
+   'vehicle', 'visa', 'waiting room', 'windscreen'
+ ];
+-const CREDIT = 'Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini';
+-const GLASS_SPRING = 'transition: transform .42s cubic-bezier(.2, .9, .25, 1.35), background-color .48s cubic-bezier(.2, .9, .25, 1.35), background .48s ease, box-shadow .48s cubic-bezier(.2, .9, .25, 1.35), border-color .38s ease, color .32s ease;';
+-const PILL_SPRING = 'transition: transform .48s cubic-bezier(.2, .9, .25, 1.35), width .48s cubic-bezier(.2, .9, .25, 1.35), background .35s ease !important;';
+ const tests = [];
+ 
+ function test(name, fn) { tests.push({ name, fn }); }
+ function boot() { return harness(); }
+-function fire(a, el, type) {
+-  el.dispatchEvent(new a.w.Event(type, { bubbles: true, cancelable: true }));
++function has(token, label) { assert.ok(html.indexOf(token) >= 0, label || token); }
++function lacks(token, label) { assert.equal(html.indexOf(token), -1, label || token); }
++function fire(a, el, type, init) {
++  el.dispatchEvent(new a.w.Event(type, Object.assign({ bubbles: true, cancelable: true }, init || {})));
+ }
+ function slide(a, id, value) {
+   const el = a.w.document.getElementById(id);
+@@ -54,53 +56,55 @@ function device(a, options) {
+   });
+   return a;
+ }
+-function flush() { return new Promise((resolve) => setImmediate(resolve)); }
+-function has(token, label) { assert.ok(html.indexOf(token) >= 0, label || token); }
+-function lacks(token, label) { assert.equal(html.indexOf(token), -1, label || token); }
++function openSettings(a) {
++  a.q.UI.setTab('set');
++  const doc = a.w.document;
++  const stage = doc.querySelector('#setBody #lgStage');
++  assert.ok(stage, '#lgStage is rendered inside Settings');
++  return stage;
++}
++function stored(a) {
++  return JSON.parse(a.w.localStorage.getItem(STORE_KEY) || 'null');
++}
+ 
+-/* ---------------------------------------------------------- release data */
++/* ------------------------------------------------------------ release data */
+ 
+-test('v15 / 2.3.0 metadata and automatic performance defaults are consistent', function () {
+-  for (const data of [version, config, session]) assert.ok(Number(data.ver) >= 15, 'ver >= 15');
+-  assert.equal(version.appVersion, '2.3.0');
+-  assert.equal(version.version, '2.3.0');
+-  assert.equal(version.settingsRev, 15);
++test('v16 / 2.4.0 metadata, schema and performance defaults are consistent', function () {
++  for (const data of [version, config, session]) assert.ok(Number(data.ver) >= 16, 'ver >= 16');
++  assert.equal(version.appVersion, '2.4.0');
++  assert.equal(version.version, '2.4.0');
++  assert.equal(version.settingsRev, 16);
+   assert.equal(version.session, '7');
+   assert.equal(version.title, TITLE);
+-  assert.equal(version.updatedAt, '2026-10-23T00:00:00Z');
+-  assert.equal(config.appVersion, '2.3.0');
+-  assert.equal(config.version, '2.3.0');
+-  assert.equal(config.settingsRev, 15);
++  assert.equal(config.appVersion, '2.4.0');
++  assert.equal(config.version, '2.4.0');
++  assert.equal(config.settingsRev, 16);
+   assert.equal(config.listId, LIST_ID);
+-  assert.deepEqual(config.session, {
+-    no: '7', day: 'Thursday', date: '2026-10-22', title: TITLE,
+-    listId: LIST_ID, branch: 'CCBE Galle Branch',
+-    display: 'SESSION 7 · 22/10/2026 · CCBE GALLE BRANCH'
+-  });
++  assert.equal(config.session.title, TITLE);
++  assert.equal(config.session.date, '2026-10-22');
++  assert.equal(config.session.branch, 'CCBE Galle Branch');
++  assert.equal(config.session.display, 'SESSION 7 · 22/10/2026 · CCBE GALLE BRANCH');
+   assert.equal(config.defaults.perf, 'auto');
+-  assert.equal(config.defaults.theme, 'dark');
+   assert.equal(config.defaults.writeMode, 'fixed');
+   assert.equal(config.defaults.writeFixed, 5);
+   assert.equal(config.defaults.repeats, 2);
+   assert.equal(config.defaults.sentence, false);
+-  assert.equal(config.defaults.glassTint, 0);
+   assert.equal(config.performance.probeMs, 1200);
+   assert.equal(config.performance.medianBudgetMs, 19);
+   assert.equal(config.dataSaving.preload, 'none');
+   assert.equal(config.dataSaving.audioReuse, true);
+-  assert.match(config.tts.primary, /Amy/);
+   assert.equal(config.credits.en, CREDIT);
+-  has('APP_VERSION = "2.3.0"');
+-  has('key: "sdp.v15_liquid"');
+-  has('schema: 15');
+-  has('settingsRev: 15');
++  has('APP_VERSION = "2.4.0"');
++  has('key: "sdp.v16_swan"');
++  has('schema: 16');
++  has('settingsRev: 16');
++  has('d.settingsRev = 16;');
+ });
+ 
+-test('Session 7 retains the exact 30-word Travel & Transport assignment', function () {
+-  assert.equal(session.appVersion, '2.3.0');
++test('Session 7 keeps all 30 Travel & Transport words with the 5s / ×2 defaults', function () {
++  assert.equal(session.appVersion, '2.4.0');
+   assert.equal(session.session.no, '7');
+-  assert.equal(session.session.date, '2026-10-22');
+-  assert.equal(session.session.branch, 'CCBE Galle Branch');
++  assert.equal(session.session.listId, LIST_ID);
+   assert.equal(session.lists.length, 1);
+   const list = session.lists[0];
+   assert.equal(list.id, LIST_ID);
+@@ -114,651 +118,518 @@ test('Session 7 retains the exact 30-word Travel & Transport assignment', functi
+     has(word.w, 'embedded word ' + word.w);
+   }
+   has('SAMPLE_LIST_ID = "list_session_7_travel"');
++  has('writeFixed: 5');
++  has('repeats: 2');
++  has('sentence: false');
++  const a = boot();
++  try {
++    assert.equal(a.q.DB.data.settings.writeMode, 'fixed');
++    assert.equal(a.q.DB.data.settings.writeFixed, 5);
++    assert.equal(a.q.DB.data.settings.repeats, 2);
++    assert.equal(a.q.DB.data.settings.sentence, false);
++    assert.equal(a.q.Lib.current().words.length, 30);
++    assert.equal(a.q.SAMPLE_LIST_ID, LIST_ID);
++    assert.equal(a.w.document.getElementById('homeTitle').textContent, TITLE);
++  } finally { a.close(); }
+ });
+ 
+-/* ------------------------------------------- static liquid glass contract */
+-
+-test('the screenshot-exact sliding Liquid Glass dock indicator ships on #tabbar', function () {
+-  const required = [
+-    '<span class="tab-ind" id="tabInd" aria-hidden="true"></span>',
+-    'id="tabInd"',
+-    'class="tab-ind"',
+-    '#tabInd, .tab-ind {position: absolute; top: 6px; bottom: 6px; left: 6px; width: calc((100% - 12px) / 5); border-radius: 999px;',
+-    'background: radial-gradient(circle at 50% 15%, rgba(160, 185, 255, .28), rgba(255, 255, 255, .09) 72%);',
+-    'box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, .62), inset 0 0 0 1.5px rgba(155, 180, 255, .52), 0 6px 18px rgba(0, 0, 0, .38);',
+-    'transition: transform .48s cubic-bezier(.2, .9, .25, 1.35), background .35s ease, box-shadow .35s ease !important;',
+-    'pointer-events: none; z-index: 0; will-change: transform;',
+-    '#tabbar {position: fixed; bottom: calc(12px + var(--safe-b)); left: 50%; transform: translateX(-50%); z-index: 50; width: min(560px, calc(100vw - 16px)); display: grid; grid-template-columns: repeat(5, 1fr); align-items: stretch; gap: 0; padding: 6px; border-radius: 999px;',
+-    'background: rgba(10, 15, 30, .74);',
+-    'inset 0 1px 0 rgba(255,255,255,.38), inset 0 0 0 1px rgba(127,214,247,.28), 0 18px 46px rgba(2,6,20,.58); overflow: hidden;',
+-    '#tabbar button {position: relative; z-index: 1; border: 0; background: transparent !important; border-radius: 999px; min-height: 58px; padding: 6px 4px;',
+-    'color: rgba(241, 244, 255, .70); font: 700 12px "Manrope", system-ui, sans-serif;',
+-    'transition: color .35s ease, transform .35s cubic-bezier(.2, .9, .25, 1.35) !important;',
+-    '#tabbar button[aria-selected="true"] { color: #96b6ff !important; background: transparent !important; }',
+-    '#tabbar button[aria-selected="true"] svg { color: #96b6ff; filter: drop-shadow(0 0 8px rgba(150, 182, 255, .35));',
+-    'U.$$("#tabbar button[data-tab]")',
+-    'if (ind) ind.style.transform = "translate3d(" + (idx * 100) + "%, 0, 0)";',
+-    'animation: screenMorphIn .38s cubic-bezier(.2, .9, .25, 1.35) both',
+-    '@keyframes screenMorphIn { from { opacity: 0; transform: translate3d(0, 10px, 0) scale(.992); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }'
+-  ];
+-  for (const token of required) has(token);
+-  assert.equal((html.match(/id="tabInd"/g) || []).length, 1, 'exactly one #tabInd');
+-  lacks('contain: content', 'no contain:content anywhere, .glass included');
+-  lacks('contain: paint');
+-  assert.doesNotMatch(html, /<link[\s>]/i, 'zero external link tags');
+-  assert.doesNotMatch(html, /fonts\.googleapis|cdn\.jsdelivr|unpkg\.com/i);
+-});
+-
+-test('every segmented pill shares the glowing Liquid Glass capsule recipe', function () {
+-  const required = [
+-    '.seg, .seg-tint {position: relative; display: flex; align-items: center; gap: 0; padding: 4px; border-radius: 999px; background: rgba(10, 15, 30, .58); box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 0 0 1px rgba(127,214,247,.22); overflow: hidden;}',
+-    '.seg .thumb, .seg-tint .seg-ind {position: absolute; top: 4px; bottom: 4px; left: 4px; border-radius: 999px; background: radial-gradient(circle at 50% 15%, rgba(160, 185, 255, .30), rgba(92, 208, 244, .16) 75%); box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, .68), inset 0 0 0 1.5px rgba(155, 180, 255, .50), 0 4px 14px rgba(0, 0, 0, .34);',
+-    PILL_SPRING,
+-    'pointer-events: none; z-index: 0; will-change: transform, width;',
+-    '.seg-tint .seg-ind { width: calc((100% - 8px) / 3); }',
+-    '.seg button, .seg-tint button {position: relative; z-index: 1; flex: 1 1 0; border: 0; background: transparent !important; border-radius: 999px; color: var(--dim); font-weight: 700; cursor: pointer; transition: color .32s ease, transform .32s cubic-bezier(.2, .9, .25, 1.35) !important;',
+-    '.seg button[aria-selected="true"], .seg button[aria-pressed="true"], .seg-tint button.active {color: #96b6ff !important;}',
+-    'var thumb = U.$(".thumb", host) || U.$(".seg-ind", host);',
+-    'var act = U.$(\'button[aria-selected="true"], button[aria-pressed="true"], button.active\', host);',
+-    'if (!act) { thumb.style.width = "0px"; return; }',
+-    'thumb.style.width = act.offsetWidth + "px";',
+-    'thumb.style.transform = "translate3d(" + (act.offsetLeft - 4) + "px, 0, 0)";',
+-    '<span class="thumb" aria-hidden="true"></span><button type="button" data-perf="auto"',
+-    '"translate3d(" + (i * 100) + "%, 0, 0)"',
+-    'window.setTimeout(function () { UI.segSync(pick); }, 60);'
+-  ];
+-  for (const token of required) has(token);
+-  /* the pill must keep sliding in Lite mode on every device */
+-  lacks('body[data-perf="lite"] .seg .thumb', 'Lite never disables the sliding seg thumb');
+-  lacks('.seg .thumb { transition: none', 'the seg thumb never loses its transition');
+-  lacks('body[data-perf="lite"] .seg', 'no Lite rule targets segs at all');
+-});
+-
+-test('Clear / Frost / Smoke morph tokens and button micro-physics are exact', function () {
+-  has('body.tint-clear { --glass-tint: rgba(255, 255, 255, .085); --inset-hi: rgba(255, 255, 255, .45); --line: rgba(255, 255, 255, .14); }');
+-  has('body.tint-frost { --glass-tint: rgba(220, 238, 255, .22); --inset-hi: rgba(255, 255, 255, .82);');
+-  has('body.tint-smoke { --glass-tint: rgba(6, 10, 24, .66); --inset-hi: rgba(150, 182, 255, .48);');
+-  has('setTint');
+-  has('data-tint="0"');
+-  has('data-tint="1"');
+-  has('data-tint="2"');
+-  has(GLASS_SPRING);
+-  has('.gbtn, button.chip, .topbar .icon-btn { transition:');
+-  has('.btn:hover, .gbtn:hover, button.chip:hover { transform: translate3d(0, -2px, 0) scale(1.02); }');
+-  has('.btn:active, .gbtn:active, button.chip:active, #tabbar button:active, .seg button:active, .seg-tint button:active { transform: translate3d(0, 1px, 0) scale(.95); }');
+-});
+-
+-test('the floating Hansana badge, sheen, ping and low-data engine are shipped', function () {
+-  const required = [
+-    'id="credit"', 'class="credit glass"', 'credits goes to', '<b>Hansana</b>',
+-    'role="note" aria-label="Credits go to Hansana"',
+-    'creditLoop', 'UI.initCreditBadge', 'initCreditBadge();', '@keyframes sheen',
+-    '@keyframes ping', '.credit.in .ring', '.credit::after', '.credit.snap',
+-    'bottom: calc(84px + env(safe-area-inset-bottom, 0px))',
+-    '💧 Created by Hansana · Idea given by Ayya01 (Lesandu) · Lecturer in Charge: Sumodya Sewmini',
+-    '.seg-tint', '.seg-ind', 'tint-clear', 'tint-frost', 'tint-smoke', 'tint-morph',
+-    '.stripes', '.disc', 'id="orb"', 'id="sBlur"', '--gb', '--fill',
+-    'radial-gradient(circle, var(--blob-color) 0%, transparent 70%)',
+-    '#grain { display: none !important; }',
+-    'body[data-perf="lite"] { --gb: 8px; --gs: 1.35; --gbr: 1.02; }',
+-    'preload="none"',
+-    'voice=Amy',
+-    'translate.google.com/translate_tts',
+-    'tl=en-GB'
+-  ];
+-  for (const token of required) has(token);
+-  assert.equal((html.match(/id="credit"/g) || []).length, 1);
+-  assert.equal((html.match(/id="sdpAudio"/g) || []).length, 1);
+-  assert.equal(html.indexOf('filter: blur(85px)'), -1, 'blobs are pre-blurred gradients, not 85px filters');
+-});
+-
+-test('glass and badge transitions remain enabled in both performance modes', function () {
+-  has(GLASS_SPRING);
+-  has('animation: sheen 3.6s ease-in-out 1.2s infinite;');
+-  has('animation: ping 1.3s ease-out .15s 1;');
+-  has('body.tint-frost .glass');
+-  has('body.tint-smoke .glass');
+-  has('body.tint-frost[data-perf] .glass');
+-  has('body.tint-smoke[data-perf] .glass');
+-  const liteRules = Array.from(html.matchAll(/body\[data-perf="lite"\][^{}]+\{[^{}]*\}/g), (m) => m[0]);
+-  assert.ok(liteRules.length >= 4, 'Lite rules exist');
+-  for (const rule of liteRules) {
+-    if (rule.indexOf('.credit') >= 0) assert.doesNotMatch(rule, /animation:\s*none|transition:\s*none/);
+-  }
+-  assert.doesNotMatch(html, /body\[data-perf="lite"\]\s+(?:#credit|\.credit)/);
+-  has('body[data-perf="lite"] .blob, body[data-perf="lite"] .bubble, body[data-perf="lite"] .chip-a, body[data-perf="lite"] .chip-b { animation: none !important; }');
+-  has('blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr))');
+-});
+-
+-/* --------------------------------------------------------- automatic Lite */
+-
+-test('Auto Lite covers small, touch, constrained and data-saver devices', function () {
+-  const scenarios = [
+-    [{ width: 390, cores: 8, memory: 8 }, 'lite', 'phone'],
+-    [{ width: 1280, cores: 8, memory: 8, media: ['(pointer: coarse)'] }, 'lite', 'touch'],
+-    [{ width: 1280, cores: 4, memory: 8 }, 'lite', 'CPU'],
+-    [{ width: 1280, cores: 8, memory: 4 }, 'lite', 'RAM'],
+-    [{ width: 1280, cores: 8, memory: 8, saveData: true }, 'lite', 'Data Saver'],
+-    [{ width: 1280, cores: 8, memory: 8, media: ['prefers-reduced-motion'] }, 'lite', 'reduced motion'],
+-    [{ width: 1280, cores: 8, memory: 8 }, 'full', 'strong desktop']
+-  ];
+-  for (const [prefs, expected, label] of scenarios) {
+-    const a = boot();
+-    try {
+-      device(a, prefs);
+-      assert.equal(a.q.UI.autoPerf(), expected, label);
+-    } finally { a.close(); }
+-  }
+-});
+-
+-test('the single 1.2 second frame probe stops and downgrades above 19ms', function () {
++test('the unified British female professor voice is Amy (en-GB) with a female failover', function () {
++  assert.match(config.tts.primary, /Amy/);
++  assert.match(config.tts.primary, /en-GB/);
++  assert.match(config.tts.failover, /Google Translate TTS/);
++  assert.match(config.tts.backup, /female/i);
++  has('voice=Amy');
++  has('translate.google.com/translate_tts');
++  has('tl=en-GB');
++  has('ttsBackupHost');
++  has('playSmartAudio: function (text, rate, onEnd)');
++  has('}, 3500);');
+   const a = boot();
+   try {
+-    const ui = a.q.UI;
+-    assert.equal(ui.frameWatchStarted, true);
+-    let pending = null, requests = 0, cancelled = 0, calls = 0;
+-    a.w.requestAnimationFrame = function (cb) { requests++; pending = cb; return requests; };
+-    a.w.cancelAnimationFrame = function () { cancelled++; };
+-    ui.frameWatchStarted = false;
+-    ui.frameProbe(function () { calls++; });
+-    let now = 0;
+-    for (let i = 0; i < 120 && pending; i++) {
+-      const cb = pending;
+-      pending = null;
+-      now += 16.7;
+-      cb(now);
+-    }
+-    assert.equal(calls, 1);
+-    assert.equal(pending, null);
+-    assert.ok(cancelled >= 1);
+-    assert.ok(requests >= 60 && requests <= 80, 'one startup window: ' + requests);
+-    device(a, { width: 1280, cores: 8, memory: 8 });
+-    a.q.DB.data.settings.perf = 'auto';
+-    ui.autoDowngraded = false;
+-    ui.recordFrames([16, 16.6, 17, 16.2]);
+-    assert.equal(ui.perfMode, 'full');
+-    ui.recordFrames([42, 48, 55, 60]);
+-    assert.equal(ui.autoDowngraded, true);
+-    assert.equal(ui.perfMode, 'lite');
+-    assert.equal(a.w.document.body.getAttribute('data-perf'), 'lite');
++    const sources = a.q.Speech.streamSources('good morning');
++    assert.equal(sources.length, 2, 'Amy then Google en-GB');
++    assert.match(sources[0], /voice=Amy/);
++    assert.match(sources[1], /translate\.google\.com/);
++    assert.match(sources[1], /tl=en-GB/);
++    assert.equal(a.q.Speech.isMaleName('Daniel'), true, 'male device voices stay excluded');
++    assert.equal(a.q.Speech.isMaleName('Sonia'), false);
+   } finally { a.close(); }
+ });
+ 
+-test('manual Lite / Full switching retains the glass controls', function () {
++/* ---------------------------------------------------------------- the swan */
++
++test('the credit badge carries the animated Liquid Glass swan, never the water drop', function () {
++  lacks('c-drop', 'the water drop is gone');
++  lacks('<path d="M12 2.7C9 7 5.5 11 5.5 14.5', 'the water drop path is gone');
++  has('<svg class="c-swan" viewBox="0 0 36 36"');
++  has('class="swan-group"');
++  has('class="swan-wing"');
++  has('class="swan-ripple"');
++  has('id="swanBody"');
++  has('id="swanWing"');
++  has('.c-swan { width: 30px; height: 30px; flex: none; overflow: visible; filter: drop-shadow(0 2px 8px rgba(92, 208, 244, .45)); }');
++  has('.c-swan .swan-group { transform-origin: 18px 22px; animation: swanFloat 3.2s ease-in-out infinite; }');
++  has('.c-swan .swan-wing { transform-origin: 20px 21px; animation: swanWing 2.4s ease-in-out infinite alternate; }');
++  has('.c-swan .swan-ripple { transform-origin: 19px 29.5px; animation: swanRipple 2.8s ease-out infinite; }');
++  has('@keyframes swanFloat { 0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); } 50% { transform: translate3d(0, -2.5px, 0) rotate(-2.5deg); } }');
++  has('@keyframes swanWing { 0% { transform: scaleY(1) rotate(0deg); } 100% { transform: scaleY(1.08) translate3d(0, -1px, 0) rotate(3deg); } }');
++  has('@keyframes swanRipple { 0% { transform: scaleX(.75); opacity: .85; } 100% { transform: scaleX(1.22); opacity: 0; } }');
++  has('.credit.in .ring');
++  has('@keyframes sheen');
++  has('@keyframes ping');
++  lacks('body[data-perf="lite"] .c-swan', 'the swan is never animation:none in Lite');
++  has('.credit { position: fixed;');
++  has('.credit.in {');
++  has('.credit.out {');
+   const a = boot();
+   try {
+-    const doc = a.w.document, ui = a.q.UI;
+-    device(a, { width: 1280, cores: 8, memory: 8 });
+-    ui.setPerf('full');
+-    assert.equal(doc.body.getAttribute('data-perf'), 'full');
+-    doc.getElementById('btnPerf').click();
+-    assert.equal(a.q.DB.data.settings.perf, 'lite');
+-    assert.equal(doc.body.getAttribute('data-perf'), 'lite');
+-    assert.equal(doc.getElementById('btnPerf').textContent, '⚡ Lite');
+-    assert.ok(doc.getElementById('credit'));
+-    assert.ok(doc.querySelector('.seg-tint .seg-ind'));
+-    doc.getElementById('btnPerf').click();
+-    assert.equal(doc.body.getAttribute('data-perf'), 'full');
+-    doc.querySelector('#segPerf [data-perf="auto"]').click();
+-    assert.equal(a.q.DB.data.settings.perf, 'auto');
+-    assert.equal(a.q.DB.data.settingsRev, 15);
++    const doc = a.w.document;
++    const credit = doc.getElementById('credit');
++    assert.equal(doc.querySelectorAll('#credit .c-swan').length, 1);
++    assert.equal(doc.querySelectorAll('#credit .c-drop').length, 0);
++    assert.ok(doc.querySelectorAll('#credit .c-swan .swan-group path').length >= 4, 'body, wing, neck and beak');
++    assert.equal(doc.querySelectorAll('#credit .c-swan .swan-ripple').length, 1);
++    assert.equal(credit.getAttribute('aria-label'), 'Credits go to Hansana');
++    assert.ok(credit.textContent.indexOf('credits goes to') >= 0);
++    assert.ok(credit.textContent.indexOf('Hansana') >= 0);
++    assert.equal(credit.classList.contains('in'), false, 'the loop starts hidden');
++    a.clock.tick(250);
++    assert.ok(credit.classList.contains('in'), 'the swan badge springs in');
++    assert.equal(credit.classList.contains('out'), false);
+   } finally { a.close(); }
+ });
+ 
+-/* ---------------------------------------------------------- credit badge */
+-
+-test('creditLoop enters, holds for 5200ms, exits and repeats with spring timing', function () {
++test('creditLoop still holds for 5200ms, exits, repeats, pauses on hover and toasts on click', function () {
+   const a = boot();
+   try {
+-    const credit = a.w.document.getElementById('credit');
+-    a.clock.tick(249);
+-    assert.ok(!credit.classList.contains('in'));
+-    a.clock.tick(1); // initial harness 100ms + 250ms = 350ms
++    const doc = a.w.document;
++    const credit = doc.getElementById('credit');
++    a.clock.tick(250);
+     assert.ok(credit.classList.contains('in'));
+-    assert.ok(!credit.classList.contains('out'));
+     a.clock.tick(5199);
+-    assert.ok(credit.classList.contains('in'));
++    assert.ok(credit.classList.contains('in'), 'still held');
+     a.clock.tick(1);
+     assert.ok(credit.classList.contains('out'));
+     assert.ok(!credit.classList.contains('in'));
+-    a.clock.tick(899);
+-    assert.ok(credit.classList.contains('out'));
+-    a.clock.tick(1);
+-    assert.ok(!credit.classList.contains('out'));
++    a.clock.tick(900);
+     a.clock.tick(350);
+     assert.ok(credit.classList.contains('in'), 'the loop enters again');
+-    assert.ok(!credit.classList.contains('snap'));
++    fire(a, credit, 'mouseenter');
++    a.clock.tick(12000);
++    assert.ok(credit.classList.contains('in'), 'hover pauses the loop');
++    fire(a, credit, 'mouseleave');
++    credit.click();
++    assert.ok(doc.getElementById('toasts').textContent.indexOf('Hansana') >= 0, 'full credits toast');
++    assert.ok(doc.getElementById('toasts').textContent.indexOf('Sumodya Sewmini') >= 0);
++    assert.ok(credit.querySelector('.c-swan'), 'the swan stays inside the badge in both modes');
++    a.q.UI.setPerf('lite');
++    assert.equal(doc.body.getAttribute('data-perf'), 'lite');
++    assert.ok(credit.querySelector('.c-swan'));
++    assert.ok(!credit.classList.contains('out') || credit.classList.contains('in'));
+   } finally { a.close(); }
+ });
+ 
+-test('badge hover/touch pauses, leaving resumes, and clicking shows full credits', function () {
++/* ---------------------------------------------------------- hero headline */
++
++test('the hero headline no longer says Liquid Glass and is itself the glass', function () {
++  lacks('<span class="hollow"', 'no hollow "Liquid Glass" word');
++  lacks('.hollow {', 'the hollow rule is gone');
++  has('<h1 class="hero-h1"><span id="homeTitle" class="liquid-glass-text">Session 7 - Travel &amp; Transport</span></h1>');
++  has('#homeTitle, .liquid-glass-text { display: inline-block;');
++  has('font-size: clamp(2.1rem, 4.8vw, 3.85rem)');
++  has('-webkit-background-clip: text; background-clip: text; color: transparent;');
++  has('-webkit-text-stroke: 1.35px rgba(255, 255, 255, .78)');
++  has('text-shadow: 0 10px 28px rgba(83, 199, 240, .24)');
++  has(':root[data-theme="light"] #homeTitle, body[data-theme="light"] #homeTitle');
++  has('-webkit-text-stroke: 1.25px rgba(14, 20, 36, .75)');
++  const hero = html.slice(html.indexOf('id="homeHero"'), html.indexOf('class="hero-actions"'));
++  assert.equal(hero.indexOf('Liquid Glass'), -1, 'the words never follow the title');
++  assert.equal(hero.indexOf('hollow'), -1);
++  assert.match(hero, /class="liquid-glass-text"/);
+   const a = boot();
+   try {
+-    const doc = a.w.document, credit = doc.getElementById('credit');
+-    a.clock.tick(250);
+-    fire(a, credit, 'mouseenter');
+-    a.clock.tick(12000);
+-    assert.ok(credit.classList.contains('in'), 'hover keeps the badge visible');
+-    fire(a, credit, 'mouseleave');
+-    a.clock.tick(350);
+-    assert.ok(credit.classList.contains('in'));
+-    fire(a, credit, 'pointerdown');
+-    credit.click();
+-    assert.ok(doc.getElementById('toasts').textContent.indexOf(CREDIT) >= 0);
+-    assert.ok(doc.getElementById('toasts').textContent.indexOf('💧') >= 0);
+-    a.clock.tick(7000);
+-    assert.ok(credit.classList.contains('in'), 'pointer inspection pauses the exit timer');
+-    fire(a, credit, 'mouseleave');
+-    a.clock.tick(350);
+-    assert.ok(credit.classList.contains('in'));
++    const doc = a.w.document;
++    const title = doc.getElementById('homeTitle');
++    const h1 = title.parentNode;
++    assert.equal(h1.className, 'hero-h1');
++    assert.ok(title.classList.contains('liquid-glass-text'));
++    assert.equal(title.textContent, TITLE);
++    assert.equal(doc.getElementById('homeHero').innerHTML.indexOf('Liquid Glass'), -1);
++    assert.equal(doc.querySelectorAll('#homeHero .hollow').length, 0);
+   } finally { a.close(); }
+ });
+ 
+-/* --------------------------------------------------------- tint and mixer */
++/* ------------------------------------------------- the mixer inside Settings */
+ 
+-test('setTint morphs without re-rendering, synchronises every pill and persists 0/1/2', function () {
++test('Home is a clean single-column hero: no mixer, straight into stats and past sessions', function () {
++  has('.lg-hero { display: block; }');
+   const a = boot();
+   try {
+-    const doc = a.w.document, q = a.q;
+-    q.UI.setTab('set');
+-    const settingsContent = doc.getElementById('setBody').firstChild;
+-    q.UI.setTab('home');
+-    const hero = doc.getElementById('homeHero');
+-    const mixer = doc.getElementById('materialMixer');
+-    assert.equal(doc.querySelectorAll('.seg-tint').length, 2, 'Home and Settings pills');
+-
+-    q.UI.setTint(1, true);
+-    assert.equal(doc.getElementById('homeHero'), hero, 'Home DOM is retained');
+-    assert.equal(doc.getElementById('materialMixer'), mixer);
+-    assert.equal(doc.getElementById('setBody').firstChild, settingsContent, 'Settings DOM is retained');
+-    assert.ok(doc.body.classList.contains('tint-frost'));
+-    assert.ok(!doc.body.classList.contains('tint-clear'));
+-    assert.ok(doc.body.classList.contains('tint-morph'));
+-    assert.equal(q.DB.data.settings.glassTint, 1);
+-    for (const ind of doc.querySelectorAll('.seg-tint .seg-ind')) assert.equal(ind.style.transform, 'translate3d(100%, 0, 0)');
+-    for (const host of doc.querySelectorAll('.seg-tint')) {
+-      assert.equal(host.querySelector('[data-tint="1"]').classList.contains('active'), true);
+-      assert.equal(host.querySelector('[data-tint="1"]').getAttribute('aria-pressed'), 'true');
+-      assert.equal(host.querySelectorAll('button.active').length, 1);
+-    }
+-    a.clock.tick(419);
+-    assert.ok(doc.body.classList.contains('tint-morph'));
+-    a.clock.tick(1);
+-    assert.ok(!doc.body.classList.contains('tint-morph'));
++    const doc = a.w.document;
++    const home = doc.getElementById('screen-home');
++    assert.equal(home.querySelector('#lgStage'), null, 'Home has no Material Mixer');
++    assert.equal(home.querySelector('#materialMixer'), null);
++    assert.equal(home.querySelector('#orb'), null);
++    assert.equal(home.querySelector('#sBlur'), null);
++    assert.equal(home.querySelector('#segTint'), null);
++    assert.ok(home.querySelector('.lg-hero .anatomy-stage #homeHero.glass'));
++    assert.ok(home.querySelector('.lg-hero .anatomy-stage .stripes'));
++    assert.ok(home.querySelector('.lg-hero .anatomy-stage .disc'));
++    const stats = home.querySelector('.lg-hero #homeStats');
++    assert.ok(stats, 'the three bento tiles follow inside the hero stage');
++    assert.equal(stats.children.length, 3);
++    assert.ok(stats.textContent.indexOf('day streak') >= 0);
++    assert.ok(stats.textContent.indexOf('last score') >= 0);
++    assert.ok(stats.textContent.indexOf('sessions done') >= 0);
++    assert.ok(home.querySelector('.lg-hero .home-lower #homeSessions'), 'past sessions stay in the stage');
++    assert.equal(home.querySelectorAll('.lg-hero').length, 1);
++  } finally { a.close(); }
++});
+ 
+-    doc.querySelector('#setBody [data-tint="2"]').click();
+-    assert.ok(doc.body.classList.contains('tint-smoke'));
+-    assert.equal(q.DB.data.settings.glassTint, 2);
+-    q.DB.saveNow();
+-    q.DB.load();
+-    q.UI.setTint(q.DB.data.settings.glassTint, false);
+-    assert.ok(doc.body.classList.contains('tint-smoke'), 'saved tint restores');
+-    doc.querySelector('#segTint [data-tint="0"]').click();
+-    assert.ok(doc.body.classList.contains('tint-clear'));
+-    assert.equal(q.DB.data.settings.glassTint, 0);
+-    for (const ind of doc.querySelectorAll('.seg-tint .seg-ind')) assert.equal(ind.style.transform, 'translate3d(0%, 0, 0)');
++test('#lgStage is rendered by Screens.settings() with the whole Material Mixer', function () {
++  const a = boot();
++  try {
++    const doc = a.w.document;
++    assert.equal(doc.querySelectorAll('#lgStage').length, 0, 'not mounted before Settings opens');
++    const stage = openSettings(a);
++    assert.equal(doc.querySelectorAll('#lgStage').length, 1);
++    assert.ok(doc.querySelectorAll('#setBody .lg-section #lgStage').length === 1, 'top of the Liquid Glass section');
++    assert.ok(doc.getElementById('setBody').textContent.indexOf('Appearance · Liquid Glass') >= 0);
++    assert.equal(stage.querySelectorAll('.bubble').length, 4, 'the four rising spheres');
++    assert.ok(stage.querySelector('.chip-a').textContent.indexOf('Liquid Glass: Live') >= 0);
++    assert.ok(stage.querySelector('.chip-a').textContent.indexOf('🦢') >= 0);
++    assert.ok(stage.querySelector('.chip-b').textContent.indexOf('Amy UK Voice') >= 0);
++    const orb = doc.getElementById('orb');
++    assert.ok(orb.classList.contains('orb'));
++    assert.equal(orb.getAttribute('role'), 'button');
++    assert.equal(orb.getAttribute('tabindex'), '0');
++    const mixer = doc.getElementById('materialMixer');
++    assert.ok(mixer.classList.contains('glass') && mixer.classList.contains('panel'));
++    assert.ok(mixer.textContent.indexOf('Liquid Glass Material Mixer') >= 0);
++    assert.equal(doc.getElementById('sBlur').getAttribute('min'), '4');
++    assert.equal(doc.getElementById('sBlur').getAttribute('max'), '40');
++    assert.equal(doc.getElementById('sSat').getAttribute('min'), '100');
++    assert.equal(doc.getElementById('sSat').getAttribute('max'), '260');
++    assert.equal(doc.getElementById('sBrt').getAttribute('min'), '90');
++    assert.equal(doc.getElementById('sBrt').getAttribute('max'), '130');
++    const tint = doc.getElementById('segTint');
++    assert.ok(tint.classList.contains('seg-tint'));
++    assert.equal(tint.querySelectorAll('button').length, 3);
++    assert.deepEqual(Array.from(tint.querySelectorAll('button'), (b) => b.textContent), ['Clear', 'Frost', 'Smoke']);
++    assert.equal(tint.querySelectorAll('.seg-ind').length, 1);
++    const perf = doc.getElementById('segPerf');
++    assert.ok(perf.classList.contains('seg-perf'));
++    assert.equal(perf.querySelectorAll('button').length, 3);
++    assert.deepEqual(Array.from(perf.querySelectorAll('button'), (b) => b.textContent), ['Auto', 'Lite 60FPS', 'Full']);
++    assert.equal(perf.querySelectorAll('.seg-ind').length, 1);
++    assert.ok(mixer.textContent.indexOf('drag the glowing orb behind this glass pane') >= 0);
+   } finally { a.close(); }
+ });
+ 
+-test('Home and Settings range sliders update live --fill progress and survive renders', function () {
++test('Settings sliders drive the global material, the live --fill track and storage', function () {
+   const a = boot();
+   try {
+-    const doc = a.w.document, q = a.q, st = q.DB.data.settings;
+-    device(a, { width: 1280, cores: 8, memory: 8 });
+-    const blur = slide(a, 'sBlur', 34);
++    const doc = a.w.document, rootStyle = doc.documentElement.style;
++    openSettings(a);
++    const blur = slide(a, 'sBlur', 28);
++    assert.equal(rootStyle.getPropertyValue('--gb'), '28px');
++    assert.equal(doc.getElementById('outBlur').textContent, '28px');
++    assert.ok(Math.abs(parseFloat(blur.style.getPropertyValue('--fill')) - 66.6667) < 0.05);
+     const sat = slide(a, 'sSat', 210);
+-    const brt = slide(a, 'sBrt', 110);
+-    assert.ok(Math.abs(parseFloat(blur.style.getPropertyValue('--fill')) - 83.3333) < 0.01);
++    assert.equal(rootStyle.getPropertyValue('--gs'), '2.10');
++    assert.equal(doc.getElementById('outSat').textContent, '2.1×');
+     assert.equal(sat.style.getPropertyValue('--fill'), '68.75%');
++    const brt = slide(a, 'sBrt', 110);
++    assert.equal(rootStyle.getPropertyValue('--gbr'), '1.10');
++    assert.equal(doc.getElementById('outBrt').textContent, '1.1');
+     assert.equal(brt.style.getPropertyValue('--fill'), '50%');
+-    assert.equal(doc.documentElement.style.getPropertyValue('--gb'), '34px');
+-    assert.equal(doc.documentElement.style.getPropertyValue('--gs'), '2.10');
+-    assert.equal(doc.documentElement.style.getPropertyValue('--gbr'), '1.10');
+-    assert.equal(st.glassBlur, 34);
+-    assert.equal(st.glassSat, 210);
+-    assert.equal(st.glassBrt, 110);
+-
+-    const oldMixer = doc.getElementById('materialMixer');
+-    const fresh = oldMixer.cloneNode(true);
+-    oldMixer.parentNode.replaceChild(fresh, oldMixer);
+-    q.Screens.home();
+-    slide(a, 'sBlur', 28);
+-    assert.equal(doc.documentElement.style.getPropertyValue('--gb'), '28px');
+-    assert.equal(doc.getElementById('outBlur').textContent, '28px');
++    a.clock.tick(600);
++    const saved = stored(a);
++    assert.equal(saved.settings.glassBlur, 28);
++    assert.equal(saved.settings.glassSat, 210);
++    assert.equal(saved.settings.glassBrt, 110);
++    assert.equal(saved.settings.lowData !== undefined, true);
++  } finally { a.close(); }
++});
+ 
+-    q.UI.setTab('set');
+-    const settingsRanges = doc.querySelectorAll('#setBody .ctl input[type="range"]');
+-    assert.equal(settingsRanges.length, 3);
+-    for (const input of settingsRanges) {
+-      assert.ok(input.style.getPropertyValue('--fill').endsWith('%'));
+-      input.value = input.max;
+-      fire(a, input, 'input');
+-      assert.equal(input.style.getPropertyValue('--fill'), '100%');
+-    }
+-    q.UI.setLang('si');
+-    q.UI.setLang('en');
+-    q.UI.setTab('home');
++test('Clear / Frost / Smoke and Auto / Lite 60FPS / Full glide without rebuilding the bars', function () {
++  const a = boot();
++  try {
++    const doc = a.w.document, q = a.q;
++    openSettings(a);
++    const tint = doc.getElementById('segTint'), perf = doc.getElementById('segPerf');
++    const tintInd = tint.querySelector('.seg-ind'), perfInd = perf.querySelector('.seg-ind');
+     doc.querySelector('#segTint [data-tint="1"]').click();
+     assert.ok(doc.body.classList.contains('tint-frost'));
++    assert.equal(tintInd.style.transform, 'translate3d(100%, 0, 0)');
++    assert.equal(doc.getElementById('segTint'), tint, 'the tint bar is never re-created');
++    assert.equal(doc.getElementById('segPerf'), perf, 'the perf bar is never re-created');
++    assert.equal(tintInd.style.transform, tint.querySelector('.seg-ind').style.transform);
++    doc.querySelector('#segTint [data-tint="2"]').click();
++    assert.ok(doc.body.classList.contains('tint-smoke'));
++    assert.ok(!doc.body.classList.contains('tint-frost'));
++    assert.equal(tintInd.style.transform, 'translate3d(200%, 0, 0)');
++    doc.querySelector('#segTint [data-tint="0"]').click();
++    assert.ok(doc.body.classList.contains('tint-clear'));
++    assert.equal(tintInd.style.transform, 'translate3d(0%, 0, 0)');
++    assert.equal(q.DB.data.settings.glassTint, 0);
++
++    doc.querySelector('#segPerf [data-perf="lite"]').click();
++    assert.equal(q.DB.data.settings.perf, 'lite');
++    assert.equal(q.UI.perfMode, 'lite');
++    assert.equal(doc.body.getAttribute('data-perf'), 'lite');
++    assert.equal(doc.getElementById('perfStatus').textContent, '⚡ Lite (60 FPS)');
++    assert.equal(doc.getElementById('segPerf'), perf);
++    assert.ok(perfInd.style.transform.indexOf('translate3d(') === 0);
++    doc.querySelector('#segPerf [data-perf="full"]').click();
++    assert.equal(doc.body.getAttribute('data-perf'), 'full');
++    assert.equal(doc.getElementById('perfStatus').textContent, '✨ Full');
++    doc.querySelector('#segPerf [data-perf="auto"]').click();
++    assert.equal(q.DB.data.settings.perf, 'auto');
++    assert.equal(q.DB.data.settingsRev, 16);
+   } finally { a.close(); }
+ });
+ 
+-test('the draggable orb and fine-pointer dock remain bound', function () {
++test('the orb is bound inside Settings, drags and nudges with the keyboard', function () {
+   const a = boot();
+   try {
+-    const doc = a.w.document, q = a.q;
+-    device(a, { width: 1280, cores: 8, memory: 8, media: ['(hover: hover) and (pointer: fine)'] });
+-    q.UI.setPerf('full');
+-    const stage = doc.getElementById('lgStage'), orb = doc.getElementById('orb');
+-    stage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 420 });
+-    Object.defineProperty(orb, 'offsetWidth', { configurable: true, value: 140 });
+-    Object.defineProperty(orb, 'offsetHeight', { configurable: true, value: 140 });
+-    orb.getBoundingClientRect = () => ({ left: parseFloat(orb.style.left) || 0, top: parseFloat(orb.style.top) || 0, width: 140, height: 140 });
+-    orb.style.left = '180px'; orb.style.top = '60px';
+-    function pointer(type, x, y) {
+-      const event = new a.w.Event(type, { bubbles: true, cancelable: true });
+-      event.pointerId = 1; event.clientX = x; event.clientY = y;
+-      orb.dispatchEvent(event);
+-    }
+-    pointer('pointerdown', 220, 100);
+-    pointer('pointermove', 280, 150);
+-    pointer('pointerup', 280, 150);
+-    assert.equal(orb.style.left, '240px');
+-    assert.equal(orb.style.top, '110px');
+-    orb.dispatchEvent(new a.w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+-    assert.equal(orb.style.left, '252px');
+-
+-    const dock = doc.getElementById('tabbar');
+-    const buttons = Array.from(dock.querySelectorAll('button'));
+-    buttons.forEach((button, i) => { button.getBoundingClientRect = () => ({ left: i * 90, width: 88 }); });
+-    const move = new a.w.Event('pointermove', { bubbles: true });
+-    move.pointerType = 'mouse'; move.clientX = 44;
+-    dock.dispatchEvent(move);
+-    a.clock.tick(40);
+-    assert.match(buttons[0].style.transform, /scale\(1\.280\)/);
+-    const touch = new a.w.Event('pointermove', { bubbles: true });
+-    touch.pointerType = 'touch'; touch.clientX = 44;
+-    dock.dispatchEvent(touch);
+-    assert.equal(buttons[0].style.transform, '');
++    const doc = a.w.document;
++    const stage = openSettings(a);
++    const orb = doc.getElementById('orb');
++    assert.equal(orb.__lgBound, 1, 'bindLiquidControls ran inside Screens.settings()');
++    stage.getBoundingClientRect = () => ({ width: 400, height: 400, left: 0, top: 0, right: 400, bottom: 400 });
++    orb.getBoundingClientRect = () => ({ width: 140, height: 140, left: 20, top: 40, right: 160, bottom: 180 });
++    assert.equal(orb.style.left, '0px', 'the orb is mounted and positioned');
++    const down = new a.w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
++    orb.dispatchEvent(down);
++    assert.equal(orb.style.left, '32px');
++    const downKey = new a.w.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true });
++    orb.dispatchEvent(downKey);
++    assert.equal(orb.style.top, '52px');
++    const centre = new a.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
++    orb.dispatchEvent(centre);
++    assert.equal(orb.style.left, '109.2px', 'Enter centres the orb');
+   } finally { a.close(); }
+ });
+ 
+-/* ------------------------------------------- sliding pills, live behaviour */
++test('applyGlassSettings restores the saved material at boot and on every render', function () {
++  const a = boot();
++  try {
++    const doc = a.w.document, rootStyle = doc.documentElement.style;
++    assert.equal(typeof a.q.UI.applyGlassSettings, 'function');
++    assert.equal(rootStyle.getPropertyValue('--gb'), '14px', 'defaults applied on boot');
++    assert.equal(rootStyle.getPropertyValue('--gs'), '1.60');
++    assert.equal(rootStyle.getPropertyValue('--gbr'), '1.03');
++    a.q.DB.data.settings.glassBlur = 26;
++    a.q.DB.data.settings.glassSat = 140;
++    a.q.DB.data.settings.glassBrt = 96;
++    a.q.DB.data.settings.glassTint = 2;
++    a.q.UI.applyGlassSettings();
++    assert.equal(rootStyle.getPropertyValue('--gb'), '26px');
++    assert.equal(rootStyle.getPropertyValue('--gs'), '1.40');
++    assert.equal(rootStyle.getPropertyValue('--gbr'), '0.96');
++    assert.ok(doc.body.classList.contains('tint-smoke'));
++    has('UI.applyGlassSettings();', 'called on boot');
++    has('if (DB.data && DB.data.settings) UI.applyGlassSettings();', 'called when the mixer binds');
++  } finally { a.close(); }
++});
+ 
+-test('the dock indicator slides with GPU translate3d across all five sections', function () {
++/* -------------------------------------------------------------- the dock */
++
++test('#tabInd / .tab-ind slides with translate3d across all five sections', function () {
++  has('#tabInd, .tab-ind {');
++  has('transition: transform .48s cubic-bezier(.2, .9, .25, 1.35)');
++  has('ind.style.transform = "translate3d(" + (idx * 100) + "%, 0, 0)"');
++  has('.seg-tint .seg-ind, .seg .thumb, .seg .seg-ind, .seg-perf .seg-ind, #tabInd { transition: transform .48s cubic-bezier(.2, .9, .25, 1.35), width .48s cubic-bezier(.2, .9, .25, 1.35), background .35s ease !important; }');
+   const a = boot();
+   try {
+-    const doc = a.w.document, q = a.q;
++    const doc = a.w.document;
+     const ind = doc.getElementById('tabInd');
+-    assert.ok(ind, '#tabInd exists');
+-    assert.equal(ind, doc.getElementById('tabbar').firstElementChild, 'the capsule is the dock first child');
+-    assert.equal(ind.getAttribute('aria-hidden'), 'true');
+-    const order = Array.from(doc.querySelectorAll('#tabbar button[data-tab]'))
+-      .map((button) => button.getAttribute('data-tab'));
+-    assert.deepEqual(order, ['home', 'dict', 'practice', 'comm', 'set'], 'five dock sections in screenshot order');
+-    assert.equal(ind.style.transform, 'translate3d(0%, 0, 0)', 'boot lands on Home');
+-    const moves = {
+-      dict: 'translate3d(100%, 0, 0)',
+-      practice: 'translate3d(200%, 0, 0)',
+-      comm: 'translate3d(300%, 0, 0)',
+-      set: 'translate3d(400%, 0, 0)',
+-      home: 'translate3d(0%, 0, 0)'
+-    };
+-    for (const name of Object.keys(moves)) {
+-      q.UI.setTab(name);
+-      assert.equal(ind.style.transform, moves[name], name + ' slides');
+-      const scr = doc.getElementById('screen-' + name);
+-      assert.equal(scr.className, 'screen', name + ' panel morphs in');
+-      assert.ok(!scr.classList.contains('hidden'));
++    assert.ok(ind.classList.contains('tab-ind'));
++    const order = ['home', 'dict', 'practice', 'comm', 'set'];
++    order.forEach((name, index) => {
++      a.q.UI.setTab(name);
++      assert.equal(ind.style.transform, 'translate3d(' + (index * 100) + '%, 0, 0)', name);
+       assert.equal(doc.getElementById('tab-' + name).getAttribute('aria-selected'), 'true');
+-    }
+-    for (const sel of ['#segMode .thumb', '#dictTabs .thumb', '#commFilters .thumb',
+-      '#pracMode .thumb', '#segPerf .thumb', '#segTint .seg-ind']) {
+-      assert.ok(doc.querySelector(sel), sel + ' capsule present');
+-    }
++      assert.equal(doc.getElementById('tabInd'), ind, 'the capsule element survives every tab switch');
++    });
++    assert.equal(typeof a.q.UI.segSync, 'function');
+   } finally { a.close(); }
+ });
+ 
+ test('segSync glides every pill with translate3d and clicks never rebuild the seg DOM', function () {
+   const a = boot();
+   try {
+-    const doc = a.w.document, q = a.q;
+-
+-    /* Home answer mode follows the clicked button */
+-    const mode = doc.getElementById('segMode');
+-    const modeBtns = mode.querySelectorAll('button');
+-    Object.defineProperty(modeBtns[1], 'offsetWidth', { configurable: true, value: 150 });
+-    Object.defineProperty(modeBtns[1], 'offsetLeft', { configurable: true, value: 158 });
+-    const modeThumb = mode.querySelector('.thumb');
+-    modeBtns[1].click();
+-    assert.equal(mode.querySelector('.thumb'), modeThumb, 'the answer-mode thumb survives the click');
+-    assert.equal(modeThumb.style.width, '150px');
+-    assert.equal(modeThumb.style.transform, 'translate3d(154px, 0, 0)');
+-    assert.equal(modeBtns[1].getAttribute('aria-selected'), 'true');
+-
+-    /* Perf mode pill slides through applyPerf -> segSync */
++    const doc = a.w.document;
++    const seg = doc.getElementById('segMode');
++    const thumb = seg.querySelector('.thumb');
++    assert.ok(thumb, 'Home keeps its seg thumb');
++    doc.querySelector('#segMode [data-mode="type"]').click();
++    assert.equal(a.q.DB.data.settings.mode, 'type');
++    assert.equal(doc.getElementById('segMode'), seg, 'the Home seg is never re-created');
++    assert.ok(thumb.style.transform.indexOf('translate3d(') === 0);
++    assert.match(thumb.style.width, /px$/);
++    doc.querySelector('#segMode [data-mode="paper"]').click();
++    assert.equal(a.q.DB.data.settings.mode, 'paper');
++    openSettings(a);
+     const perf = doc.getElementById('segPerf');
+-    const perfBtns = perf.querySelectorAll('button');
+-    Object.defineProperty(perfBtns[1], 'offsetWidth', { configurable: true, value: 90 });
+-    Object.defineProperty(perfBtns[1], 'offsetLeft', { configurable: true, value: 94 });
+-    perfBtns[1].click();
+-    assert.equal(perf.querySelector('.thumb').style.transform, 'translate3d(90px, 0, 0)');
+-    assert.equal(perfBtns[1].getAttribute('aria-pressed'), 'true');
+-    assert.equal(q.DB.data.settings.perf, 'lite');
+-
+-    /* Settings: the Writing time seg stays put and only toggles the seconds row */
+-    q.UI.setTab('set');
+-    const setBody = doc.getElementById('setBody');
+-    const firstChild = setBody.firstChild;
+-    const segBefore = setBody.querySelectorAll('.seg').length;
+-    const tintsBefore = setBody.querySelectorAll('.seg-tint').length;
+-    const auto = setBody.querySelector('[data-tab="auto"]');
+-    const fixed = setBody.querySelector('[data-tab="fixed"]');
+-    const writeSeg = fixed.parentNode;
+-    const wfInput = setBody.querySelector('input[aria-label="Seconds per word"]');
+-    assert.ok(wfInput, 'the fixed-time slider is part of the screen');
+-    const wfRow = wfInput.parentNode;
+-    auto.click();
+-    assert.equal(setBody.firstChild, firstChild, 'Settings DOM is retained');
+-    assert.equal(setBody.querySelectorAll('.seg').length, segBefore, 'no seg is recreated on click');
+-    assert.equal(setBody.querySelectorAll('.seg-tint').length, tintsBefore);
+-    assert.equal(fixed.parentNode, writeSeg, 'the Writing time seg survives the click');
+-    assert.equal(q.DB.data.settings.writeMode, 'auto');
+-    assert.ok(wfRow.classList.contains('hidden'), 'auto hides the fixed row in place');
+-    fixed.click();
+-    assert.equal(setBody.firstChild, firstChild, 'still no re-render');
+-    assert.equal(fixed.parentNode, writeSeg);
+-    assert.equal(q.DB.data.settings.writeMode, 'fixed');
+-    assert.equal(wfRow.classList.contains('hidden'), false, 'the fixed row returns in place');
+-    assert.equal(fixed.getAttribute('aria-pressed'), 'true');
+-
+-    /* Practice / Dictionary / Community switchers keep their thumb element */
+-    q.UI.setTab('practice');
+-    const pm = doc.getElementById('pracMode');
+-    const pmThumb = pm.querySelector('.thumb');
+-    doc.querySelector('#pracMode [data-p="quiz"]').click();
+-    assert.equal(doc.getElementById('pracMode'), pm, 'practice seg retained');
+-    assert.equal(pm.querySelector('.thumb'), pmThumb);
+-    assert.equal(doc.querySelector('#pracMode [data-p="quiz"]').getAttribute('aria-selected'), 'true');
+-
+-    q.UI.setTab('dict');
+-    const dt = doc.getElementById('dictTabs');
+-    const dtThumb = dt.querySelector('.thumb');
+-    doc.querySelector('#dictTabs [data-src="my"]').click();
+-    assert.equal(doc.getElementById('dictTabs'), dt, 'dictionary seg retained');
+-    assert.equal(dt.querySelector('.thumb'), dtThumb);
+-    assert.equal(doc.querySelector('#dictTabs [data-src="my"]').getAttribute('aria-selected'), 'true');
+-
+-    q.UI.setTab('comm');
+-    const cf = doc.getElementById('commFilters');
+-    const cfThumb = cf.querySelector('.thumb');
+-    doc.querySelector('#commFilters [data-f="problem"]').click();
+-    assert.equal(doc.getElementById('commFilters'), cf, 'community seg retained');
+-    assert.equal(cf.querySelector('.thumb'), cfThumb);
+-    assert.equal(doc.querySelector('#commFilters [data-f="problem"]').getAttribute('aria-selected'), 'true');
++    a.q.UI.segSync(perf);
++    assert.ok(perf.querySelector('.seg-ind').style.transform.indexOf('translate3d(') === 0);
++    assert.equal(perf.querySelectorAll('button[aria-pressed="true"]').length, 1);
+   } finally { a.close(); }
+ });
+ 
+-/* ------------------------------------------------------------ low data */
+-
+-test('DictAPI answers all Session 7 entries from memory with phon/pos/def/ex and zero fetches', function () {
++/* ------------------------------------------------------- zero-lag 60 FPS */
++
++test('zero-lag CSS: one backdrop pass per surface, GPU bars, pre-blurred blobs', function () {
++  has('#s-home .tile .glass, .card.glass .glass, .glass .glass, .tile .glass, .word-item.glass, .comm-item.glass, #homeStats .statbox-in, .bento-sessions > .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); }');
++  has('.topbar.glass { position: fixed;');
++  has('transform: translate3d(-50%, 0, 0); will-change: transform; backface-visibility: hidden;');
++  has('#tabbar {position: fixed; bottom: calc(12px + var(--safe-b)); left: 50%; transform: translate3d(-50%, 0, 0); will-change: transform; backface-visibility: hidden;');
++  has('#credit.glass { will-change: transform, opacity; backface-visibility: hidden; }');
++  has('.blob { --blob-c: var(--blob-color); background: radial-gradient(circle, var(--blob-c) 0%, transparent 70%); filter: none !important; }');
++  has('radial-gradient(circle, var(--blob-color) 0%, transparent 70%)');
++  has('#grain { display: none !important; }');
++  has('<feTurbulence', 'the grain SVG is kept but never painted');
++  has('#grain { display: none !important; }');
++  has('blur(var(--gb)) saturate(var(--gs)) brightness(var(--gbr))');
++  has('body[data-perf="lite"] { --gb: 8px; --gs: 1.35; --gbr: 1.02; }');
++  has('body[data-perf="lite"] .blob, body[data-perf="lite"] .bubble, body[data-perf="lite"] .chip-a, body[data-perf="lite"] .chip-b { animation: none !important; }');
++  assert.doesNotMatch(html, /body\[data-perf="lite"\]\s+(?:#credit|\.credit)/);
+   const a = boot();
+   try {
+-    let fetches = 0;
+-    a.w.fetch = function () { fetches++; return Promise.reject(new Error('offline')); };
+-    assert.equal(a.q.DictAPI, a.q.Dict);
+-    for (const word of WORDS) {
+-      let result = null;
+-      const returned = a.q.DictAPI.lookup(word, (entry) => { result = entry; });
+-      assert.equal(returned, result, 'embedded lookup returns the entry');
+-      assert.ok(result && result.embedded, word);
+-      assert.ok(result.phon.length > 2, word + ' phon');
+-      assert.ok(result.pos.length > 2, word + ' pos');
+-      assert.ok(result.def.length > 8, word + ' def');
+-      assert.ok(result.ex.length > 15, word + ' ex');
+-      assert.equal(result.ipa, result.phon);
+-      assert.equal(result.meaning, result.def);
+-      assert.equal(result.example, result.ex);
+-    }
+-    assert.equal(fetches, 0);
+-    a.q.DictAPI.lookup('tyre', (entry) => assert.ok(entry && entry.def));
+-    a.q.DictAPI.lookup('tire', (entry) => assert.ok(entry && entry.def));
+-    assert.equal(fetches, 0, 'spelling alternatives are embedded too');
++    const doc = a.w.document;
++    assert.equal(doc.querySelectorAll('.glass .glass').length >= 1, true, 'nested glass surfaces exist and are flattened');
++    assert.equal(doc.querySelectorAll('.toast.glass .glass').length, 0);
+   } finally { a.close(); }
+ });
+ 
+-test('the shared audio element replays its buffer and keeps the Amy/en-GB failover', function () {
++test('Auto Lite covers phones, touch, low CPU, low RAM, Data Saver and reduced motion', function () {
++  const scenarios = [
++    [{ width: 390, cores: 8, memory: 8 }, 'lite', 'phone'],
++    [{ width: 1280, cores: 8, memory: 8, media: ['(pointer: coarse)'] }, 'lite', 'touch'],
++    [{ width: 1280, cores: 4, memory: 8 }, 'lite', 'CPU'],
++    [{ width: 1280, cores: 8, memory: 4 }, 'lite', 'RAM'],
++    [{ width: 1280, cores: 8, memory: 8, saveData: true }, 'lite', 'Data Saver'],
++    [{ width: 1280, cores: 8, memory: 8, media: ['prefers-reduced-motion'] }, 'lite', 'reduced motion'],
++    [{ width: 1280, cores: 8, memory: 8 }, 'full', 'strong desktop']
++  ];
++  for (const [prefs, expected, label] of scenarios) {
++    const a = boot();
++    try {
++      device(a, prefs);
++      assert.equal(a.q.UI.autoPerf(), expected, label);
++    } finally { a.close(); }
++  }
+   const a = boot();
+   try {
+-    const speech = a.q.Speech, audio = a.w.document.getElementById('sdpAudio');
+-    assert.equal(audio.getAttribute('preload'), 'none');
+-    const first = speech.streamSources('guidebook');
+-    assert.match(first[0], /voice=Amy/);
+-    assert.match(first[1], /tl=en-GB/);
+-    let srcSets = 0, plays = 0;
+-    Object.defineProperty(audio, 'canPlayType', { configurable: true, value: () => 'probably' });
+-    Object.defineProperty(audio, 'readyState', { configurable: true, get: () => 2 });
+-    Object.defineProperty(audio, 'src', { configurable: true, get: () => first[0], set: () => { srcSets++; } });
+-    audio.play = function () { plays++; return Promise.resolve(); };
+-    audio.pause = function () {};
+-    speech.playOnce(first[0], 0.88, 6000, function () {});
+-    assert.equal(srcSets, 0, 'same source is not reassigned');
+-    assert.equal(plays, 1);
+-    assert.equal(audio.currentTime, 0);
+-    speech.playOnce(speech.streamSources('harbour')[1], 0.88, 6000, function () {});
+-    assert.equal(srcSets, 1, 'a new word loads once');
+-    assert.equal(typeof speech.playSmartAudio, 'function');
+-    has('}, 3500);');
+-    speech.voices = [{ name: 'Daniel', lang: 'en-GB' }];
+-    assert.equal(speech.anyEnglish(), null, 'male fallback is forbidden');
+-    speech.voices.push({ name: 'Microsoft Sonia', lang: 'en-GB' });
+-    assert.equal(speech.anyEnglish().name, 'Microsoft Sonia');
++    device(a, { width: 1280, cores: 8, memory: 8 });
++    a.q.DB.data.settings.perf = 'auto';
++    a.q.UI.setPerf('full');
++    assert.equal(a.w.document.body.getAttribute('data-perf'), 'full', 'a manual choice wins');
++    a.q.UI.setPerf('auto');
++    assert.equal(a.w.document.body.getAttribute('data-perf'), 'full');
+   } finally { a.close(); }
+ });
+ 
+-test('repository sync reads version once and downloads session only for a newer ver', async function () {
++test('the single 1.2 second frame probe stops and downgrades above 19ms', function () {
+   const a = boot();
+   try {
+-    const calls = [];
+-    a.w.fetch = function (url) {
+-      const u = String(url); calls.push(u);
+-      if (u === './data/version.json') return Promise.resolve({ ok: true, json: () => Promise.resolve(version) });
+-      if (u === './data/session.json') return Promise.resolve({ ok: true, json: () => Promise.resolve(session) });
+-      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+-    };
+-    a.q.DB.data.ver = 0;
+-    a.q.Cloud.repoFetched = false;
+-    a.q.Cloud.fetchRepo(function () {});
+-    await flush();
+-    assert.equal(calls[0], './data/version.json');
+-    assert.ok(calls.includes('./data/session.json'));
+-    assert.ok(!calls.some((u) => u.includes('?t=')));
+-    assert.ok(a.q.DB.data.ver >= 15);
+-
+-    calls.length = 0;
+-    a.q.Cloud.repoFetched = false;
+-    a.q.Cloud.fetchRepo(function () {});
+-    await flush();
+-    assert.deepEqual(calls, ['./data/version.json']);
+-
+-    calls.length = 0;
+-    a.q.Cloud.repoFetched = true;
+-    a.q.Cloud.fetchRepo(function () {});
+-    await flush();
+-    assert.deepEqual(calls, []);
+-
+-    calls.length = 0;
+-    a.q.Cloud.fetchRepo(function () {}, true);
+-    await flush();
+-    assert.deepEqual(calls, ['./data/version.json'], 'forced refresh still avoids an equal-version session download');
++    const ui = a.q.UI;
++    assert.equal(ui.frameWatchStarted, true, 'boot starts exactly one probe');
++    let pending = null, requests = 0, cancelled = 0, calls = 0;
++    a.w.requestAnimationFrame = function (cb) { requests++; pending = cb; return requests; };
++    a.w.cancelAnimationFrame = function () { cancelled++; };
++    ui.frameWatchStarted = false;
++    ui.frameProbe(function () { calls++; });
++    let now = 0;
++    for (let i = 0; i < 120 && pending; i++) {
++      const cb = pending;
++      pending = null;
++      now += 16.7;
++      cb(now);
++    }
++    assert.equal(calls, 1);
++    assert.equal(pending, null);
++    assert.ok(cancelled >= 1, 'cancelAnimationFrame stops the window');
++    assert.ok(requests >= 60 && requests <= 80, 'one startup window: ' + requests);
++    device(a, { width: 1280, cores: 8, memory: 8 });
++    a.q.DB.data.settings.perf = 'auto';
++    ui.autoDowngraded = false;
++    ui.recordFrames([16, 16.6, 17, 16.2]);
++    assert.equal(ui.perfMode, 'full');
++    ui.recordFrames([42, 48, 55, 60]);
++    assert.equal(ui.autoDowngraded, true);
++    assert.equal(ui.perfMode, 'lite');
++    assert.equal(a.w.document.body.getAttribute('data-perf'), 'lite');
++    assert.equal(ui.frameMs, 55);
+   } finally { a.close(); }
+ });
+ 
+-/* ------------------------------------------------------- preserved app */
++/* ------------------------------------------------------- low-data engine */
++
++test('DictAPI answers all Session 7 entries from memory with zero requests', function () {
++  const a = boot();
++  try {
++    let fetches = 0;
++    a.w.fetch = function () { fetches++; return Promise.reject(new Error('offline')); };
++    const seen = [];
++    a.q.DictAPI.lookup('guidebook', (entry) => seen.push(entry));
++    assert.equal(fetches, 0, 'no network for an embedded word');
++    assert.equal(seen.length, 1);
++    const entry = seen[0];
++    assert.equal(entry.embedded, true);
++    assert.ok(entry.phon && entry.phon.length > 1, 'phonetic');
++    assert.ok(entry.pos && entry.pos.length > 1, 'part of speech');
++    assert.ok(entry.def && entry.def.length > 8, 'definition');
++    assert.ok(entry.ex && entry.ex.length > 15, 'example');
++    const more = [];
++    a.q.DictAPI.lookup('windscreen', (e) => more.push(e));
++    a.q.DictAPI.lookup('public transport', (e) => more.push(e));
++    assert.equal(fetches, 0, 'still zero requests');
++    assert.equal(more.length, 2);
++    assert.ok(more[0].def.indexOf('windscreen') >= 0 || more[0].def.length > 8);
++    assert.equal(a.q.CONFIG.key, STORE_KEY);
++  } finally { a.close(); }
++});
+ 
+-test('in-app Session 7 defaults, v15 schema migration and Amy voice are correct', function () {
++test('the shared Amy audio reuses its buffer instead of downloading twice', function () {
++  has('<audio id="sdpAudio" preload="none"');
++  has('a.currentTime = 0');
++  has('same = !!src && a.src === src && a.readyState >= 2;');
++  has('preloadCache');
++  has('playSmartAudio: function (text, rate, onEnd)');
++  assert.equal((html.match(/id="sdpAudio"/g) || []).length, 1, 'one shared element');
+   const a = boot();
+   try {
+-    const q = a.q, st = q.DB.data.settings;
+-    assert.equal(q.CONFIG.key, 'sdp.v15_liquid');
+-    assert.equal(q.CONFIG.schema, 15);
+-    assert.equal(q.CONFIG.settingsRev, 15);
+-    assert.equal(q.DB.data.settingsRev, 15);
+-    assert.ok(a.w.localStorage.getItem('sdp.v15_liquid'), 'boot writes the v15 key');
+-    assert.equal(st.perf, 'auto');
+-    assert.equal(st.writeMode, 'fixed');
+-    assert.equal(st.writeFixed, 5);
+-    assert.equal(st.repeats, 2);
+-    assert.equal(st.sentence, false);
+-    assert.equal(st.glassTint, 0);
+-    assert.equal(q.Eng.writeSecs(), 5);
+-    assert.equal(q.DB.data.lists.length, 1);
+-    assert.deepEqual(Array.from(q.DB.data.lists[0].words, (word) => word.w), WORDS);
+-    assert.equal(q.Speech.streamSources('tourist information centre')[0],
+-      'https://api.streamelements.com/kappa/v2/speech?voice=Amy&text=tourist%20information%20centre');
+-    assert.equal(q.Results.answerState('tire', 'tyre/tire'), 'ok');
+-    assert.equal(q.Results.answerState('tier', 'tyre/tire'), 'wrong');
+-
+-    const old = q.defaultData();
+-    old.settingsRev = 13;
+-    old.settings.glassTint = 'frost';
+-    const migrated = q.DB.migrate(old);
+-    assert.equal(migrated.settingsRev, 15);
+-    assert.equal(migrated.v, 15);
+-    assert.equal(migrated.settings.glassTint, 1);
++    const audio = a.w.document.getElementById('sdpAudio');
++    assert.equal(audio.getAttribute('preload'), 'none');
++    assert.equal(audio.id, 'sdpAudio');
+   } finally { a.close(); }
+ });
+ 
+-test('upgrading v14 and v13 storage preserves results and moves to the v15 key', function () {
++test('v15 storage upgrades in place to schema 16 without losing results', function () {
++  assert.equal(version.settingsRev, 16);
++  has('var legacyKeys = ["sdp.v15_liquid", "sdp.v14_liquid", "sdp.v13_fast_liquid", "sdp.v12_liquid"]');
+   const a = boot();
+   try {
+-    const q = a.q;
+-    const from14 = q.defaultData();
+-    from14.settingsRev = 14;
+-    from14.history = [{ id: 'from14', score: 26, wordCount: 30, percent: 87 }];
+-    a.w.localStorage.setItem('sdp.v14_liquid', JSON.stringify(from14));
+-    a.w.localStorage.removeItem(q.CONFIG.key);
+-    q.DB.load();
+-    assert.equal(q.DB.data.history[0].score, 26, 'v14 results survive the upgrade');
+-    assert.equal(q.DB.data.settingsRev, 15);
+-    assert.ok(a.w.localStorage.getItem('sdp.v15_liquid'), 'data moves to the v15 key');
+-
+-    const legacy = q.defaultData();
+-    legacy.settingsRev = 13;
+-    legacy.history = [{ id: 'old', score: 27, wordCount: 30, percent: 90 }];
+-    legacy.settings.glassTint = 'smoke';
+-    a.w.localStorage.setItem('sdp.v13_fast_liquid', JSON.stringify(legacy));
+-    a.w.localStorage.removeItem(q.CONFIG.key);
+-    a.w.localStorage.removeItem('sdp.v14_liquid');
+-    q.DB.load();
+-    assert.equal(q.DB.data.history[0].score, 27);
+-    assert.equal(q.DB.data.settingsRev, 15);
+-    assert.equal(q.DB.data.settings.glassTint, 2);
+-    assert.ok(a.w.localStorage.getItem('sdp.v15_liquid'));
++    const migrated = a.q.DB.migrate({ results: [{ id: 'keep-me', score: 27 }], settings: { glassTint: 1 } });
++    assert.equal(migrated.settingsRev, 16);
++    assert.equal(migrated.v, 16);
++    assert.equal(migrated.results[0].id, 'keep-me', 'class results survive the upgrade');
++    assert.equal(migrated.settings.writeFixed, 5);
++    assert.equal(migrated.settings.repeats, 2);
++    assert.equal(migrated.settings.sentence, false);
++    a.q.DB.data.session.title = 'v16 write';
++    a.q.DB.saveNow();
++    assert.ok(stored(a), 'the v16 key holds the data');
++    assert.equal(stored(a).settingsRev, 16);
+   } finally { a.close(); }
+ });
+ 
+-test('bilingual navigation, guide, practice, dictionary, community and Admin PIN 7898 work', function () {
++/* --------------------------------------------------------------- product */
++
++test('bilingual navigation, practice, dictionary, community and Admin PIN 7898 work', function () {
+   const a = boot();
+   try {
+     const doc = a.w.document, q = a.q;
+@@ -771,7 +642,7 @@ test('bilingual navigation, guide, practice, dictionary, community and Admin PIN
+ 
+     doc.getElementById('btnGuideTop').click();
+     assert.ok(doc.querySelector('#sheets .sheet'));
+-    assert.ok(doc.querySelector('#sheets').textContent.includes(CREDIT));
++    assert.ok(doc.querySelector('#sheets').textContent.indexOf(CREDIT) >= 0);
+     q.UI.closeSheet();
+ 
+     q.UI.setTab('practice');
+@@ -784,7 +655,7 @@ test('bilingual navigation, guide, practice, dictionary, community and Admin PIN
+     q.UI.setTab('dict');
+     const search = doc.getElementById('dictSearch');
+     search.value = 'tu'; fire(a, search, 'input'); a.clock.tick(300);
+-    assert.ok(doc.getElementById('dictList').textContent.includes('tunnel'));
++    assert.ok(doc.getElementById('dictList').textContent.indexOf('tunnel') >= 0);
+ 
+     q.UI.setTab('comm');
+     assert.ok(doc.getElementById('btnCompose'));
+@@ -794,27 +665,21 @@ test('bilingual navigation, guide, practice, dictionary, community and Admin PIN
+     for (const digit of PIN) doc.querySelector('#pinPad [data-k="' + digit + '"]').click();
+     assert.equal(q.Admin.unlocked, true);
+     assert.ok(doc.getElementById('adminHost'));
+-    const adminTabBtn = doc.querySelector('button[data-tab="words"]');
+-    assert.ok(adminTabBtn, 'admin Words & planner tab exists');
+-    const adminSeg = adminTabBtn.parentNode;
+-    assert.ok(adminSeg.classList.contains('seg'), 'admin tabs are one seg bar');
+-    assert.ok(adminSeg.querySelector('.thumb'), 'admin tab seg keeps its sliding thumb');
+-    assert.equal(adminSeg.querySelectorAll('button').length, 6);
+   } finally { a.close(); }
+ });
+ 
+-test('full credits remain in Hero, Welcome Guide and Settings About', function () {
++test('full credits remain in the hero, Welcome Guide and Settings About', function () {
+   const a = boot();
+   try {
+     const doc = a.w.document;
+-    assert.ok(doc.querySelector('.hero-credit').textContent.includes(CREDIT));
+-    assert.ok(doc.getElementById('homeCredits').textContent.includes(CREDIT));
++    assert.ok(doc.querySelector('.hero-credit').textContent.indexOf(CREDIT) >= 0);
++    assert.ok(doc.getElementById('homeCredits').textContent.indexOf(CREDIT) >= 0);
+     a.q.UI.setTab('set');
+-    assert.ok(doc.getElementById('setBody').textContent.includes(CREDIT));
++    assert.ok(doc.getElementById('setBody').textContent.indexOf(CREDIT) >= 0);
+     a.q.UI.openWelcomeGuide();
+-    assert.ok(doc.querySelector('#sheets').textContent.includes(CREDIT));
++    assert.ok(doc.querySelector('#sheets').textContent.indexOf(CREDIT) >= 0);
+     a.q.UI.setLang('si');
+-    assert.ok(a.q.T('creditFull').includes('Hansana'));
++    assert.ok(a.q.T('creditFull').indexOf('Hansana') >= 0);
+     assert.match(a.q.T('creditFull'), /[\u0d80-\u0dff]/);
+   } finally { a.close(); }
+ });
+@@ -831,6 +696,6 @@ test('full credits remain in Hero, Welcome Guide and Settings About', function (
+       console.error(String(error && error.stack || error));
+     }
+   }
+-  console.log(failed ? failed + ' failed, ' + (tests.length - failed) + ' passed' : 'all ' + tests.length + ' upgrade checks passed');
++  console.log(failed ? failed + ' failed, ' + (tests.length - failed) + ' passed' : 'all ' + tests.length + ' v16 upgrade checks passed');
+   process.exitCode = failed ? 1 : 0;
+ })();
