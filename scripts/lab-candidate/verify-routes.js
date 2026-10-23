@@ -245,7 +245,10 @@ async function main() {
     { id: 'P001.current_token', pass: current.accepted === expect.currentAccepted, detail: current },
     { id: 'P001.superseded_token', pass: superseded.accepted === !expect.supersededRefused, detail: superseded },
     { id: 'P001B.purge_current', pass: purgeCurrent.accepted === expect.purgeCurrent, detail: purgeCurrent },
-    { id: 'P001B.purge_superseded', pass: purgeSuperseded.accepted === !expect.purgeSuperseded, detail: purgeSuperseded },
+    // expect.purgeSuperseded states what the VARIANT should do with a superseded
+    // token: baseline accepts it (the defect), candidate refuses it. Comparing
+    // against the negated expectation inverted the assertion in both arms.
+    { id: 'P001B.purge_superseded', pass: superseded.accepted === expect.purgeSuperseded && purgeSuperseded.accepted === expect.purgeSuperseded, detail: purgeSuperseded },
     { id: 'P002.version_identity', pass: expect.versionIsBuild ? (version.is40Hex && version.sha === BUILD_SHA) : version.isDev, detail: version },
   ];
   out.checks.push(...checks);
