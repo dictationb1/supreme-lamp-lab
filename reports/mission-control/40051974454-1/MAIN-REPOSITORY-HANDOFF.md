@@ -186,6 +186,29 @@ verification there; they are lab-side and do not modify the application.
 | `r1-server-readiness.test.ts` (3) | `defects/R1-SERVER-STARTUP-READINESS.md` | HIGH structural; numeric timing proven on Windows |
 | Lab: nav weak-check (body-nonempty → page marker) | `defects/R1-SERVER-STARTUP-READINESS.md` §Nav | HIGH |
 | Lab: origin staging vs broken-publisher misclassification | `defects/ORIGIN-STAGING.md` | HIGH first-failure; inner exception UNKNOWN (logs blocked) |
+| VM probe `backend.ws_accept_loop_block` (FAIL, reported) | `defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md` | HIGH (source + VM measurement); **fix NOT_RUN** — likely the user's frozen-UI root cause |
+
+### R2 — the highest-priority open defect (fix this first in the application)
+
+`payloads/ghrdp-server.ps1`: the accept loop calls `Invoke-ClientRequest` **synchronously**;
+its `GET /ws` branch calls `Invoke-F99WebSocketUpgrade`, whose loop lives up to
+`F99WsMaxLifetimeSec` (1800s) / `F99WsIdleTimeoutSec` (90s) **on the accept thread**. One
+WebSocket therefore starves every HTTP endpoint. Real VM evidence: run `40067304717` measured
+`/health` blocked for >5 s (timeout) as soon as one `/ws` was open, on BOTH baseline and the
+R1-patched server, and the server stayed pinned >8 s after the socket closed. This matches the
+user's "green Live + frozen UI" exactly: `useDashboardPolling` opens `/ws` when `/health`
+advertises `ws=true`, then the frozen accept loop starves the config/native-status/progress polls.
+
+Recommended repair: dispatch `Invoke-ClientRequest` (or at minimum the `/ws` branch) to a
+`[runspacefactory]::CreateRunspacePool` worker so the accept loop only accepts+enqueues;
+serialize the audit writer under a shared lock. Then re-run
+`.github/workflows/real-backend.yml` and require `backend.ws_accept_loop_block` to flip from
+FAIL to PASS (`measureWsBlock()` in `scripts/candidate/real-backend.js`). Do this on a real
+Windows runner — this bundle's Linux CI has no PowerShell.
+
+R1 (already in this bundle) independently reduced the `connect → first /health` startup stall
+from **3225 ms to 719 ms** on the same VM and added `server-ready.txt`; that fix is real and
+verified. R2 is separate and still open.
 
 ---
 

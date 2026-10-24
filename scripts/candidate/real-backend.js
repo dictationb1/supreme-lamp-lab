@@ -753,21 +753,28 @@ async function main() {
     // Bounded proof of the inline-WebSocket accept-loop stall (R2), BEFORE the
     // browser (which we stub below) can otherwise pin the server for 30 minutes.
     if (ok && !expired()) { await measureWsBlock(); flush(); }
-    // Give the accept loop time to notice the destroyed /ws socket and drain
-    // again before driving the browser; a still-pinned server (R2) must not turn
-    // the first navigation into a 15s timeout. The startup/tick/endpoint/ws
-    // evidence is already flushed; skip the browser if it has not recovered.
-    let serverFree = false;
+    // Best-effort recovery probe after the bounded /ws test. Record how long the
+    // accept loop stays pinned (itself R2 evidence), but STILL proceed to the
+    // browser when time remains: in run 40066357848 proceeding produced 18 real
+    // control PASSes even though a single early probe had failed. A timed-out
+    // first navigation is honestly classified BLOCKED by the gate check, so a
+    // transient stall cannot masquerade as a FAIL. Skip only on the hard deadline.
     if (ok && !expired()) {
-      await sleep(2000);
-      const hr = await httpGet('/health', 6000);
-      serverFree = !!(hr.ok && hr.status === 200);
-      report.timings.recoveredAfterWsMs = hr.ms;
+      const recT0 = Date.now();
+      let recovered = false, probeMs = null;
+      while (Date.now() - recT0 < 15000 && !expired()) {
+        const hr = await httpGet('/health', 3000);
+        probeMs = hr.ms;
+        if (hr.ok && hr.status === 200) { recovered = true; break; }
+        await sleep(2500);
+      }
+      report.timings.wsRecovery = { recovered, waitedMs: Date.now() - recT0, lastProbeMs: probeMs };
+      flush();
     }
-    if (ok && !expired() && serverFree) { await driveBrowser(); flush(); }
+    if (ok && !expired()) { await driveBrowser(); flush(); }
     else if (ok) record({ control_id: 'real.browser_suite_deferred', area: 'browser', pre: 'real server', action: 'drive the real UI', expect_ui: 'n/a', expect_req: 'n/a',
-      actual: expired() ? 'skipped: global deadline reached after measurement' : 'skipped: accept loop still pinned by inline WS (R2) 2s after the bounded probe',
-      evidence: '', verdict: 'BLOCKED', note: 'startup/tick/endpoint/ws-block evidence already published before this skip' });
+      actual: 'skipped: global deadline reached after measurement',
+      evidence: '', verdict: 'BLOCKED', note: 'startup/tick/endpoint/ws-block/ws-recovery evidence already published before this skip' });
   } catch (e) {
     report.fatal = report.fatal || ('exception: ' + String(e.message || e).slice(0, 200));
   } finally {

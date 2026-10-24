@@ -102,16 +102,33 @@ F99/F101 keepalive හරහා ~9,800-පේළි PS 5.1 file එක ස්ප
   theme toggle සහ සැබෑ endpoints ධාවනය කරයි.
 - Native RDP / Web Desktop / සැබෑ 4624 logon / external mirror මෙම loopback lab candidate එකේ
   **BLOCKED** ලෙස නම් කර ඇත (signed launcher + සැබෑ session අවශ්‍යයි); simulated PASS නොකෙරේ.
-- VM run එකේ සාක්ෂි `evidence/real-backend-<labRunId>/` වෙත publish වේ;
-  `comparison.json` baseline/patched stall සංසන්දනය කරයි. එය ලැබුණු පසු manifest සහ මෙම README යාවත්කාලීන කෙරේ.
+- **සත්‍ය Windows client-VM ප්‍රතිඵල** (job `40067304717` **SUCCESS**, head `5665907f`):
+  - `connect → first /health` stall: **baseline 3225 ms → R1-patched 719 ms** (~78% අඩුවීම).
+  - `server-ready.txt` accept loop එක ඇතුළේ සිට **patched හි පමණක්** publish විය
+    (`READY pid=6536 port=7331 …`); baseline හි නැත.
+  - Listening socket හිමිකරු සත්‍ය `powershell.exe` (baseline pid=3460, patched pid=6536) — stub එකක් නොවේ.
+  - `/api/config`, `/api/native-status`, `/api/progress`, `/api/version`, `/ping`, `/health`, `/` සියල්ල **200**.
+  - **R2 තහවුරු:** `/ws` open කළ විට `/health` >5s (timeout) අවහිර විය — baseline සහ patched **දෙකේම**.
+    Socket එක වැසූ පසුවද server එක තත්පර 8+ අවහිරව පැවතිණි.
+  - job `40066357848` හි සැබෑ server එක මත **controls 18ක් PASS** විය (route 11ම, theme toggle,
+    status chip, authenticated endpoints). අවසන් run එකේ R2 නිසා browser phase එක honestly deferred විය.
+  - සාක්ෂි: `evidence/real-backend-40067304717/` (measurement + comparison.json) සහ
+    `evidence/real-backend-40066357848/` (browser controls).
+  - පෙර runs: `40062592553` (spawn fault, honest fatal), `40063545799` (26-min inline-WS freeze; baseline stall 3281ms).
+
+**"Live" බැනරයේ අර්ථය (source එකෙන් තීරණය කළේය):** `AppShell.tsx` හි "Live" වන්නේ
+`wsLive` සත්‍ය වූ විටය — එනම් dashboard එකේම `/ws` socket එක `onopen` වූ විටය. එය RDP session
+එකක් හෝ backend සෞඛ්‍යය ගැන නොව **WS transport එක විවෘත බව** පමණි. පරිශීලකයාගේ "green Live + frozen UI"
+තත්ත්වයේදී WS එක ඇත්තටම විවෘත වී, පසුව R2 නිසා සියලු `/api/*` polls කුසගින්නේ තැබීම බොහෝ දුරට සිදු වේ.
+(අපගේ stubbed browser run එකේ "Live" කියවීම stub එක නිසා බැවින් ස්වාධීන සම්බන්ධතා සාක්ෂියක් ලෙස නොගනී.)
 
 ## 6. වෙන් කර ඇති verdicts (§14 ට අනුව)
 
 | Verdict | අගය |
 |---|---|
-| **LAB_HARNESS** | **PASS** — consolidated; 228 pass/0 fail/8 skip hosted; clean replay PASS |
+| **LAB_HARNESS** | **PASS** — consolidated; 228 pass/0 fail/8 skip hosted; clean replay PASS; real-backend VM job `40067304717` SUCCESS |
 | **LIVE_ORIGIN_APPLICATION** | **FAIL** — staging step 28 fail වී UI/signal publish නොවීය; broken publisher එකක් නොවේ |
-| **PATCHED_APPLICATION_CANDIDATE** | **PASS_HOSTED** (F201+R1, 1378 smoke, build, replay); **WINDOWS_BACKEND PENDING** real-backend VM run |
+| **PATCHED_APPLICATION_CANDIDATE** | **PARTIAL** — hosted PASS (F201+R1, 1378 smoke, build, replay) + සත්‍ය Windows client-VM මත backend verify (18 controls PASS, stall 3225→719ms, server-ready.txt). **R2 inline-WS stall තහවුරු, fix නොකළේය** (පරිශීලක UI-freeze මූල හේතුව වීමට බොහෝ ඉඩ ඇත). Native RDP/Web Desktop/real-logon BLOCKED — සම්පූර්ණ acceptance නොවේ. |
 | **UPSTREAM_DEPLOYMENT** | **NOT_RUN** — application remote මෙම session එකේ read-only; push/merge/deploy නැත |
 | **AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION** | **BLOCKED** — නිශ්චිත run+attempt MC-SIGNAL එකක් publish නොවීය; lab harness path එක සූදානම් ය |
 
