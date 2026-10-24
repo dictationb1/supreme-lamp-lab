@@ -1,0 +1,5 @@
+# sanitized server stdout (secrets redacted)
+[F28] logon scan #1 result=success sub=- eventTs=2026-10-24T08:35:41.0159031Z 4624=6 4625=0 scanTs=2026-10-24T08:40:38.9890201Z
+[F30] conn-log scan #1 items=0 reasons=(none) scanTs=2026-10-24T08:40:39.2235255Z probeError=conn-logs-unreadable
+[F45] fx upload worker: started=True reason=
+
