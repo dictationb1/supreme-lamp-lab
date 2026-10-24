@@ -38,7 +38,7 @@ on:
       app_sha:
         description: 'supreme-lamp base commit (40-hex) to patch and build'
         required: false
-        default: 'e432d3df4cf00a8528d574f8410f6a76e590db31'
+        default: '4a91c5c2eadc12e5b071bc46bae7683087f56fbd'
         type: string
       runner:
         description: 'vm = the interactive client VM (headed); anything else = hosted Windows (headless Chromium)'
@@ -52,8 +52,69 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
+
+env:
+  APP_SHA: ${{ inputs.app_sha || '4a91c5c2eadc12e5b071bc46bae7683087f56fbd' }}
+  BUNDLE_DIR: reports/mission-control/40051974454-1
+  LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+  HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
 jobs:
+  client_preflight:
+    name: real client VM preflight (short, exclusive desktop)
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'candidate-run')
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Runner identity (read, never assume)
+        run: |
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=preflight runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.3'
+      - name: Install the exact candidate harness and headed Chromium
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'lab npm ci failed' }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'playwright chromium install failed' }
+      - name: Measure VM, current origin, and a sanitized headed-browser interaction
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "artifacts\vm-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          node scripts/candidate/vm-preflight.js --out $out --origin-repo dictationb1/supreme-lamp --origin-run 40051974454 --origin-attempt 1 --app-sha $env:APP_SHA --lab-revision $env:LAB_REVISION
+          exit $LASTEXITCODE
+      - name: Publish sanitized preflight evidence before exiting
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\vm-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path $dir) {
+            node scripts/publish-evidence.js --dir $dir --dest ($env:BUNDLE_DIR + '/evidence/vm-preflight-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: VM preflight $env:GITHUB_RUN_ID [skip ci]"
+            exit $LASTEXITCODE
+          }
+          Write-Host '::error title=preflight evidence::output directory missing'
+          exit 1
+      - name: Postflight (only this attempt's owned processes)
+        if: always()
+        run: |
+          node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\vm-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
+          exit 0
+
   candidate:
     name: build + serve + drive the patched UI
     if: >-
@@ -67,9 +128,7 @@ jobs:
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'vm') && 'rdp-lab-client' || 'windows-latest' }}
     timeout-minutes: 40
     env:
-      APP_SHA: ${{ inputs.app_sha || 'e432d3df4cf00a8528d574f8410f6a76e590db31' }}
       CANDIDATE_HEADLESS: ${{ (github.event_name == 'workflow_dispatch' && inputs.runner == 'vm') && '0' || '1' }}
-      HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
     defaults:
       run:
         shell: powershell
@@ -82,6 +141,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Fetch the pinned application base and apply the patch series
@@ -108,7 +168,7 @@ jobs:
             # NOTHING (measured: runs 40031606940 / 40032011903 then ran npm in the
             # lab checkout, where 'npm run build' does not exist).
             "APP_DIR=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            $patches = Get-ChildItem -Path 'reports/mission-control/40022345749-1/app-patches' -Filter '*.patch' | Sort-Object Name
+            $patches = Get-ChildItem -Path (Join-Path $env:BUNDLE_DIR 'app-patches') -Filter '*.patch' | Sort-Object Name
             Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
             foreach ($p in $patches) {
               Write-Host "::notice title=patch::applying $($p.Name)"
@@ -183,7 +243,7 @@ jobs:
           if (-not $env:APP_DIR) { Write-Host '::error title=build::APP_DIR missing'; exit 0 }
           Push-Location $env:APP_DIR
           if ($env:APP_CI_EXIT -ne '0') { Write-Host "::warning title=build skipped::npm ci failed (exit $env:APP_CI_EXIT)"; Pop-Location; exit 0 }
-          $env:VITE_BUILD_SHA = "cand-$($env:GITHUB_SHA.Substring(0,12))"
+          $env:VITE_BUILD_SHA = "cand-$($env:LAB_REVISION.Substring(0,12))"
           $log = Join-Path $env:RUNNER_TEMP 'app-build.log'
           npm run build *> $log
           $code = $LASTEXITCODE
@@ -197,7 +257,7 @@ jobs:
           if (-not (Test-Path $bundle)) { Write-Host '::error title=vite build::ui/dist/index.html missing'; Pop-Location; exit 0 }
           $bytes = (Get-Item $bundle).Length
           $sha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "::notice title=candidate bundle::$bytes bytes sha256=$sha build=cand-$($env:GITHUB_SHA.Substring(0,12))"
+          Write-Host "::notice title=candidate bundle::$bytes bytes sha256=$sha build=cand-$($env:LAB_REVISION.Substring(0,12))"
           "BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "BUNDLE_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Copy-Item $log (Join-Path $env:RUNNER_TEMP 'app-build.log') -Force
@@ -233,10 +293,10 @@ jobs:
             $modeOut = Join-Path $out $mode
             New-Item -ItemType Directory -Force -Path $modeOut | Out-Null
             $stub = Start-Process -FilePath node -PassThru -WindowStyle Hidden `
-              -ArgumentList @("scripts\candidate\stub-server.js", "--port", "7331", "--fault", $mode, "--ui", $env:BUNDLE, "--sha", "cand-$($env:GITHUB_SHA.Substring(0,12))")
+              -ArgumentList @("scripts\candidate\stub-server.js", "--port", "7331", "--fault", $mode, "--ui", $env:BUNDLE, "--sha", "cand-$($env:LAB_REVISION.Substring(0,12))")
             Start-Sleep -Seconds 2
             try {
-              node scripts\candidate\sweep.js --base http://127.0.0.1:7331 --out $modeOut --sha "cand-$($env:GITHUB_SHA.Substring(0,12))" --bundle $env:BUNDLE --modes $mode
+              node scripts\candidate\sweep.js --base http://127.0.0.1:7331 --out $modeOut --sha "cand-$($env:LAB_REVISION.Substring(0,12))" --bundle $env:BUNDLE --modes $mode
               $rc = $LASTEXITCODE
               Write-Host "::notice title=candidate sweep::$mode exit=$rc"
             } finally {
@@ -244,7 +304,7 @@ jobs:
             }
           }
           Copy-Item -Path (Join-Path $env:RUNNER_TEMP 'app-tests.log') -Destination (Join-Path $out 'app-tests.log') -ErrorAction SilentlyContinue
-          @{ appBase = $env:APP_SHA; bundleSha256 = $env:BUNDLE_SHA; build = "cand-$($env:GITHUB_SHA.Substring(0,12))"; labSha = $env:GITHUB_SHA; appTestExit = $env:APP_TEST_EXIT } |
+          @{ appBase = $env:APP_SHA; bundleSha256 = $env:BUNDLE_SHA; build = "cand-$($env:LAB_REVISION.Substring(0,12))"; labSha = $env:LAB_REVISION; appTestExit = $env:APP_TEST_EXIT } |
             ConvertTo-Json | Out-File -FilePath (Join-Path $out 'candidate-provenance.json') -Encoding utf8
           Get-ChildItem -Recurse $out | Select-Object FullName, Length | Out-String | Write-Host
           exit 0
@@ -266,7 +326,7 @@ jobs:
             if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
             Copy-Item $_.FullName $target
           }
-          node scripts/publish-evidence.js --dir $flat --dest 'reports/mission-control/40022345749-1/candidate' --branch $env:HEAD_BRANCH --message "evidence: candidate sweep $env:GITHUB_RUN_ID [skip ci]"
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/candidate-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: candidate sweep $env:GITHUB_RUN_ID [skip ci]"
           exit 0
 
       - name: Postflight (stop anything this attempt started)

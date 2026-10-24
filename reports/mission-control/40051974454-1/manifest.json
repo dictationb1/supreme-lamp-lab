@@ -1,0 +1,95 @@
+{
+  "schema": "slab-mission-control-repair-bundle/1",
+  "bundleState": "CHECKPOINT_NOT_FINAL_ACCEPTANCE",
+  "createdAt": "2026-10-24T02:16:31Z",
+  "origin": {
+    "repository": "dictationb1/supreme-lamp",
+    "runId": "40051974454",
+    "attempt": 1,
+    "jobId": "120746757792",
+    "workflow": ".github/workflows/main.yml",
+    "applicationSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40051974454",
+    "jobUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40051974454/job/120746757792",
+    "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "archiveSha256": "dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378",
+    "observedRunStatus": "in_progress",
+    "observedRdpPhase": "cleanup after step 28 failure",
+    "firstObservedFailure": {
+      "step": 28,
+      "name": "Stage files + write config.json (UTF8 no BOM, Rentry secrets + provided edit code, token, ACLs)",
+      "conclusion": "failure",
+      "internalException": "UNAVAILABLE_LOG_DOWNLOAD"
+    },
+    "readinessStep": "skipped",
+    "signalPublicationStep": "skipped",
+    "exactSignalCheckRuns": 0
+  },
+  "lab": {
+    "repository": "dictationb1/supreme-lamp-lab",
+    "branch": "arena/daf94107-supreme-lamp-lab",
+    "baseMain": "a3eb4b79cdec5049781d7b2b2df7c3b880730835",
+    "consolidatedReaderHead": "f41804b9446134a606d9f205a470c45bae2ee91e",
+    "consolidatedRepairHead": "481de98ab036091e01dab26e1b0b31a60035743d",
+    "hostedRegressions": {
+      "platform": "linux",
+      "node": "v22.22.3",
+      "total": 229,
+      "passed": 221,
+      "failed": 0,
+      "skipped": 8
+    }
+  },
+  "candidate": {
+    "scope": "F201_ONLY_AT_THIS_CHECKPOINT",
+    "localOnlyCommit": "9bfe9946a2ca779085babaedc040e68dff95c233",
+    "localOnlyTree": "06dce4388261f272ef2e45644bfb13f9b619a34b",
+    "applicationRemoteModified": false,
+    "liveServerOverwritten": false,
+    "frontend": {
+      "path": "ui/dist/index.html",
+      "bytes": 1273547,
+      "sha256": "b6a5dfc84316c315601a47f1a1aaffe08d2e0336177ee304547952e0401d5bbe",
+      "buildStamp": "candidate-4a91c5c2eadc-f201"
+    },
+    "hostedChecks": {
+      "baselineF201": { "passed": 0, "failed": 8, "expectedFailureReproduced": true },
+      "candidateF201": { "passed": 8, "failed": 0 },
+      "candidateFullSmoke": { "files": 106, "passed": 1375, "failed": 0 },
+      "productionBuild": "PASS"
+    }
+  },
+  "patches": [
+    {
+      "order": 1,
+      "id": "F201",
+      "file": "app-patches/0001-F201-probe-honesty.patch",
+      "sha256": "6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f",
+      "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "appliesToBase": true,
+      "includesRegressionTests": true
+    }
+  ],
+  "environments": {
+    "A_live_origin": "Actual application workflow metadata; no served UI was reached",
+    "B_isolated_baseline": "Unmodified complete clone at the pinned application SHA",
+    "C_isolated_candidate": "Separate detached worktree with the ordered patch series; local commits only",
+    "client_vm": "NOT_RUN_AT_CHECKPOINT"
+  },
+  "verdicts": {
+    "LAB_HARNESS": "IN_PROGRESS",
+    "LIVE_ORIGIN_APPLICATION": "FAIL",
+    "PATCHED_APPLICATION_CANDIDATE": "IN_PROGRESS",
+    "UPSTREAM_DEPLOYMENT": "NOT_RUN",
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED"
+  },
+  "blockingPrerequisites": [
+    "The exact origin did not publish a live MC-SIGNAL because staging failed before readiness.",
+    "No real client-VM result has been recorded in this checkpoint.",
+    "Full production backend, native RDP, Web Desktop, and every actionable control remain to be exercised."
+  ],
+  "evidenceRetention": {
+    "repositoryEvidence": "Immutable after the final commit is pinned",
+    "actionsArtifacts": "Supplemental only; artifact and log redirect downloads were inaccessible from this sandbox and have provider retention limits"
+  }
+}

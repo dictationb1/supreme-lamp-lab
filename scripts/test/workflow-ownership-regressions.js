@@ -57,4 +57,52 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/lab-candidate-stub/.test(stub));
     assert.ok(/NOT the application server/i.test(stub), 'the file must say what it is not');
   });
+
+  await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {
+    for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml']) {
+      const wf = read(file);
+      const lines = wf.split('\n');
+      let checkoutCount = 0;
+      for (let i = 0; i < lines.length; i++) {
+        if (!lines[i].includes('- uses: actions/checkout@')) continue;
+        checkoutCount++;
+        const step = lines.slice(i, i + 7).join('\n');
+        assert.ok(/ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha \|\| github\.sha\s*\}\}/.test(step), `${file}: checkout at line ${i + 1} must pin the PR head SHA`);
+      }
+      assert.ok(checkoutCount > 0, `${file}: checkout steps found`);
+    }
+    const live = read('.github/workflows/live-run.yml');
+    assert.ok(/lab_sha:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha \|\| github\.sha\s*\}\}/.test(live), 'claim must pass the same head SHA to Windows verification');
+  });
+
+  await test('preflight: VM evidence is separate from origin readiness and signal prerequisites', async () => {
+    const { evaluatePreflight } = require('../candidate/vm-preflight');
+    const vm = {
+      interactiveDesktop: true, sessionId: 1, account: 'HOST\\User', responsive: true,
+      runnerWorkerProcessCount: 1, memoryFreeBytes: 1024 ** 3, systemDriveFreeBytes: 4 * 1024 ** 3,
+      nativeLauncher: { mstscPresent: true, ghrdpHandlerUser: false, ghrdpHandlerMachine: false },
+      tailscale: { present: true, selfOnline: true, backendState: 'Running', error: '' }
+    };
+    const result = evaluatePreflight({
+      vm,
+      browser: { ok: true, message: 'click passed', screenshot: 'client-preflight.png' },
+      origin: {
+        expected: { repository: 'dictationb1/supreme-lamp', run: '1', attempt: 1, sha: 'a'.repeat(40) },
+        run: { repository: 'dictationb1/supreme-lamp', id: '1', attempt: 1, headSha: 'a'.repeat(40), workflowPath: '.github/workflows/main.yml' },
+        readinessReached: false, firstFailure: 'step 28: staging failed', signalPublished: false,
+        signalDetail: 'SIGNAL_NOT_PUBLISHED', endpoint: ''
+      }
+    });
+    assert.strictEqual(result.vmVerdict, 'PASS');
+    assert.deepStrictEqual(result.originChecks.map(c => c.status), ['PASS', 'BLOCKED', 'BLOCKED', 'BLOCKED']);
+    assert.ok(result.originChecks.every(c => c.status !== 'FAIL'), 'an unpublished signal during setup is not a broken publisher');
+  });
+
+  await test('preflight: wrong origin identity and a failed desktop cannot become PASS', async () => {
+    const { evaluatePreflight } = require('../candidate/vm-preflight');
+    const result = evaluatePreflight({ vm: { error: 'session 0' }, browser: { ok: false, message: 'headed launch failed' }, origin: null });
+    assert.strictEqual(result.vmVerdict, 'FAIL');
+    assert.ok(result.checks.every(c => c.status === 'FAIL'));
+    assert.strictEqual(result.originChecks[0].status, 'BLOCKED');
+  });
 };

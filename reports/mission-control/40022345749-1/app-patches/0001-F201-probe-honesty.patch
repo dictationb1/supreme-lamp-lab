@@ -506,7 +506,7 @@ index 0000000..d036761
 +    useSessionStore.setState({
 +      native: { rdpListener: { listening: true, fw: true, cert: true, nla: true } },
 +      listenerOkFlag: true,
-+      runnerResolvedIP: "100.99.208.107",
++      runnerResolvedIP: "",
 +      runnerDnsOk: true,
 +      fqdn: "",
 +      user: "",
