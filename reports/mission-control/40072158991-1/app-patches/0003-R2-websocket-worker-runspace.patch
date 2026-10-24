@@ -1,4 +1,4 @@
-From 549b350e6cc25d4a9330b73adcf74ff886e271ba Mon Sep 17 00:00:00 2001
+From 5a0ba53f447d1dc5aa9f81d1230a275adce49cb0 Mon Sep 17 00:00:00 2001
 From: RDP Mission Control Lab <lab@dictationb1.local>
 Date: Sat, 24 Oct 2026 07:26:44 +0000
 Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
@@ -13,13 +13,13 @@ dependency surface, serialize audits on a shared Monitor lock, and release
 the gate and close the socket in finally. Pool and semaphore are disposed
 at shutdown. Includes the static r2-websocket-worker smoke regression.
 ---
- payloads/ghrdp-server.ps1                   | 280 +++++++++++++++++++-
- src/tests/smoke/r2-websocket-worker.test.ts | 136 ++++++++++
- 2 files changed, 409 insertions(+), 7 deletions(-)
+ payloads/ghrdp-server.ps1                   | 293 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 144 ++++++++++
+ 2 files changed, 430 insertions(+), 7 deletions(-)
  create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
 
 diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
-index e74b4b03b..868552946 100644
+index e74b4b03b..720d73fbe 100644
 --- a/payloads/ghrdp-server.ps1
 +++ b/payloads/ghrdp-server.ps1
 @@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
@@ -36,7 +36,27 @@ index e74b4b03b..868552946 100644
  function Invoke-F99WebSocketUpgrade {
      param($Client, $Stream, $Parts, $Token)
      try {
-@@ -646,6 +653,12 @@ $script:HandlerChain = @()
+@@ -535,6 +542,19 @@ function Invoke-F99WebSocketUpgrade {
+         try { $Stream.ReadTimeout = 2000 } catch { }
+         while ((((Get-Date) - $start).TotalSeconds -lt [int]$script:F99WsMaxLifetimeSec) -and (((Get-Date) - $lastClientFrame).TotalSeconds -lt [int]$script:F99WsIdleTimeoutSec)) {
+             try {
++                # [LAB-R2] Prompt peer-closed/reset detection. Poll(SelectRead) is
++                # also signalled on EOF/error with zero bytes available; without this
++                # the loop only issues a Read when data is already buffered, so a
++                # dropped client with no pending frame is not noticed until the idle
++                # timeout, pinning a bounded worker slot (measured as gate count=0 /
++                # avail=0 with only a few sockets held on run 40084261133). An idle,
++                # open socket returns false here and keeps waiting as before.
++                try {
++                    if ($Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead) -and $Client.Client.Available -eq 0) {
++                        $f99CloseStatus = 1006
++                        break
++                    }
++                } catch { break }
+                 if ($Client.Client.Available -gt 0 -or $Stream.DataAvailable) {
+                     $n = 0; try { $n = $Stream.Read($buf,0,$buf.Length) } catch { break }
+                     if ($n -le 0) { $f99CloseStatus = 1006; break }
+@@ -646,6 +666,12 @@ $script:HandlerChain = @()
  $script:DeviceTokens = @{}
  $script:DeviceTokensPath = Join-Path $Root 'device-tokens.json'
  $script:ClientAuditLog = Join-Path $Root 'client-audit.log'
@@ -49,7 +69,7 @@ index e74b4b03b..868552946 100644
  $script:AgentPath = Join-Path $Root 'ghrdp-agent.ps1'
  $script:DiagDir = Join-Path $Root 'diag-bundles'
  try {
-@@ -663,7 +676,14 @@ function Save-DeviceTokens {
+@@ -663,7 +689,14 @@ function Save-DeviceTokens {
  }
  function Write-ClientAudit {
      param([string]$Line)
@@ -65,7 +85,7 @@ index e74b4b03b..868552946 100644
  }
  # [F17 §2] ROOT CAUSE of the +05:30 beacon-age bug (19805s): stored ISO ts
  # strings were read back through ConvertFrom-Json, which converts "…Z" into a
-@@ -2389,6 +2409,12 @@ function Invoke-F91StreamFetch {
+@@ -2389,6 +2422,12 @@ function Invoke-F91StreamFetch {
  function Invoke-ClientRequest {
      param($Client, $Token)
      $stream = $null
@@ -78,7 +98,7 @@ index e74b4b03b..868552946 100644
      try {
          $stream = $Client.GetStream()
          $rr = Read-ClientRequest -Stream $stream
-@@ -2430,10 +2456,17 @@ function Invoke-ClientRequest {
+@@ -2430,10 +2469,17 @@ function Invoke-ClientRequest {
          # handshake's token is validated inside the upgrade handler (which supports
          # both header and ?key= query, plus the hello-frame fallback).
          if ($path -eq '/ws') {
@@ -100,7 +120,7 @@ index e74b4b03b..868552946 100644
              return
          }
          # [F10-2 §3] per-request creds authorization (strict subset of access).
-@@ -9366,8 +9399,13 @@ boot();
+@@ -9366,8 +9412,13 @@ boot();
              }) -ExtraHeaders ("X-Correlation-ID: $cId`r`n")
          } catch { }
      } finally {
@@ -116,7 +136,7 @@ index e74b4b03b..868552946 100644
      }
  }
  $script:Wire = $null
-@@ -9753,6 +9791,228 @@ function Invoke-F99WatcherDiagnose {
+@@ -9753,6 +9804,228 @@ function Invoke-F99WatcherDiagnose {
      }
      return $out
  }
@@ -345,7 +365,7 @@ index e74b4b03b..868552946 100644
  $start = Get-Date
  $limit = New-TimeSpan -Minutes $LimitMinutes
  $lastHeal = Get-Date
-@@ -9776,6 +10036,9 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9776,6 +10049,9 @@ while (((Get-Date) - $start) -lt $limit) {
          try { $client = $listener.AcceptTcpClient() } catch { }
          if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
      }
@@ -355,7 +375,7 @@ index e74b4b03b..868552946 100644
      # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
      # last-run timer and remains the sole writer of its state file; the guard
      # only spreads coincident ticks across adjacent 50ms iterations so their
-@@ -9806,3 +10069,6 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9806,3 +10082,6 @@ while (((Get-Date) - $start) -lt $limit) {
      Start-Sleep -Milliseconds $script:ScanDelayMs
  }
  try { $listener.Stop() } catch { }
@@ -364,10 +384,10 @@ index e74b4b03b..868552946 100644
 +try { Stop-R2WebSocketPool } catch { }
 diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
 new file mode 100644
-index 000000000..736297a61
+index 000000000..e04ace31f
 --- /dev/null
 +++ b/src/tests/smoke/r2-websocket-worker.test.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,144 @@
 +// [LAB-R2] WebSocket accept-loop starvation invariants - EXECUTED against the
 +// shipped payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base a
 +// single GET /ws runs Invoke-F99WebSocketUpgrade INLINE on the one accept
@@ -491,6 +511,14 @@ index 000000000..736297a61
 +    const wsBranch2 = server.slice(wsBranchStart, wsBranchEnd);
 +    expect(wsBranch2).toMatch(/\$r2Dispatched\s*=\s*\$true/);
 +    expect(server).toMatch(/if\s*\(\s*-not\s*\$r2Dispatched\s*\)\s*\{[\s\S]{0,160}?Dispose\(\)/);
++  });
++
++  it("detects a dropped peer promptly with a non-blocking Socket.Poll so worker slots are reclaimed", () => {
++    // Run 40084261133 drained the gate (count=0/avail=0) with only a few sockets
++    // held: without reading on an empty stream, EOF was only noticed at the idle
++    // timeout. Poll(SelectRead)+Available==0 signals EOF/reset within one loop tick.
++    expect(server).toMatch(/\$Client\.Client\.Poll\(0,\s*\[System\.Net\.Sockets\.SelectMode\]::SelectRead\)/);
++    expect(server).toMatch(/Poll\(0[\s\S]{0,120}Available\s*-eq\s*0[\s\S]{0,80}1006/);
 +  });
 +
 +  it("constructs the worker PowerShell in a PS 5.1-compatible way (no 1-arg Create overload)", () => {

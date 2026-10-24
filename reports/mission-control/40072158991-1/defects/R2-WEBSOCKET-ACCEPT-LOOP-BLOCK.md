@@ -102,7 +102,7 @@ button request continue beside the live socket, and that the app's reconnect
 ladder re-establishes the bridge after a controlled interruption.
 
 - Static structure (no Windows): `src/tests/smoke/r2-websocket-worker.test.ts`
-  (vitest, 8 tests; fails on the pristine base, passes on the repaired file) and
+  (vitest, 11 tests; fails on the pristine base, passes on the repaired file) and
   `scripts/test/ws-frame-regressions.js` (framing + patch invariants).
 - Behavioral timing (Windows client VM): the `real-backend-run` labelled
   workflow, baseline vs repaired with identical fixtures. Thresholds are frozen
@@ -136,3 +136,36 @@ EXCEPTION`. Ten static assertions pin both fixes; clean replay is 10/10 r2,
 run shows real `/ws` 101 upgrades and a passing r2 matrix; see
 `evidence/windows-run-40081193119-root-cause.md` and
 `evidence/windows-run-40082655039-finally-ownership.md`.
+
+## 6. Third runtime defect (run 40084261133): pump EOF blind spot leaks worker slots
+
+Run 40084261133 (head `a1d98f1`) proved the first two fixes on the real Windows
+VM: genuine HTTP 101 upgrades occur and `backend.ws_accept_loop_block`,
+`r2.no_ws_control_health`, `r2.one_ws_health_responsive` and
+`r2.multi_ws_health_and_config` all PASS with HTTP never blocked. It exposed a
+third, distinct defect: with `GHRDP_WS_MAX_CLIENTS=8` the gate drained to
+`count=0 avail=0` while only 3–5 sockets were actually held — capacity control
+reached only `held=3` then issued six 503s, cycles passed only 5/10 with handle
+growth 886 → 913, and reconnect/frames/idle/malformed controls failed or were
+blocked. The sanitized stdout has 18 `ws 503 saturated count=0 avail=0` lines,
+zero `ws closed` lines and zero `worker EXCEPTION` lines.
+
+Root cause: the F99 pump only calls `NetworkStream.Read` when
+`$Client.Client.Available -gt 0 -or $Stream.DataAvailable`. A peer disconnect
+with no buffered bytes therefore never issues a Read, the EOF (`Read` → 0)
+branch is unreachable, and the worker sleeps until `F99WsIdleTimeoutSec`
+instead of releasing its semaphore slot — a silent slot leak, not a throw.
+
+Fix: a non-blocking liveness probe at the top of each pump iteration —
+`$Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead)` returning
+true together with `Available -eq 0` means the peer half-closed/reset, so the
+loop breaks with status 1006 into the existing worker `finally`
+(close/dispose/`Release()`, reaper disposes the runspace handle). An idle open
+socket returns false and keeps the prior behavior; `Socket.Poll` is available on
+both .NET Framework (PS 5.1) and .NET (PS 7). No capacity or timeout value was
+changed and the `Wait(0)` gate is untouched. An 11th static assertion pins the
+Poll pattern; the r2 suite passes 11/11 on LF and CRLF, full application suite
+1389/1389, build OK. R2 acceptance still requires the next Windows run to show
+8 held with 503 only on the 9th socket, frames/echo, idle expiry, clean
+reconnect, 10/10 leak-free cycles and the three headed `real.browser_ws_*`
+controls; see `evidence/windows-run-40084261133-slot-leak.md`.

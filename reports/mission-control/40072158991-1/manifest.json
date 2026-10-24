@@ -1,165 +1,190 @@
 {
-  "schema": "slab-mission-control-repair-bundle/2",
-  "bundleState": "R2_TWO_RUNTIME_DEFECTS_FIXED_PS51_CREATE_OVERLOAD_AND_FINALLY_OWNERSHIP_WINDOWS_RECONFIRM_PENDING",
-  "createdAt": "2026-10-24T07:59:00Z",
-  "updatedAt": "2026-10-24T09:58:00Z",
-  "origin": {
-    "repository": "dictationb1/supreme-lamp",
-    "runId": "40072158991",
-    "attempt": 1,
-    "jobId": "120808083081",
-    "workflow": ".github/workflows/main.yml",
-    "applicationSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
-    "applicationPatchBase": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
-    "baseDelta": "832a82eb is one commit on top of 4a91c5c2 changing only docs/status.json; the 4a91c5c2-based patch series still applies cleanly",
-    "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991",
-    "jobUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991/job/120808083081",
-    "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/832a82eb7c29613b0b101585c56b5011ea008a06",
-    "archiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
-    "archiveSha256Determinism": "identical sha256 across two independent codeload downloads in the lab",
-    "observedRunStatusAtBundle": "in_progress",
-    "readOnlyRemote": true,
-    "note": "the application remote is read-only this session; no push/deploy/setting change is made upstream. The lab candidate is an isolated, separately-identified build."
+ "schema": "slab-mission-control-repair-bundle/2",
+ "bundleState": "R2_THREE_RUNTIME_DEFECTS_FIXED_CREATE_OVERLOAD_FINALLY_OWNERSHIP_PUMP_EOF_SLOT_LEAK_WINDOWS_RECONFIRM_PENDING",
+ "createdAt": "2026-10-24T07:59:00Z",
+ "updatedAt": "2026-10-24T10:45:00Z",
+ "origin": {
+  "repository": "dictationb1/supreme-lamp",
+  "runId": "40072158991",
+  "attempt": 1,
+  "jobId": "120808083081",
+  "workflow": ".github/workflows/main.yml",
+  "applicationSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+  "applicationPatchBase": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "baseDelta": "832a82eb is one commit on top of 4a91c5c2 changing only docs/status.json; the 4a91c5c2-based patch series still applies cleanly",
+  "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991",
+  "jobUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991/job/120808083081",
+  "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/832a82eb7c29613b0b101585c56b5011ea008a06",
+  "archiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
+  "archiveSha256Determinism": "identical sha256 across two independent codeload downloads in the lab",
+  "observedRunStatusAtBundle": "in_progress",
+  "readOnlyRemote": true,
+  "note": "the application remote is read-only this session; no push/deploy/setting change is made upstream. The lab candidate is an isolated, separately-identified build."
+ },
+ "lab": {
+  "repository": "dictationb1/supreme-lamp-lab",
+  "continuationBranch": "arena/25db7e16-supreme-lamp-lab",
+  "consolidatedFrom": "PR #28 head c7a0bf647c4e4702c0d77908fb90b2908c2cb670 (fast-forwarded onto this branch; reader, harness, signing, authorization and UI repairs preserved)",
+  "priorBundle": "reports/mission-control/40051974454-1 (immutable historical evidence retained)",
+  "hostedRegressions": {
+   "platform": "linux",
+   "node": "v22.22.3",
+   "runner": "scripts/run-regressions.js",
+   "total": 243,
+   "passed": 235,
+   "failed": 0,
+   "skipped": 8,
+   "skippedReason": "browser-e2e optional lanes"
   },
-  "lab": {
-    "repository": "dictationb1/supreme-lamp-lab",
-    "continuationBranch": "arena/25db7e16-supreme-lamp-lab",
-    "consolidatedFrom": "PR #28 head c7a0bf647c4e4702c0d77908fb90b2908c2cb670 (fast-forwarded onto this branch; reader, harness, signing, authorization and UI repairs preserved)",
-    "priorBundle": "reports/mission-control/40051974454-1 (immutable historical evidence retained)",
-    "hostedRegressions": {
-      "platform": "linux",
-      "node": "v22.22.3",
-      "runner": "scripts/run-regressions.js",
-      "total": 243,
-      "passed": 235,
-      "failed": 0,
-      "skipped": 8,
-      "skippedReason": "browser-e2e optional lanes"
-    },
-    "applicationSmokeTests": {
-      "tool": "vitest 2.x in the patched application tree",
-      "files": 108,
-      "tests": 1388,
-      "passed": 1388,
-      "failed": 0,
-      "note": "1378 historical + 10 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 10) is 21/21"
-    },
-    "productionBuild": {
-      "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
-      "result": "ok",
-      "bundle": "ui/dist/index.html",
-      "localBuildSha256": "ac47872fb3b7168d892d09e43d307ae830dd75c7d426db824c15b60bb2ad7c2f",
-      "note": "local sandbox build; the CI build on the Windows job records its own provenance and sha"
-    }
+  "applicationSmokeTests": {
+   "tool": "vitest 2.x in the patched application tree",
+   "files": 108,
+   "tests": 1389,
+   "passed": 1389,
+   "failed": 0,
+   "note": "1378 historical + 11 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 11) is 22/22"
   },
-  "patchSeries": [
-    {
-      "order": 1,
-      "file": "app-patches/0001-F201-probe-honesty.patch",
-      "title": "F201 probe honesty (frontend)",
-      "preservedFrom": "40051974454-1",
-      "appliesTo": "832a82eb clean"
-    },
-    {
-      "order": 2,
-      "file": "app-patches/0002-R1-server-startup-readiness.patch",
-      "title": "R1 server startup readiness",
-      "preservedFrom": "40051974454-1",
-      "appliesTo": "832a82eb clean"
-    },
-    {
-      "order": 3,
-      "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
-      "title": "R2 bounded WebSocket worker runspace (accept-loop starvation repair)",
-      "newThisBundle": true,
-      "appliesTo": "after 0001+0002",
-      "staticRegression": "src/tests/smoke/r2-websocket-worker.test.ts",
-      "labRegression": "scripts/test/ws-frame-regressions.js + scripts/lib/ws-frame.js"
-    }
-  ],
-  "r2Repair": {
-    "defectRecord": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md",
-    "approach": "offload only the long-lived /ws pump to a bounded runspace pool behind a non-blocking SemaphoreSlim; ordinary HTTP stays inline so all script-scope shared state keeps single-threaded semantics",
-    "admission": "GHRDP_WS_MAX_CLIENTS default 16 clamped 4..64; Wait(0) non-blocking; over-capacity answered 503 and closed",
-    "sharedStateSafety": "worker receives only the pump dependency surface; no RdpTokens/credential-ledger/cache access; per-connection token validated in the pump; audit serialized on a shared Monitor lock; socket/stream/gate released in finally; reaper + shutdown dispose pool and semaphore",
-    "tunables": {
-      "GHRDP_WS_MAX_CLIENTS": "4..64, default 16",
-      "GHRDP_WS_PING_INTERVAL_SEC": "1..120, default 20",
-      "GHRDP_WS_IDLE_TIMEOUT_SEC": "5..300, default 90",
-      "GHRDP_WS_MAX_LIFETIME_SEC": "10..3600, default 1800"
-    },
-    "frozenThresholds": "scripts/candidate/real-backend.js R2_THRESHOLDS (declared before any run; never adjusted post-failure)"
-  },
-  "windowsVerification": {
-    "workflow": ".github/workflows/real-backend.yml",
-    "trigger": "same-repository pull_request with label real-backend-run (synchronize/labeled); workflow_dispatch also defined",
-    "runner": "[self-hosted, Windows, X64, rdp-lab-client]",
-    "historicalIdentity": "WIN-NFU1JG4VESE\\User; interactive session previously 1 (re-read, not assumed, by the runner identity step)",
-    "backendKind": "actual_application",
-    "browserWebSocketStubbed": false,
-    "browserMode": "headed",
-    "attempts": [
-      {
-        "runId": "40076700953",
-        "result": "failed at step 7 (app smoke gate) before any measurement; steps 8-9 skipped",
-        "rootCause": "the new 8th LAB-R2 assertion used a regex Math::Max(5...) missing the [Math] qualifier, so it could never match the correct source line [Math]::Max(5, [Math]::Min(300...)); a test-only defect, no production code changed",
-        "fix": "corrected the regex to \\[Math\\]::Max(5,...); regenerated 0003 (same 423 lines, one in-place test line); clean replay now 19/19 on the exact VM vitest command and 1386/1386 full suite",
-        "evidence": "evidence/windows-run-40076700953-step7-fix.md"
-      },
-      {
-        "runId": "40078279249",
-        "headSha": "015a7ae",
-        "result": "step 7 smoke 19/19 PASS; step 8 PS parse PASS; step 9 measured; evaluate gate FAILed on the R2 matrix",
-        "r2Headline": "accept-loop starvation reproduced on pristine (wsUpgraded=true, /health blocked 5011ms; stall 4615ms) and removed on patched (stall 826ms, HTTP never blocked, median health 23-54ms)",
-        "remainingDefect": "every /ws upgrade is answered 503 even for the first connection on a fresh cap=8 gate (held=0, rejected=9); the worker never runs. Two inline 503 branches exist (admission Wait(0) vs dispatch BeginInvoke catch); the prior harness discarded the body so the branch was not attributable",
-        "matrixCounts": "PASS=20 FAIL=9 BLOCKED=9; r2Matrix PASS=1 FAIL=6 BLOCKED=3",
-        "nextStep": "instrumented 0003 (439 lines) logs gate CurrentCount, pool available runspaces and any exception via [LAB-R2] stdout+audit; harness captures the 503 body and r2AuditLines; the following run attributes the exact branch/.NET fault",
-        "evidence": "evidence/windows-run-40078279249-r2-503-defect.md"
-      },
-      {
-        "runId": "40081193119",
-        "headSha": "747192d",
-        "result": "instrumentation localised the fault; step 9 measured, gate FAILed while the all-503 defect persisted",
-        "rootCause": "System.Management.Automation.MethodException: Cannot find an overload for Create and the argument count 1, from [powershell]::Create($script:R2WsPool). The PS 5.1 [powershell] accelerator cannot bind the static Create(RunspacePool) 1-arg overload. No gate/saturated lines appeared and avail=8, proving the semaphore admission and pool were healthy; only the worker instance construction threw.",
-        "fix": "use [powershell]::Create() then set the settable RunspacePool property (binds on PS 5.1 and PS 7); added a 9th static assertion pinning the pattern and forbidding the 1-arg Create. 0003 is now 457 lines.",
-        "verificationSoFar": "r2 static test 9/9 on LF and CRLF; clean replay 3 files/20 smoke tests; full app suite 108 files/1387 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
-        "evidence": "evidence/windows-run-40081193119-root-cause.md"
-      },
-      {
-        "runId": "40082655039",
-        "headSha": "ae4bfad",
-        "result": "Create overload fix confirmed (zero dispatch/gate faults, no 503); step 9 measured, gate FAILed on a second distinct defect",
-        "newSymptom": "every /ws ended in ECONNRESET with an empty body before any 101; held=0, okCycles=0; ordinary HTTP stayed fast (health median 50ms), stall 3818ms->1049ms",
-        "rootCause": "Invoke-ClientRequest outer try/finally disposes the stream and closes the client on every return. The async /ws dispatcher returns immediately, so that finally tore the socket down before the worker wrote 101; the inline baseline never hit this because the pump blocked inside the try for the socket lifetime.",
-        "fix": "added an r2Dispatched ownership flag set true on the /ws branch and guarded the outer finally with if (-not r2Dispatched); the worker finally remains the single owner that closes/disposes/releases. Worker catch now logs [LAB-R2] worker EXCEPTION instead of swallowing it; a 10th static assertion pins the guard. 0003 is now 509 lines.",
-        "verificationSoFar": "r2 static 10/10 on LF and CRLF; clean replay 3 files/21 smoke tests; full app suite 108 files/1388 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
-        "evidence": "evidence/windows-run-40082655039-finally-ownership.md"
-      }
-    ],
-    "status": "two distinct PS-runtime defects found and fixed (Create overload binding; outer-finally socket ownership). Re-confirm on the next Windows run which must show real 101 upgrades and a passing r2 matrix",
-    "matrixControls": [
-      "r2.no_ws_control_health",
-      "r2.one_ws_health_responsive",
-      "r2.multi_ws_health_and_config",
-      "r2.capacity_limit_predictable",
-      "r2.state_change_while_ws_open",
-      "r2.ws_real_frames_and_echo",
-      "r2.ws_close_abrupt_reconnect",
-      "r2.ws_idle_expiry",
-      "r2.ws_malformed_handshake_bounded",
-      "r2.repeated_cycles_no_leak",
-      "real.browser_ws_real_frames",
-      "real.browser_ws_http_concurrent",
-      "real.browser_ws_reconnect",
-      "backend.ws_accept_loop_block"
-    ]
-  },
-  "verdictScope": {
-    "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1388/1388; Windows step-7 21/21). On real Windows the accept-loop starvation is fixed (stall ~3.8-4.6s -> ~0.8-1.0s, HTTP never blocked). Two distinct PS-runtime defects were found via the VM and fixed: (1) PS 5.1 [powershell]::Create(runspacePool) 1-arg overload MethodException -> parameterless Create() + RunspacePool property; (2) the request handler's outer finally closed the async worker's socket before 101 (ECONNRESET) -> r2Dispatched ownership transfer with a guarded finally. Real 101 upgrades and the passing r2 matrix are pending the next Windows run.",
-    "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
-    "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
-    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",
-    "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md and the capability verification reports)"
+  "productionBuild": {
+   "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
+   "result": "ok",
+   "bundle": "ui/dist/index.html",
+   "localBuildSha256": "ac47872fb3b7168d892d09e43d307ae830dd75c7d426db824c15b60bb2ad7c2f",
+   "note": "local sandbox build; the CI build on the Windows job records its own provenance and sha"
   }
+ },
+ "patchSeries": [
+  {
+   "order": 1,
+   "file": "app-patches/0001-F201-probe-honesty.patch",
+   "title": "F201 probe honesty (frontend)",
+   "preservedFrom": "40051974454-1",
+   "appliesTo": "832a82eb clean"
+  },
+  {
+   "order": 2,
+   "file": "app-patches/0002-R1-server-startup-readiness.patch",
+   "title": "R1 server startup readiness",
+   "preservedFrom": "40051974454-1",
+   "appliesTo": "832a82eb clean"
+  },
+  {
+   "order": 3,
+   "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
+   "title": "R2 bounded WebSocket worker runspace (accept-loop starvation repair)",
+   "newThisBundle": true,
+   "appliesTo": "after 0001+0002",
+   "staticRegression": "src/tests/smoke/r2-websocket-worker.test.ts",
+   "labRegression": "scripts/test/ws-frame-regressions.js + scripts/lib/ws-frame.js",
+   "thirdFix": "run 40084261133 exposed a worker-slot leak: the F99 pump only issued a Read when bytes were already available, so a peer FIN with no pending frame was never observed and the gate slot was held until the idle timeout; added a non-blocking Socket.Poll(0, SelectRead) liveness probe that treats Poll-true + Available==0 as EOF/reset and breaks to the worker finally (release/close/dispose). An 11th static assertion pins Poll+SelectRead.",
+   "lineCount": 537
+  }
+ ],
+ "r2Repair": {
+  "defectRecord": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md",
+  "approach": "offload only the long-lived /ws pump to a bounded runspace pool behind a non-blocking SemaphoreSlim; ordinary HTTP stays inline so all script-scope shared state keeps single-threaded semantics",
+  "admission": "GHRDP_WS_MAX_CLIENTS default 16 clamped 4..64; Wait(0) non-blocking; over-capacity answered 503 and closed",
+  "sharedStateSafety": "worker receives only the pump dependency surface; no RdpTokens/credential-ledger/cache access; per-connection token validated in the pump; audit serialized on a shared Monitor lock; socket/stream/gate released in finally; reaper + shutdown dispose pool and semaphore",
+  "tunables": {
+   "GHRDP_WS_MAX_CLIENTS": "4..64, default 16",
+   "GHRDP_WS_PING_INTERVAL_SEC": "1..120, default 20",
+   "GHRDP_WS_IDLE_TIMEOUT_SEC": "5..300, default 90",
+   "GHRDP_WS_MAX_LIFETIME_SEC": "10..3600, default 1800"
+  },
+  "frozenThresholds": "scripts/candidate/real-backend.js R2_THRESHOLDS (declared before any run; never adjusted post-failure)",
+  "slotReclaimFix": {
+   "defect": "worker-slot leak / zombie workers (run 40084261133): gate drained to count=0/avail=0 while only 3-5 sockets were actually held; 18 audit lines all \"ws 503 saturated count=0 avail=0\", zero worker EXCEPTION and zero close lines",
+   "rootCause": "the F99 pump guarded NetworkStream.Read behind ($Client.Client.Available -gt 0 -or $Stream.DataAvailable); on a peer disconnect with no buffered bytes no Read is ever issued, so Read returning 0 (EOF) is unreachable and the worker sleeps until F99WsIdleTimeoutSec instead of releasing its SemaphoreSlim slot promptly",
+   "fix": "at the top of each pump iteration call $Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead); when Poll returns true and Available is 0 (and no buffered stream data) the peer has half-closed/reset, so break with close status 1006 into the existing worker finally, which closes the socket, disposes the stream/runspace handle via the accept-loop reaper and calls SemaphoreSlim.Release()",
+   "compatibility": "System.Net.Sockets.Socket.Poll exists on .NET Framework (PS 5.1) and .NET (PS 7); Poll(0) is non-blocking; an idle open socket returns false and keeps the original wait behavior; no timeout change, no capacity increase, gate control flow untouched",
+   "staticGuard": "11th r2 assertion requires the Poll(0, SelectRead)+Available-eq-0->1006 pattern; passes on LF and CRLF"
+  }
+ },
+ "windowsVerification": {
+  "workflow": ".github/workflows/real-backend.yml",
+  "trigger": "same-repository pull_request with label real-backend-run (synchronize/labeled); workflow_dispatch also defined",
+  "runner": "[self-hosted, Windows, X64, rdp-lab-client]",
+  "historicalIdentity": "WIN-NFU1JG4VESE\\User; interactive session previously 1 (re-read, not assumed, by the runner identity step)",
+  "backendKind": "actual_application",
+  "browserWebSocketStubbed": false,
+  "browserMode": "headed",
+  "attempts": [
+   {
+    "runId": "40076700953",
+    "result": "failed at step 7 (app smoke gate) before any measurement; steps 8-9 skipped",
+    "rootCause": "the new 8th LAB-R2 assertion used a regex Math::Max(5...) missing the [Math] qualifier, so it could never match the correct source line [Math]::Max(5, [Math]::Min(300...)); a test-only defect, no production code changed",
+    "fix": "corrected the regex to \\[Math\\]::Max(5,...); regenerated 0003 (same 423 lines, one in-place test line); clean replay now 19/19 on the exact VM vitest command and 1386/1386 full suite",
+    "evidence": "evidence/windows-run-40076700953-step7-fix.md"
+   },
+   {
+    "runId": "40078279249",
+    "headSha": "015a7ae",
+    "result": "step 7 smoke 19/19 PASS; step 8 PS parse PASS; step 9 measured; evaluate gate FAILed on the R2 matrix",
+    "r2Headline": "accept-loop starvation reproduced on pristine (wsUpgraded=true, /health blocked 5011ms; stall 4615ms) and removed on patched (stall 826ms, HTTP never blocked, median health 23-54ms)",
+    "remainingDefect": "every /ws upgrade is answered 503 even for the first connection on a fresh cap=8 gate (held=0, rejected=9); the worker never runs. Two inline 503 branches exist (admission Wait(0) vs dispatch BeginInvoke catch); the prior harness discarded the body so the branch was not attributable",
+    "matrixCounts": "PASS=20 FAIL=9 BLOCKED=9; r2Matrix PASS=1 FAIL=6 BLOCKED=3",
+    "nextStep": "instrumented 0003 (439 lines) logs gate CurrentCount, pool available runspaces and any exception via [LAB-R2] stdout+audit; harness captures the 503 body and r2AuditLines; the following run attributes the exact branch/.NET fault",
+    "evidence": "evidence/windows-run-40078279249-r2-503-defect.md"
+   },
+   {
+    "runId": "40081193119",
+    "headSha": "747192d",
+    "result": "instrumentation localised the fault; step 9 measured, gate FAILed while the all-503 defect persisted",
+    "rootCause": "System.Management.Automation.MethodException: Cannot find an overload for Create and the argument count 1, from [powershell]::Create($script:R2WsPool). The PS 5.1 [powershell] accelerator cannot bind the static Create(RunspacePool) 1-arg overload. No gate/saturated lines appeared and avail=8, proving the semaphore admission and pool were healthy; only the worker instance construction threw.",
+    "fix": "use [powershell]::Create() then set the settable RunspacePool property (binds on PS 5.1 and PS 7); added a 9th static assertion pinning the pattern and forbidding the 1-arg Create. 0003 is now 457 lines.",
+    "verificationSoFar": "r2 static test 9/9 on LF and CRLF; clean replay 3 files/20 smoke tests; full app suite 108 files/1387 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+    "evidence": "evidence/windows-run-40081193119-root-cause.md"
+   },
+   {
+    "runId": "40082655039",
+    "headSha": "ae4bfad",
+    "result": "Create overload fix confirmed (zero dispatch/gate faults, no 503); step 9 measured, gate FAILed on a second distinct defect",
+    "newSymptom": "every /ws ended in ECONNRESET with an empty body before any 101; held=0, okCycles=0; ordinary HTTP stayed fast (health median 50ms), stall 3818ms->1049ms",
+    "rootCause": "Invoke-ClientRequest outer try/finally disposes the stream and closes the client on every return. The async /ws dispatcher returns immediately, so that finally tore the socket down before the worker wrote 101; the inline baseline never hit this because the pump blocked inside the try for the socket lifetime.",
+    "fix": "added an r2Dispatched ownership flag set true on the /ws branch and guarded the outer finally with if (-not r2Dispatched); the worker finally remains the single owner that closes/disposes/releases. Worker catch now logs [LAB-R2] worker EXCEPTION instead of swallowing it; a 10th static assertion pins the guard. 0003 is now 509 lines.",
+    "verificationSoFar": "r2 static 10/10 on LF and CRLF; clean replay 3 files/21 smoke tests; full app suite 108 files/1388 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+    "evidence": "evidence/windows-run-40082655039-finally-ownership.md"
+   },
+   {
+    "runId": "40084261133",
+    "headSha": "a1d98f1",
+    "result": "defects #1 (Create overload) and #2 (finally ownership) confirmed fixed: real HTTP 101 upgrades now occur (101 observed on ws_accept_loop_block, one_ws and 5/5 multi_ws); step 7 smoke PASS, step 9 measured, step 12 gate honestly FAILed on a third distinct defect",
+    "confirmedGreen": {
+     "backend.ws_accept_loop_block": "PASS (wsUpgraded=true, blocked=false, healthDuringWsMs=55)",
+     "r2.no_ws_control_health": "PASS (median 53ms p95 58, 0 timeouts)",
+     "r2.one_ws_health_responsive": "PASS (upgraded=true, 5/6 health ok, median 30ms)",
+     "r2.multi_ws_health_and_config": "PASS (5/5 upgrades, health 6/6 max 88ms, /api/config 200/39ms)"
+    },
+    "newSymptom": "worker-slot leak: capacity control held only 3 of 8 slots then rejected 6 with 503 \"websocket capacity exhausted; retry\"; 18 stdout/audit lines all \"ws 503 saturated count=0 avail=0\"; zero ws-closed lines and zero worker EXCEPTION lines; repeated_cycles okCycles=5/10 with handle growth 886->913 while threads stayed 34; close/reconnect FAIL, idle expiry BLOCKED, frames/echo BLOCKED (503), malformed handshake FAIL (503), state_change socketsHeld=0; browser real.browser_ws_* all FAIL because the pool was exhausted before the browser phase",
+    "rootCause": "F99 pump only reads when data is already available, so a client disconnect carrying no pending bytes is never seen as EOF; the worker keeps its gate slot until the 8s test idle timeout, draining all 8 slots despite only a few live sockets",
+    "fix": "Socket.Poll(0, SelectRead) liveness probe at the top of each pump iteration; Poll-true with zero Available means peer FIN/reset -> break -> worker finally closes/disposes/releases within one loop tick; 11th static assertion added; 0003 regenerated at 537 lines",
+    "verificationSoFar": "r2 static 11/11 on LF and CRLF; clean replay 3 files/22 smoke tests; full app suite 108 files/1389 tests; production build OK; Windows re-confirm pending on the next real-backend run",
+    "evidence": "evidence/real-backend-40084261133/ (bot-committed sanitized stdout/stderr, patched-real-backend-report.json, control coverage, screenshots) and evidence/windows-run-40084261133-slot-leak.md"
+   }
+  ],
+  "status": "three distinct PS-runtime defects found and fixed (Create overload binding; outer-finally socket ownership; pump EOF slot leak). Run 40084261133 proves the first two fixes with real 101 upgrades and 4 green r2 controls; the third fix (Socket.Poll liveness) awaits re-confirmation, which must show 8 held + 503 only on the 9th socket, frames/echo, idle expiry, clean reconnect and okCycles 10/10 without handle growth",
+  "matrixControls": [
+   "r2.no_ws_control_health",
+   "r2.one_ws_health_responsive",
+   "r2.multi_ws_health_and_config",
+   "r2.capacity_limit_predictable",
+   "r2.state_change_while_ws_open",
+   "r2.ws_real_frames_and_echo",
+   "r2.ws_close_abrupt_reconnect",
+   "r2.ws_idle_expiry",
+   "r2.ws_malformed_handshake_bounded",
+   "r2.repeated_cycles_no_leak",
+   "real.browser_ws_real_frames",
+   "real.browser_ws_http_concurrent",
+   "real.browser_ws_reconnect",
+   "backend.ws_accept_loop_block"
+  ]
+ },
+ "verdictScope": {
+  "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
+  "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1389/1389; Windows step-7 gate 22/22). On real Windows the accept-loop starvation is fixed and real 101 upgrades occur (4 r2/backend controls PASS on run 40084261133); a third defect (pump EOF slot leak) was found, fixed via Socket.Poll liveness and is pending Windows re-confirmation; gate remains red until the full r2 matrix and browser ws controls pass",
+  "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
+  "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
+  "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",
+  "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md and the capability verification reports)"
+ }
 }

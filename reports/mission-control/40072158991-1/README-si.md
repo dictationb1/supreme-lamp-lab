@@ -61,13 +61,13 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1388/1388 + Windows step-7 21/21 PASS; build OK. **සත්‍ය Windows මැනුම: accept-loop starvation මැකී ඇත (stall ~3.8–4.6s→~0.8–1.0s, HTTP කිසිදා නොනවතී). PS-runtime දෝෂ දෙකක් VM හිදී හමුවී නිවැරදි කර ඇත: (1) PS 5.1 `[powershell]::Create(runspacePool)` overload MethodException → `Create()` + `.RunspacePool=`; (2) request handler ගේ පිටත finally එක async worker ගේ socket එක 101ට පෙර වැසීම (ECONNRESET) → `$r2Dispatched` හිමිකාර-මාරු ආරක්ෂකයක්. ඊළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි + සමත් r2 matrix සනාථ කළ යුතුය.** |
+| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1389/1389 + Windows step-7 22/22 PASS; build OK. **සත්‍ය Windows මැනුම (ධාවනය 40084261133): accept-loop starvation මැකී ඇත, සත්‍ය HTTP 101 උත්ශ්‍රේණි දැන් සිදුවේ, r2/backend පාලන 4ක් PASS (HTTP කිසිදා නොනවතී). PS-runtime දෝෂ තුනක් VM හිදී හමුවී නිවැරදි කර ඇත: (1) PS 5.1 `[powershell]::Create(runspacePool)` overload MethodException → `Create()` + `.RunspacePool=`; (2) request handler ගේ පිටත finally එක async worker ගේ socket එක 101ට පෙර වැසීම (ECONNRESET) → `$r2Dispatched` හිමිකාර-මාරු ආරක්ෂකය; (3) F99 පොම්පය දත්ත රහිත peer-viyojanයක් (EOF) නොදැකීම නිසා worker-slot කාන්දුව → `Socket.Poll(SelectRead)` ජීවන-පරීක්ෂාව. තුන්වන නිවැරදි කිරීමේ VM නැවත-සනාථ කිරීම ඊළඟ ධාවනයේදී ලැබිය යුතුය.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
-සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1388 පරීක්ෂණ (1378 පෙර + 10 නව R2);
+සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1389 පරීක්ෂණ (1378 පෙර + 11 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
 
 ### 3.1 සත්‍ය Windows මැනුමෙන් හමුවූ දෝෂය (ධාවනය 40078279249) — වංචනික PASS නැත
@@ -99,11 +99,40 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   මාරු ධජයක් සකසා, පිටත cleanup එක `if (-not $r2Dispatched)` මගින් ආරක්ෂා කරයි; socket එක
   වසන/dispose කරන/ගේට්ටුව මුදන එකම හිමිකරු worker ගේ `finally` වේ. පෙර හිස් `catch {}` වෙනුවට
   `[LAB-R2] worker EXCEPTION` ලොගයක් එක් කර ඇත. දසවන ස්ථිතික පරීක්ෂණය මෙම ආරක්ෂකය අගුලු දමයි.
-- පිරිසිදු replay: r2 10/10 (LF + CRLF), smoke 21/21, සම්පූර්ණ suite 1388/1388, build OK.
+- පිරිසිදු replay (දෙවන නිවැරදි කිරීමෙන් පසුව): r2 10/10 (LF + CRLF), smoke 21/21,
+  සම්පූර්ණ suite 1388/1388, build OK.
 - evaluate gate එක සෑම දෝෂයක්ම නිවැරදිව FAIL ලෙස සලකුණු කළේය; R2 acceptance PASS ලෙස කිසි විටෙක
-  උඩඟු ලෙස ප්‍රකාශ නොවේ. **මීළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි සහ සමත් r2 matrix එකක්
-  පෙන්වන තුරු R2 සම්පූර්ණ PASS නොවේ.** නිවැරදි-නොකළ builds වල මුල් matrix පේළි FAIL/BLOCKED ලෙස
-  අවංකව සුරැකී ඇත (`control-coverage.csv`: 7 PASS / 9 FAIL / 6 BLOCKED).
+  උඩඟු ලෙස ප්‍රකාශ නොවේ. නිවැරදි-නොකළ builds වල මුල් matrix පේළි FAIL/BLOCKED ලෙස
+  අවංකව සුරැකී ඇත.
+
+### 3.2 ධාවනය 40084261133 — පළමු නිවැරදි දෙක තහවුරු විය; තුන්වන දෝෂයක් (slot කාන්දුව) හමුවිය
+
+- head `a1d98f1` මත සත්‍ය Windows VM හි **පළමු දෝෂ දෙකම සනාථ විය**: සත්‍ය HTTP 101
+  උත්ශ්‍රේණි දැන් සිදුවේ; `backend.ws_accept_loop_block`, `r2.no_ws_control_health`,
+  `r2.one_ws_health_responsive`, `r2.multi_ws_health_and_config` යන පාලන සතරම PASS
+  (5/5 සමගාමී උත්ශ්‍රේණි, /health උපරිමය 88ms, සාමාන්‍ය HTTP කිසිදා නොනවතී).
+- නමුත් **තුන්වන වෙනස් දෝෂයක් — worker-slot කාන්දුවක්** — හමුවිය: ධාරිතාව 8ක gate එක
+  සජීවී socket 3–5ක් තිබියදීම `count=0 avail=0` දක්වා හිස් විය (`held=3 rejected=6`,
+  සියල්ල 503 `"websocket capacity exhausted; retry"`; sanitized stdout හි එවැනි පේළි 18ක්;
+  `ws closed` හෝ `worker EXCEPTION` පේළි ශුන්‍යයි; චක්‍ර 5/10 පමණක් සමත්, process handles
+  886→913 (+27), threads 34→34; reconnect/frames/idle/malformed පාලන FAIL හෝ BLOCKED;
+  headed browser `real.browser_ws_*` තුනම FAIL — browser අදියරට පෙර pool එක හිස් වී තිබුණි).
+- හේතුව: F99 පොම්පය `NetworkStream.Read` කැඳවන්නේ `Available > 0` හෝ `DataAvailable`
+  විට පමණි. බෆරගත දත්ත නොමැතිව peer එකක් විසන්ධි වුවහොත් Read කිසිදා කැඳවෙන්නේ නැත;
+  EOF (`Read` → 0) ශාඛාව ළඟා විය නොහැකි වී, worker එක idle-timeout එක දක්වා නිදාගෙන
+  සිටිමින් තම semaphore slot එක රඳවා ගනී — විසි කිරීමක් (throw) නොමැති නිහඬ කාන්දුවකි.
+- තුන්වන නිවැරදි කිරීම (0003, දැන් 537 පේළි): සෑම පොම්ප-පුනරාවර්තනයකම මුදුනේ නොඅවහිර
+  `$Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead)` ජීවන-පරීක්ෂණයක්;
+  Poll සත්‍ය සහ `Available -eq 0` නම් peer FIN/reset ලෙස අර්ථ දැක්වී, පවතින worker
+  `finally` වෙත break වේ (socket වැසීම, dispose, gate `Release()`, reaper එක runspace
+  handle එක දැමීම). විවෘත-නිෂ්ක්‍රීය socket එකක පැරණි හැසිරීම නොවෙනස් ය; `Socket.Poll`
+  .NET Framework (PS 5.1) සහ .NET (PS 7) දෙකටම ඇත; ධාරිතාව/කාල-සීමා කිසිවක් වෙනස් නොවේ.
+- එකොළොස්වන ස්ථිතික පරීක්ෂණය Poll+SelectRead රටාව අගුලු දමයි (LF සහ CRLF දෙකේම 11/11).
+  වත්මන් පිරිසිදු replay: r2 11/11, smoke 22/22, සම්පූර්ණ suite 1389/1389, build OK.
+- **R2 සම්පූර්ණ PASS නොවේ.** ඊළඟ VM ධාවනය මේවා පෙන්විය යුතුය: socket 8ක් රඳවා 9වැන්න
+  පමණක් 503 වීම, සත්‍ය frames/echo, server-side idle expiry, පිරිසිදු reconnect,
+  handle වර්ධනයක් නැති 10/10 චක්‍ර, සහ headed `real.browser_ws_*` තුනම PASS.
+  සියලු ධාවනවල සත්‍ය මැනුම් `control-coverage.csv` හි අවංකව සුරැකී ඇත.
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 

@@ -53,9 +53,9 @@ Already executed in this lab (Linux, Node v22):
 
 - Patch series applies cleanly on a fresh `832a82eb` download; output is
   byte-identical to the hand-built candidate.
-- Application smoke tests: **108 files / 1388 tests pass** (1378 historical +
-  10 new R2 structural tests; the R2 test fails on the pristine base and passes
-  on the repaired file).
+- Application smoke tests: **108 files / 1389 tests pass** (1378 historical +
+  11 new R2 structural tests; the R2 test fails on the pristine base and passes
+  on the repaired file, on both LF and CRLF copies of the server script).
 - Production build `pnpm run build` (tsc + vite single-file) succeeds.
 - Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /
   0 fail / 8 skip** (the skips are optional browser lanes).
@@ -114,13 +114,37 @@ an R2 PASS yet:
   outer cleanup; the worker `finally` remains the single owner that closes,
   disposes and releases the gate. The worker's previously-empty `catch` now logs
   `[LAB-R2] worker EXCEPTION` so a fault can never again appear as a bare reset.
-- 0003 is now 509 lines with ten static assertions (all green on LF and CRLF).
-  The next labelled run must show real 101 upgrades, capacity holding at eight
-  with a 503 only on the ninth, live frames/echo, idle expiry and reconnect.
-  Earlier matrix honesty (7 PASS / 9 FAIL / 6 BLOCKED on the unfixed builds) is
-  preserved in `control-coverage.csv` and the `evidence/windows-run-*.md`
-  records; the passing re-run's evidence supersedes those rows. Native RDP/Web
-  Desktop remain separately BLOCKED.
+- Run 40084261133 (head `a1d98f1`) then **confirmed both fixes on the real VM**:
+  genuine HTTP 101 upgrades now occur and `backend.ws_accept_loop_block`,
+  `r2.no_ws_control_health`, `r2.one_ws_health_responsive` and
+  `r2.multi_ws_health_and_config` all PASS (HTTP never blocks, 5/5 concurrent
+  upgrades, health max 88 ms). It also exposed a **third, distinct defect — a
+  worker-slot leak**: with cap 8 the gate drained to `count=0 avail=0` while
+  only 3–5 sockets were actually held (capacity `held=3 rejected=6`, all 503
+  `"websocket capacity exhausted; retry"`; 18 identical saturated audit lines;
+  zero `ws closed` and zero `worker EXCEPTION` lines; cycles 5/10 with handles
+  886 → 913; reconnect/frames/idle/malformed controls FAIL or BLOCKED; the
+  headed browser's three `real.browser_ws_*` controls FAIL because the pool was
+  exhausted before the browser phase).
+- Root cause of the leak: the F99 pump only calls `NetworkStream.Read` when
+  `Available > 0` or `DataAvailable`, so a peer disconnect with no buffered
+  bytes never reaches the EOF (`Read` → 0) branch; the worker sleeps until the
+  idle timeout while still holding its semaphore slot. The fix adds a
+  non-blocking `$Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead)`
+  liveness probe at the top of each pump iteration — Poll-true with zero
+  `Available` means peer FIN/reset, so the loop breaks into the existing worker
+  `finally` (close/dispose/`Release()`, reaper disposes the runspace handle).
+  Idle open sockets keep the old wait behavior; `Socket.Poll` exists on both
+  .NET Framework (PS 5.1) and .NET (PS 7); no capacity or timeout value
+  changed and the `Wait(0)` gate is untouched.
+- 0003 is now 537 lines with eleven static assertions (all green on LF and
+  CRLF). The next labelled run must show capacity holding at eight with a 503
+  only on the ninth, live frames/echo, server-side idle expiry, clean
+  abrupt-close reconnect, 10/10 leak-free cycles and the three headed browser
+  ws controls PASS. Earlier matrix honesty is preserved in
+  `control-coverage.csv` (including every run's rows) and the
+  `evidence/windows-run-*.md` records; the passing re-run's evidence supersedes
+  those rows. Native RDP/Web Desktop remain separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 
