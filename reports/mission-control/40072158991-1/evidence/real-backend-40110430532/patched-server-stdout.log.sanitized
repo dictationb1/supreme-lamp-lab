@@ -1,0 +1,12 @@
+# sanitized server stdout (secrets redacted)
+[F45] fx upload worker: started=True reason=
+True
+True
+[LAB-R2] websocket worker pool ready max=8
+[F28] logon scan #1 result=none sub=- eventTs=- 4624=0 4625=0 scanTs=2026-10-24T16:18:52.9687759Z
+[F30] conn-log scan #1 items=0 reasons=(none) scanTs=2026-10-24T16:18:53.1561654Z probeError=conn-logs-unreadable
+[LAB-R2] ws 503 saturated count=0 avail=0 max=8
+[F28] logon scan #2 result=none sub=- eventTs=- 4624=0 4625=0 scanTs=2026-10-24T16:19:22.9287097Z
+[F30] conn-log scan #2 items=0 reasons=(none) scanTs=2026-10-24T16:19:23.1004238Z probeError=conn-logs-unreadable
+[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run
+
