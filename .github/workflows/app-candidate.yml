@@ -81,9 +81,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22.23.3'
+      - name: Install pinned Node (SHA-256 verified; no setup-node 7zr path)
+        run: ./scripts/ps/Install-PinnedNode.ps1 -Version 'v22.23.3' -ExpectedSha256 '2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71'
       - name: Install the exact candidate harness and headed Chromium
         run: |
           npm ci --no-audit --no-fund
@@ -91,6 +90,7 @@ jobs:
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw 'playwright chromium install failed' }
       - name: Measure VM, current origin, and a sanitized headed-browser interaction
+        id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -103,12 +103,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $dir = Join-Path $env:RUNNER_TEMP "artifacts\vm-preflight-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          if (Test-Path $dir) {
-            node scripts/publish-evidence.js --dir $dir --dest ($env:BUNDLE_DIR + '/evidence/vm-preflight-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: VM preflight $env:GITHUB_RUN_ID [skip ci]"
-            exit $LASTEXITCODE
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $report = Join-Path $dir 'client-preflight.json'
+          if (-not (Test-Path $report)) {
+            @{
+              schema = 'slab-client-preflight/1'
+              generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+              scope = 'CLIENT_VM_PREFLIGHT_ONLY'
+              vmVerdict = 'BLOCKED'
+              fatal = 'PREFLIGHT_SCRIPT_NOT_REACHED; inspect the first failed setup step'
+              lab = @{ runId = $env:GITHUB_RUN_ID; attempt = $env:GITHUB_RUN_ATTEMPT; revision = $env:LAB_REVISION; runner = $env:RUNNER_NAME }
+            } | ConvertTo-Json -Depth 4 | Out-File -FilePath $report -Encoding utf8
           }
-          Write-Host '::error title=preflight evidence::output directory missing'
-          exit 1
+          node scripts/publish-evidence.js --dir $dir --dest ($env:BUNDLE_DIR + '/evidence/vm-preflight-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: VM preflight $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
       - name: Postflight (only this attempt's owned processes)
         if: always()
         run: |
