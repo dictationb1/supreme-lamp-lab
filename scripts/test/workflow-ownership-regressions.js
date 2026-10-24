@@ -89,6 +89,20 @@ module.exports = async function register({ test, assert }) {
     assert.match(wf, /dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378/, 'the pin is the config-pinned base zip hash');
   });
 
+  await test('rdp probe: the production dashboard URL follows the F43 routing contract', async () => {
+    // Run 40110430522: the probe navigated to /v2#/ - NOT a server route (the
+    // app serves v2 at / by default; /?ui=v1 selects Classic) - and measured a
+    // near-blank page + app-topbar timeout while the dashboard check on the
+    // SAME browser at / passed. The probe must use the same contract.
+    const mc = read('scripts/mission-control-check.js');
+    assert.ok(!mc.includes('\${args.target}/v2'), 'no /v2 path against the real backend');
+    assert.match(mc, /F43 routing contract/, 'the contract is documented at the navigation site');
+    // The stub keeps its own /v2 alias for its own sweep - that is the stub's
+    // contract, not the backend's; nothing to change there.
+    const stub = read('scripts/candidate/stub-server.js');
+    assert.match(stub, /p === '\/v2'/, 'the stub alias stays (stub-only contract)');
+  });
+
   await test('candidate: the stub is never labelled as the application server', async () => {
     const stub = read('scripts/candidate/stub-server.js');
     assert.ok(/lab-candidate-stub/.test(stub));

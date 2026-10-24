@@ -615,7 +615,12 @@ async function checkRdp(caps, browser, args, outDir, readinessBody, ownership = 
   const pageErrors = [];
   page.on('pageerror', e => pageErrors.push(redact(String(e && e.message || e)).slice(0, 300)));
   try {
-    await page.goto(`${args.target}/v2#/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // [F43 routing contract] The application serves v2 at / (the DEFAULT UI);
+    // /?ui=v1 selects the Classic UI. /v2 is NOT a server route (the candidate
+    // stub aliases it for its own sweep, but the real backend 404s it - run
+    // 40110430522: a near-blank page and an app-topbar timeout). Same URL as
+    // the dashboard check that passed on the same browser.
+    await page.goto(`${args.target}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('[data-testid="app-topbar"]', { state: 'visible', timeout: 20000 });
     handle.launch.authentication = await unlockDashboard(page);
     await page.waitForFunction(() => {
