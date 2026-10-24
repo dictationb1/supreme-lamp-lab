@@ -1,0 +1,20 @@
+{
+  "schema": "slab-capability-certificate/2",
+  "generatedAt": "2026-10-24T14:45:22.4462208Z",
+  "stage": "key-acl",
+  "code": "KEY_ACL_OK",
+  "ok": false,
+  "fqdn": "slab-srv-40103527914-1.tail7cf774.ts.net",
+  "tailscaleVersion": "1.94.2",
+  "attempts": [
+    {
+      "n": 1,
+      "exitCode": 0,
+      "certPresent": true,
+      "keyPresent": true,
+      "stderr": "",
+      "stdout": "Wrote public cert to C:\\ghrdp\\tls\\slab-srv-40103527914-1.tail7cf774.ts.net.crt\nWrote private key to C:\\ghrdp\\tls\\slab-srv-40103527914-1.tail7cf774.ts.net.key\n"
+    }
+  ],
+  "error": null
+}
