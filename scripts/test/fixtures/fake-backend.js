@@ -37,7 +37,12 @@ const DASH = sha => `<!doctype html><html><head><meta charset="utf-8"><meta id="
 // v2 (app >= F43 default UI): vite stamps <meta name="ghrdp-build"> in the head and React
 // renders <span id="ghrdpBuild" data-build> + [data-testid=app-topbar] after mounting.
 const DASH_V2 = (metaSha, renderSha, mount = true) => `<!doctype html><html><head><meta charset="utf-8"><meta name="ghrdp-build" content="${metaSha}"><title>RDP Mission Control</title></head><body><div id="root"></div>` +
-  (mount ? `<script>setTimeout(function(){document.getElementById('root').innerHTML='<span id="ghrdpBuild" class="hidden" data-build="${renderSha}" aria-hidden="true"></span><header data-testid="app-topbar">Mission Control</header>';},400);</script>` : '') + '</body></html>';
+  (mount ? `<script>setTimeout(function(){
+    document.getElementById('root').innerHTML='<span id="ghrdpBuild" class="hidden" data-build="${renderSha}" aria-hidden="true"></span><header data-testid="app-topbar">Mission Control</header><div data-testid="dash-token-gate"><button data-testid="dash-token-enter">enter</button><input data-testid="dash-token-input" type="password" hidden><button data-testid="dash-token-save" hidden>save</button></div><button data-testid="overview-auto-login" disabled aria-disabled="true">AUTO-LOGIN</button>';
+    var enter=document.querySelector('[data-testid="dash-token-enter"]'),input=document.querySelector('[data-testid="dash-token-input"]'),save=document.querySelector('[data-testid="dash-token-save"]');
+    enter.onclick=function(){input.hidden=false;save.hidden=false;};
+    save.onclick=function(){localStorage.setItem('ghrdp.dashToken',input.value);document.querySelector('[data-testid="dash-token-gate"]').style.display='none';var auto=document.querySelector('[data-testid="overview-auto-login"]');auto.disabled=false;auto.setAttribute('aria-disabled','false');};
+  },400);</script>` : '') + '</body></html>';
 // server.ps1 F42: v2 requested but ui-v2.html not staged -> v1 + red banner (HTTP 200)
 const DASH_V2_MISSING = sha => DASH(sha).replace('<body>', '<body><div id="uiV2MissingBanner" role="alert">ui-v2.html not staged in this run - main.yml stage step failed; re-dispatch or check CI</div>');
 function dashFor(mode, sha) {

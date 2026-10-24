@@ -85,15 +85,22 @@ module.exports = async function registerRdpSigningTests(H) {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  await test('rdp signing: the RDP attempt path signs the final .rdp before mstsc, and refuses an unsigned launch when configured', async () => {
+  await test('rdp acceptance: production UI/handler is mandatory and no setup path bypasses certificate validation', async () => {
     const mc = fs.readFileSync(path.join(__dirname, '..', 'mission-control-check.js'), 'utf8');
-    const writeIdx = mc.indexOf('rdpFileInfo = writeRdpFile(');
-    const signIdx = mc.indexOf('rdpSigning.signRdpFile(handle.rdpFile');
-    const spawnIdx = mc.indexOf('const child = spawn(mstscExe, [handle.rdpFile]');
-    assert.ok(writeIdx > 0 && signIdx > 0 && spawnIdx > 0, 'write -> sign -> launch must all exist');
-    assert.ok(writeIdx < signIdx && signIdx < spawnIdx, 'signing must happen after the file is final and before mstsc starts');
-    assert.ok(/RDP_FILE_SIGNING_FAILED/.test(mc), 'a configured-but-failed signature is a FAIL with its own code');
-    assert.ok(/RDP_FILE_SIGNING_NOT_CONFIGURED/.test(mc), 'an unconfigured client records the fact instead of pretending');
+    assert.ok(mc.includes("page.getByTestId('overview-auto-login').click"), 'the real dashboard button must be clicked');
+    assert.ok(mc.includes('/install.ps1') && mc.includes('Install-ProductionHandler.ps1'), 'the exact staged production installer must be used');
+    assert.ok(mc.includes('configIdentitySnapshot') && mc.includes('identity.buildSha !== args.expectSha'), 'the launch must bind the authenticated config identity and exact app build');
+    assert.ok(mc.includes('PRODUCTION_CHAIN_INCOMPLETE') && mc.includes('handlerObserved'), 'a logon without the production chain cannot pass');
+    assert.ok(mc.includes('credsspStatus: rl.credsspLive || rl.credsspStatus'), 'the trusted listener gate must read the production live CredSSP field');
+    assert.ok(mc.includes("runPs('Get-RdpClientTrustPosture.ps1'") && mc.includes('RDP_CLIENT_CERT_VALIDATION_NOT_GUARANTEED'), 'mstsc /v must refuse a pre-existing authentication-level bypass');
+    const trust = fs.readFileSync(path.join(__dirname, '..', 'ps', 'Get-RdpClientTrustPosture.ps1'), 'utf8');
+    assert.ok(trust.includes('AuthenticationLevelOverride') && trust.includes('mutationPerformed = $false'));
+    assert.ok(!/Set-(?:Item|ItemProperty)|New-ItemProperty|Remove-ItemProperty/.test(trust), 'the trust posture probe must be read-only');
+    assert.ok(!mc.includes('authentication level:i:0'), 'certificate validation bypass is forbidden');
+    assert.ok(mc.includes('authentication level:i:2'), 'the setup-only .rdp writer must fail closed on certificate trust');
+    assert.ok(!mc.includes('const child = spawn(mstscExe'), 'the acceptance check must not substitute a lab-direct mstsc launch');
+    for (const id of ['dash-token-gate', 'dash-token-enter', 'dash-token-input', 'dash-token-save']) assert.ok(mc.includes(`getByTestId('${id}')`), `production token control ${id} must be exercised`);
+    assert.ok(!mc.includes("getByTestId('dashboard-token-"), 'non-production token selectors are forbidden');
   });
 
   await test('workflow structure gate: the committed gate passes on this tree and refuses a real defect', async () => {

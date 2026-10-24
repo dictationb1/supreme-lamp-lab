@@ -1,0 +1,149 @@
+{
+  "schema": "slab-client-preflight/1",
+  "generatedAt": "2026-10-24T02:38:47.905Z",
+  "scope": "CLIENT_VM_PREFLIGHT_ONLY; not live application or RDP/Web Desktop acceptance",
+  "lab": {
+    "repository": "dictationb1/supreme-lamp-lab",
+    "runId": "40054869099",
+    "attempt": "1",
+    "revision": "f34c1e28b7bae292cfdcba337f849b5a34a87e60",
+    "runner": "rdp-lab-client",
+    "runnerEnvironment": "self-hosted"
+  },
+  "timings": {
+    "desktopLockMs": 624,
+    "inventoryMs": 638,
+    "originApiMs": 844,
+    "totalMs": 3520
+  },
+  "vm": {
+    "schema": "slab-client-vm-inventory/1",
+    "capturedAt": "2026-10-24T02:38:49.6224430Z",
+    "computer": "WIN-NFU1JG4VESE",
+    "account": "WIN-NFU1JG4VESE\\User",
+    "os": "Microsoft Windows Server 2022 Standard",
+    "osVersion": "10.0.20348.0",
+    "powerShell": "5.1.20348.5756",
+    "sessionId": 1,
+    "userInteractive": true,
+    "interactiveDesktop": true,
+    "runnerWorkerProcessCount": 1,
+    "responsive": true,
+    "memoryTotalBytes": 6441443328,
+    "memoryFreeBytes": 3690885120,
+    "systemDriveFreeBytes": 40713789440,
+    "browsers": [
+      {
+        "name": "edge",
+        "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      }
+    ],
+    "nativeLauncher": {
+      "mstscPath": "C:\\Windows\\System32\\mstsc.exe",
+      "mstscPresent": true,
+      "ghrdpHandlerUser": false,
+      "ghrdpHandlerMachine": false
+    },
+    "tailscale": {
+      "present": true,
+      "backendState": "Running",
+      "selfOnline": true,
+      "error": ""
+    }
+  },
+  "origin": {
+    "expected": {
+      "repository": "dictationb1/supreme-lamp",
+      "run": "40051974454",
+      "attempt": 1,
+      "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd"
+    },
+    "run": {
+      "repository": "dictationb1/supreme-lamp",
+      "id": "40051974454",
+      "attempt": 1,
+      "headSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "workflowPath": ".github/workflows/main.yml",
+      "status": "in_progress",
+      "conclusion": null,
+      "updatedAt": "2026-10-24T01:57:15Z"
+    },
+    "jobStatus": "in_progress/pending",
+    "firstFailure": "step 28: Stage files + write config.json (UTF8 no BOM, Rentry secrets + provided edit code, token, ACLs)",
+    "readinessReached": false,
+    "signalPublished": false,
+    "signalDetail": "SIGNAL_NOT_PUBLISHED for the exact run+attempt+SHA",
+    "endpoint": ""
+  },
+  "browser": {
+    "ok": true,
+    "message": "PASS: native browser click handled; headed=true; browser=chromium",
+    "screenshot": "client-preflight.png",
+    "durationMs": 675
+  },
+  "vmVerdict": "PASS",
+  "checks": [
+    {
+      "id": "vm.interactive_desktop",
+      "status": "PASS",
+      "expected": "Windows interactive session > 0",
+      "actual": "session=1; userInteractive=true; account=WIN-NFU1JG4VESE\\User"
+    },
+    {
+      "id": "vm.runner_responsive",
+      "status": "PASS",
+      "expected": "responsive runner process in the current job",
+      "actual": "responsive=true; Runner.Worker processes=1"
+    },
+    {
+      "id": "vm.resource_capacity",
+      "status": "PASS",
+      "expected": ">=512 MiB free RAM and >=2 GiB free system disk",
+      "actual": "freeMemoryBytes=3690885120; systemDriveFreeBytes=40713789440"
+    },
+    {
+      "id": "vm.native_launcher_present",
+      "status": "PASS",
+      "expected": "native mstsc present; handler state is observed, not changed",
+      "actual": "mstsc=true; ghrdpHandlerUser=false; ghrdpHandlerMachine=false"
+    },
+    {
+      "id": "vm.tailnet_ready",
+      "status": "PASS",
+      "expected": "Tailscale installed and this client online",
+      "actual": "present=true; backend=Running; selfOnline=true; "
+    },
+    {
+      "id": "vm.headed_browser_interaction",
+      "status": "PASS",
+      "expected": "headed Chromium executes a real click and produces a sanitized PNG",
+      "actual": "PASS: native browser click handled; headed=true; browser=chromium; screenshot=client-preflight.png"
+    }
+  ],
+  "originChecks": [
+    {
+      "id": "origin.validated_identity",
+      "status": "PASS",
+      "expected": "exact repository/run/attempt/SHA/workflow identity",
+      "actual": "{\"repository\":\"dictationb1/supreme-lamp\",\"id\":\"40051974454\",\"attempt\":1,\"headSha\":\"4a91c5c2eadc12e5b071bc46bae7683087f56fbd\",\"workflowPath\":\".github/workflows/main.yml\",\"status\":\"in_progress\",\"conclusion\":null,\"updatedAt\":\"2026-10-24T01:57:15Z\"}"
+    },
+    {
+      "id": "origin.rdp_readiness",
+      "status": "BLOCKED",
+      "expected": "readiness step completed successfully",
+      "actual": "step 28: Stage files + write config.json (UTF8 no BOM, Rentry secrets + provided edit code, token, ACLs)"
+    },
+    {
+      "id": "origin.signal_publication",
+      "status": "BLOCKED",
+      "expected": "exact run+attempt signal with output.text",
+      "actual": "SIGNAL_NOT_PUBLISHED for the exact run+attempt+SHA"
+    },
+    {
+      "id": "origin.network_path",
+      "status": "BLOCKED",
+      "expected": "authenticated endpoint discovered from the exact live signal",
+      "actual": "no validated endpoint published; no tailnet target was guessed"
+    }
+  ]
+}

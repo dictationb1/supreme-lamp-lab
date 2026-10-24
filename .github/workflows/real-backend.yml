@@ -1,0 +1,287 @@
+name: Real Backend Verification (lab-served, real client VM)
+
+# ---------------------------------------------------------------------------
+# Starts the ACTUAL application PowerShell server
+# (payloads/ghrdp-server.ps1) from the pinned application base and measures the
+# §7 startup-response stall on BOTH the pristine baseline and the LAB-R1
+# patched server, then drives a real headed browser on the interactive Windows
+# client against the real endpoints.
+#
+# Honesty rules:
+#   * This is the REAL application backend, never scripts/candidate/stub-server.js.
+#   * The Root is lab-only: a fresh synthetic dash key + synthetic credentials +
+#     a lab identity. It is NEVER the live origin, never an upstream MC-SIGNAL.
+#   * Native RDP / Web Desktop / real logon / external mirror acceptance remain
+#     BLOCKED with their exact prerequisites. They are not simulated as passes.
+#   * The exclusive cross-workflow desktop lock (scripts/lib/lock.js) is
+#     acquired inside the harness, so this never fights client_preflight for the
+#     single interactive desktop.
+#   * Everything publishable is sanitized into the lab repo because artifact
+#     ZIPs and step logs redirect to hosts this environment cannot reach.
+#
+# Trigger: the `real-backend-run` label on a same-repository PR (a `synchronize`
+# push with the label present is the reliable path), or workflow_dispatch.
+# ---------------------------------------------------------------------------
+run-name: real-backend ${{ github.event.pull_request.head.ref || github.ref_name }}
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      app_sha:
+        description: 'supreme-lamp base commit (40-hex)'
+        required: false
+        default: '4a91c5c2eadc12e5b071bc46bae7683087f56fbd'
+        type: string
+      runner:
+        description: 'vm = interactive client VM; anything else = hosted Windows'
+        required: false
+        default: 'vm'
+        type: string
+
+concurrency:
+  group: real-backend
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  APP_SHA: ${{ inputs.app_sha || '4a91c5c2eadc12e5b071bc46bae7683087f56fbd' }}
+  BUNDLE_DIR: reports/mission-control/40051974454-1
+  LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+  HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+  APP_ZIP_SHA256: dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378
+
+jobs:
+  real_backend:
+    name: run the real server + measure startup + drive the real UI
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'real-backend-run'))
+    # Only the same-repo PR-label path is executable in this session (a
+    # workflow_dispatch needs actions:write which the token lacks). Run on the
+    # interactive client VM so the browser is genuinely headed.
+    runs-on: [self-hosted, Windows, X64, rdp-lab-client]
+    timeout-minutes: 45
+    env:
+      CANDIDATE_HEADLESS: '0'
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Runner identity (read, never assume)
+        run: |
+          $s = (Get-Process -Id $PID).SessionId
+          Write-Host "::notice title=real-backend runner::$env:RUNNER_NAME $env:USERDOMAIN\$env:USERNAME session=$s labSha=$env:LAB_REVISION"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Install pinned Node (SHA-256 verified)
+        run: ./scripts/ps/Install-PinnedNode.ps1 -Version 'v22.23.3' -ExpectedSha256 '2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71'
+
+      - name: Install exact lab harness + headed Chromium
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'lab npm ci failed' }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'playwright chromium install failed' }
+
+      - name: Fetch pinned app base, save pristine server, apply ordered patches
+        run: |
+          $ErrorActionPreference = 'Continue'
+          try {
+            $work = Join-Path $env:RUNNER_TEMP "rb-$env:GITHUB_RUN_ID"
+            New-Item -ItemType Directory -Force -Path $work | Out-Null
+            $zip = Join-Path $work 'app.zip'
+            Write-Host "::notice title=fetch::downloading $env:APP_SHA"
+            curl.exe -fsSL -o $zip "https://codeload.github.com/dictationb1/supreme-lamp/zip/$env:APP_SHA"
+            if ($LASTEXITCODE -ne 0) { throw "codeload download failed (exit $LASTEXITCODE)" }
+            $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host "::notice title=app base::zipSha256=$sha"
+            if ($sha -ne $env:APP_ZIP_SHA256) { throw "APP ZIP SHA MISMATCH: got $sha expected $env:APP_ZIP_SHA256" }
+            Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
+            $app = Get-ChildItem -Path $work -Directory | Where-Object { $_.Name -like 'supreme-lamp-*' } | Select-Object -First 1
+            if (-not $app) { throw 'no supreme-lamp-* dir after expand' }
+            "APP_DIR=$($app.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            # Save the PRISTINE server BEFORE patching so baseline and patched
+            # differ in exactly this one file for the stall measurement.
+            $pristine = Join-Path $work 'pristine-ghrdp-server.ps1'
+            Copy-Item -LiteralPath (Join-Path $app.FullName 'payloads\ghrdp-server.ps1') -Destination $pristine -Force
+            "PRISTINE_SERVER=$pristine" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            $patches = Get-ChildItem -Path (Join-Path $env:BUNDLE_DIR 'app-patches') -Filter '*.patch' | Sort-Object Name
+            Write-Host "::notice title=patch::series has $($patches.Count) patch(es)"
+            foreach ($p in $patches) {
+              $lfName = Join-Path $work ('lf-' + $p.Name)
+              $lfText = ([System.IO.File]::ReadAllText($p.FullName)) -replace "`r`n", "`n"
+              [System.IO.File]::WriteAllText($lfName, $lfText, (New-Object System.Text.UTF8Encoding($false)))
+              & git -C $app.FullName -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn $lfName
+              if ($LASTEXITCODE -ne 0) {
+                & git -C $app.FullName -c core.autocrlf=false -c core.eol=lf apply --3way --whitespace=nowarn $lfName
+                if ($LASTEXITCODE -ne 0) { throw "git apply failed for $($p.Name) (exit $LASTEXITCODE)" }
+              }
+              Write-Host "::notice title=patch::applied $($p.Name)"
+            }
+            exit 0
+          } catch {
+            Write-Host ("::error title=fetch/patch::" + ($_.Exception.Message -replace '[\r\n]+', ' '))
+            exit 1
+          }
+
+      - name: Install app deps, run the two regressions, build the production UI
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Push-Location $env:APP_DIR
+          npx --yes pnpm@9.15.9 install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error title=app pnpm install::exit $LASTEXITCODE"; Pop-Location; exit 1 }
+          npx --yes vitest run src/tests/smoke/f201-probe-honesty.test.tsx src/tests/smoke/r1-server-readiness.test.ts --reporter=dot
+          $trc = $LASTEXITCODE
+          Write-Host "::notice title=app regressions::exit=$trc"
+          if ($trc -ne 0) { Write-Host "::error title=app regressions FAIL::exit $trc"; Pop-Location; exit 1 }
+          $env:VITE_BUILD_SHA = "cand-$($env:LAB_REVISION.Substring(0,12))"
+          npx --yes pnpm@9.15.9 run build
+          $brc = $LASTEXITCODE
+          $bundle = Join-Path $env:APP_DIR 'ui\dist\index.html'
+          if ($brc -ne 0 -or -not (Test-Path $bundle)) { Write-Host "::error title=app build FAIL::exit $brc bundle=$(Test-Path $bundle)"; Pop-Location; exit 1 }
+          $bsha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+          $bytes = (Get-Item $bundle).Length
+          Write-Host "::notice title=app bundle::$bytes bytes sha256=$bsha"
+          "BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUNDLE_SHA=$bsha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Pop-Location
+
+      - name: Preflight - confirm PowerShell 5.1 parses both server files
+        run: |
+          # Independent of the Node harness: if a parse/encoding error exists it
+          # shows here with the exact line, instead of a silent non-bind.
+          foreach ($s in @($env:PRISTINE_SERVER, (Join-Path $env:APP_DIR 'payloads\ghrdp-server.ps1'))) {
+            $tokens = $null; $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($s, [ref]$tokens, [ref]$errs) | Out-Null
+            if ($errs -and $errs.Count -gt 0) {
+              $errs | Select-Object -First 4 | ForEach-Object { Write-Host "PARSE: $($_.Message) @ line $($_.Extent.StartLineNumber)" }
+              throw "PowerShell parse errors in $s"
+            }
+            Write-Host "parse OK: $s ($($tokens.Count) tokens)"
+          }
+          # Release any listener from an earlier attempt on OUR port before measuring.
+          try {
+            $c = Get-NetTCPConnection -LocalPort 7331 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($c) { Write-Host "::warning title=port 7331 pre-owned::pid=$($c.OwningProcess); stopping it before the measurement"; Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+          } catch {}
+
+      - name: Measure REAL backend (baseline vs patched) + drive the real UI
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $rbOut = Join-Path $env:RUNNER_TEMP "rbout-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Force -Path $rbOut | Out-Null
+          "RB_OUT=$rbOut" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $patched = Join-Path $env:APP_DIR 'payloads\ghrdp-server.ps1'
+          foreach ($lbl in @('baseline','patched')) {
+            $srv = if ($lbl -eq 'baseline') { $env:PRISTINE_SERVER } else { $patched }
+            $root = Join-Path $env:RUNNER_TEMP "rbro-$lbl-$env:GITHUB_RUN_ID"
+            $o = Join-Path $rbOut $lbl
+            Write-Host "::notice title=real-backend::running label=$lbl server=$srv"
+            node scripts\candidate\real-backend.js --app-dir $env:APP_DIR --server-source $srv --root $root --out $o --label $lbl --bundle $env:BUNDLE --port 7331 --key 'lab-synthetic-key-000' --measure-seconds 16 --max-seconds 180 --app-sha $env:APP_SHA --lab-revision $env:LAB_REVISION
+            Write-Host "::notice title=real-backend::$lbl node exit=$LASTEXITCODE"
+          }
+          # Cross-label comparison (baseline stall must be >= patched stall on
+          # the same host; a smaller baseline is reported, never hidden).
+          try {
+            $b = Get-Content (Join-Path $rbOut 'baseline\real-backend-report.json') -Raw | ConvertFrom-Json
+            $p = Get-Content (Join-Path $rbOut 'patched\real-backend-report.json') -Raw | ConvertFrom-Json
+            $cmp = [ordered]@{
+              schema = 'slab-real-backend-comparison/1'
+              generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+              labSha = $env:LAB_REVISION; appSha = $env:APP_SHA; bundleSha256 = $env:BUNDLE_SHA
+              baseline = [ordered]@{ stallMs = $b.timings.stallMs; firstHealthMs = $b.timings.firstHealthMs; readyAppearedMs = $b.timings.readyAppearedMs; markerText = $b.timings.markerText; readyText = $b.timings.readyText; healthP95Ms = $b.timings.healthLatencyP95Ms; healthMaxMs = $b.timings.healthLatencyMaxMs; concurrent = $b.timings.concurrent; fatal = $b.fatal; verdicts = $b.verdicts; socketOwner = $b.socketOwner }
+              patched  = [ordered]@{ stallMs = $p.timings.stallMs; firstHealthMs = $p.timings.firstHealthMs; readyAppearedMs = $p.timings.readyAppearedMs; markerText = $p.timings.markerText; readyText = $p.timings.readyText; healthP95Ms = $p.timings.healthLatencyP95Ms; healthMaxMs = $p.timings.healthLatencyMaxMs; concurrent = $p.timings.concurrent; fatal = $p.fatal; verdicts = $p.verdicts; socketOwner = $p.socketOwner }
+            }
+            if ($null -ne $b.timings.stallMs -and $null -ne $p.timings.stallMs) {
+              $cmp.stallDeltaMs = [double]$b.timings.stallMs - [double]$p.timings.stallMs
+              $cmp.patchedReadyPublished = ($null -ne $p.timings.readyText)
+              $cmp.baselineReadyPublished = ($null -ne $b.timings.readyText)
+            }
+            $cmp | ConvertTo-Json -Depth 8 | Out-File -FilePath (Join-Path $rbOut 'comparison.json') -Encoding utf8
+            Write-Host "::notice title=real-backend comparison::baselineStall=$($b.timings.stallMs)ms patchedStall=$($p.timings.stallMs)ms delta=$($cmp.stallDeltaMs)ms patchedReady=$($cmp.patchedReadyPublished)"
+          } catch { Write-Host "::warning title=real-backend comparison::" + $_.Exception.Message }
+          exit 0
+
+      - name: Publish sanitized real-backend evidence into the repository
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if (-not $env:RB_OUT -or -not (Test-Path $env:RB_OUT)) { Write-Host '::notice title=publish::nothing to publish'; exit 0 }
+          $flat = Join-Path $env:RUNNER_TEMP 'rb-flat'
+          if (Test-Path $flat) { Remove-Item -Recurse -Force $flat }
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          foreach ($lbl in @('baseline','patched')) {
+            $d = Join-Path $env:RB_OUT $lbl
+            if (-not (Test-Path $d)) { continue }
+            Get-ChildItem -LiteralPath $d -File | ForEach-Object {
+              $ext = $_.Extension.ToLowerInvariant()
+              if ($ext -eq '.png') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
+              elseif ($_.Name -eq 'real-backend-report.json') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-real-backend-report.json')) -Force }
+              elseif ($_.Name -eq 'real-backend-control-coverage.csv') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-real-backend-control-coverage.csv')) -Force }
+              elseif ($_.Name -like '*.log.sanitized') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
+              elseif ($_.Name -like 'server-*.txt') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
+            }
+            $shots = Join-Path $d 'shots'
+            if (Test-Path $shots) { Get-ChildItem $shots -Filter '*.png' | ForEach-Object { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force } }
+          }
+          $cmp = Join-Path $env:RB_OUT 'comparison.json'
+          if (Test-Path $cmp) { Copy-Item $cmp (Join-Path $flat 'comparison.json') -Force }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/real-backend-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: real backend $($env:GITHUB_RUN_ID) [skip ci]"
+          exit $LASTEXITCODE
+
+      - name: Postflight (only this attempt's owned processes)
+        if: always()
+        run: |
+          node scripts/cleanup-lab.js --mode postflight
+          exit 0
+
+      - name: Evaluate real-backend verdict (measurement is the gate; design-BLOCKED is not a failure)
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $b = Join-Path $env:RB_OUT 'baseline\real-backend-report.json'
+          $p = Join-Path $env:RB_OUT 'patched\real-backend-report.json'
+          if (-not (Test-Path $b) -or -not (Test-Path $p)) { Write-Host '::error title=real-backend INCOMPLETE::missing a label report'; exit 1 }
+          $bd = Get-Content $b -Raw | ConvertFrom-Json
+          $pd = Get-Content $p -Raw | ConvertFrom-Json
+          # A deadline-skip fatal is a WARNING (later phases deferred), but a
+          # MISSING startup measurement is a hard FAIL: the real server never
+          # bound, so the §7 verification did not happen.
+          function IsDeadlineFatal($d) { return ($d.fatal -and ($d.fatal -like '*deadline*')) }
+          $bMeasured = ($null -ne $bd.timings.markerAppearedMs) -and ($null -ne $bd.timings.stallMs)
+          $pMeasured = ($null -ne $pd.timings.markerAppearedMs) -and ($null -ne $pd.timings.stallMs)
+          if (-not $bMeasured -or -not $pMeasured) {
+            Write-Host "::error title=real-backend MEASUREMENT FAILED::baseline measured=$bMeasured ($($bd.fatal)); patched measured=$pMeasured ($($pd.fatal))"; exit 2
+          }
+          $fails = 0; $passes = 0; $blocked = 0; $r2Confirmed = $false
+          foreach ($c in $pd.controls) {
+            if ($c.control_id -eq 'backend.ws_accept_loop_block') { if ($c.verdict -eq 'FAIL') { $r2Confirmed = $true }; continue }
+            if ($c.verdict -eq 'FAIL') { $fails++ }; if ($c.verdict -eq 'PASS') { $passes++ }; if ($c.verdict -eq 'BLOCKED') { $blocked++ }
+          }
+          Write-Host "::notice title=real-backend measurement::baselineStall=$($bd.timings.stallMs)ms patchedStall=$($pd.timings.stallMs)ms patchedReadyFile=$(($null -ne $pd.timings.readyText))"
+          Write-Host "::notice title=real-backend patched controls::PASS=$passes FAIL=$fails BLOCKED=$blocked"
+          # R2 is a CONFIRMED, deliberately-UNFIXED application defect measured
+          # on the real server. It is reported loudly, never hidden as a pass,
+          # and never silently collapsed into a job failure that erases the
+          # measurement. The candidate verdict is PARTIAL because of it.
+          if ($r2Confirmed) { Write-Host "::warning title=R2 CONFIRMED (unfixed)::inline /ws handling blocks the single-threaded accept loop; see defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md; PATCHED_APPLICATION_CANDIDATE is PARTIAL, not fully verified" }
+          if ($fails -gt 0) { Write-Host "::error title=real-backend FAIL::$fails behavioral control(s) failed on the real server"; exit 2 }
+          if ((IsDeadlineFatal $bd) -or (IsDeadlineFatal $pd)) { Write-Host "::warning title=real-backend PARTIAL::a harness deadline deferred some browser phases; measurement was still captured" }
+          if ($null -ne $bd.timings.stallMs -and $null -ne $pd.timings.stallMs -and [double]$pd.timings.stallMs -gt [double]$bd.timings.stallMs) {
+            Write-Host "::warning title=stall regression::patched ($($pd.timings.stallMs)ms) slower than baseline ($($bd.timings.stallMs)ms) - investigate, do not hide"
+          }
+          Write-Host "::notice title=real-backend MEASUREMENT VERIFIED::$passes real controls passed; $blocked BLOCKED by design; R2 inline-WS stall $(if($r2Confirmed){'CONFIRMED and REPORTED'}else{'not observed'}). This is NOT full acceptance."
+          exit 0

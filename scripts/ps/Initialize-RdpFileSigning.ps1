@@ -420,7 +420,7 @@ function New-ProbeRdpFile {
         'username:s:slabrdp',
         'prompt for credentials:i:0',
         'promptcredentialonce:i:0',
-        'authentication level:i:0',
+        'authentication level:i:2',
         'enablecredsspsupport:i:1',
         'screen mode id:i:1',
         'desktopwidth:i:1024',

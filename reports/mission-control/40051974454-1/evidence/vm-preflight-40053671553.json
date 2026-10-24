@@ -1,0 +1,23 @@
+{
+  "schema": "slab-client-preflight-observation/1",
+  "capturedAt": "2026-10-24T02:21:00Z",
+  "labRunId": "40053671553",
+  "labJobId": "120751731511",
+  "labRevision": "8c8edc9f6e208aad1fa4e3feec06e9d9c530016a",
+  "runner": "rdp-lab-client",
+  "runnerLabels": ["self-hosted", "Windows", "X64", "rdp-lab-client"],
+  "account": "WIN-NFU1JG4VESE\\User",
+  "sessionId": 1,
+  "status": "completed",
+  "conclusion": "failure",
+  "vmVerdict": "FAIL",
+  "firstFailure": {
+    "step": 4,
+    "name": "actions/setup-node",
+    "annotation": "The setup-node bundled 7zr.exe failed with exit code 2"
+  },
+  "browserInteraction": "NOT_RUN",
+  "screenshot": "NOT_RUN",
+  "evidenceSource": "GitHub Jobs API and check-run annotations; no raw log or secret-bearing trace",
+  "repair": "Use the existing SHA-256-pinned Install-PinnedNode.ps1 path and write fallback structured evidence when setup stops before the preflight script"
+}

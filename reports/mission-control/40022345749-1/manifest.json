@@ -1,0 +1,96 @@
+{
+  "schema": "slab-mission-control-bundle/1",
+  "bundle": "reports/mission-control/40022345749-1",
+  "generatedAt": "2026-10-23T21:40:00Z",
+  "session": {
+    "kind": "continuation (new session, no prior conversation assumed)",
+    "labRepository": "dictationb1/supreme-lamp-lab",
+    "labBranch": "arena/455b72d3-supreme-lamp-lab",
+    "labPullRequest": 26,
+    "labBaseCommitAtStart": "a3eb4b79cdec5049781d7b2b2df7c3b880730835"
+  },
+  "origin": {
+    "repository": "dictationb1/supreme-lamp",
+    "workflow": ".github/workflows/main.yml",
+    "runId": 40022345749,
+    "attempt": 1,
+    "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40022345749",
+    "jobId": 120650561622,
+    "appSha": "e432d3df4cf00a8528d574f8410f6a76e590db31",
+    "runStateAtVerification": "in_progress",
+    "signalCheckRunId": 120654530661,
+    "signalSchema": "mc-signal/v1",
+    "signalTransport": "check-run output.text (RSA-OAEP-256 + AES-256-GCM, AAD-bound to repo/run/attempt/sha)",
+    "advertisedEndpoint": "http://100.99.208.107:7331",
+    "uiBuildAdvertised": { "file": "ui-v2.html", "bytes": 1269742, "stamped": true, "matchesRunSha": true }
+  },
+  "labRuns": [
+    {
+      "runId": 40025824436,
+      "event": "pull_request(opened)",
+      "purpose": "candidate gate + discovery decision on the repaired head",
+      "result": "candidate gate PASS; discover skipped (no live-verify label yet)"
+    },
+    {
+      "runId": 40025875096,
+      "event": "pull_request(labeled live-verify)",
+      "purpose": "first real live-origin verification",
+      "result": "BLOCKED — READINESS_TIMEOUT 240 s; net preflight: TCP 7331 open, /api/ping code=000 (curl exit 28)",
+      "clientRunner": "rdp-lab-client / WIN-NFU1JG4VESE\\User / session 1"
+    },
+    {
+      "runId": 40026969350,
+      "event": "pull_request(synchronize)",
+      "purpose": "second live-origin verification + listener classification on both ports",
+      "result": "FAIL — READINESS_TIMEOUT; 7331 ACCEPTED_NO_HTTP (15.06 s), 7332 ANSWERING (HTTP 404 in 0.72 s); origin identity verified check-by-check; evidence published into the repository by the run itself"
+    },
+    {
+      "runId": 40026969358,
+      "event": "pull_request(synchronize)",
+      "purpose": "capability-check suite on the same commit (triggered before the desktop-ownership gate)",
+      "result": "occupied the single interactive desktop; motivated LAB_HARNESS defect H-04"
+    },
+    {
+      "runId": 40028113866,
+      "event": "pull_request(labeled candidate-run)",
+      "purpose": "build the patched application and drive the built bundle in a real headed browser on the client VM",
+      "result": "see candidate/candidate-report.json"
+    }
+  ],
+  "verdicts": {
+    "LAB_HARNESS": {
+      "status": "PASS",
+      "basis": "mc-signal/v1 discovery verified end-to-end by a real lab run (ORIGIN_DISCOVERED + six RUN_* identity checks), 219 lab regression tests pass, evidence publication into the repository works from the client VM, desktop ownership gated to one job",
+      "residual": ["workflow_dispatch is 403 for this session's token (H-06)", "a job already running on the desktop cannot be cancelled (H-04 residual)"]
+    },
+    "LIVE_ORIGIN_APPLICATION": {
+      "status": "FAIL",
+      "code": "DASHBOARD_7331_ACCEPTED_NO_HTTP",
+      "basis": "two independent client-VM measurements 11 minutes apart: TCP accepted, zero HTTP bytes in 15 s and 20 s, on the endpoint the run itself advertises; the sibling port 7332 answers in 0.72 s",
+      "notVerified": ["every UI feature that needs /api/*", "authorization contract", "native RDP logon", "Web Desktop"]
+    },
+    "PATCHED_APPLICATION_CANDIDATE": {
+      "status": "PASS_WITH_BLOCKED_CONTROLS",
+      "basis": "patch 0001 applies cleanly to the pinned base; the app's own suite is 1375/1375 on the patched tree; the built bundle was driven in a real headed browser on the Windows client VM in three backend states; controls that need a real backend are BLOCKED with their prerequisite named",
+      "blocked": "sessions/keys/files/mirror/telemetry/health/collector/native-RDP need the application's real backend, which does not answer on the live origin"
+    },
+    "UPSTREAM_DEPLOYMENT": {
+      "status": "NOT_RUN",
+      "basis": "the application repository is read-only in this session; nothing was pushed, merged or deployed there"
+    },
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": {
+      "status": "PARTIAL",
+      "basis": "the encrypted MC-SIGNAL was discovered, identity-verified and decrypted by a real lab run with no human input; the scheduled sweep on main still fails at discovery because main lacks the mc-signal/v1 reader (PR #24/#26 not merged). Measured queue latency and the scheduled path are recorded in README-si.md"
+    }
+  },
+  "artifacts": {
+    "appPatches": ["app-patches/0001-F201-probe-honesty.patch"],
+    "tests": ["evidence/repro-f201.test.tsx (baseline reproduction, expected to pass on the unpatched build)"],
+    "evidence": ["evidence/live-run-report.json", "evidence/cleanup-postflight.json"],
+    "candidate": ["candidate/candidate-report.json", "candidate/control-coverage.csv"]
+  },
+  "privacy": {
+    "scan": "publish-evidence.js refuses private keys, bearer/GitHub tokens, ?key= URLs, sealed envelope fields and unmasked passwords; every file in this bundle passed that gate",
+    "excluded": ["authenticated dashboard URLs", "dashboard tokens", "sealed credential envelopes", "browser profiles", "HAR traces"]
+  }
+}

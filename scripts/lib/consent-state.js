@@ -53,7 +53,7 @@ const BLOCKING_STATES = {
     state: 'BLOCKED_CERTIFICATE_WARNING',
     exitCode: EXIT.BLOCKED,
     message: 'A server-certificate warning is on screen ("the identity of the remote computer cannot be verified"). ' +
-      'The lab .rdp pins authentication level 0 for the ephemeral self-signed target only; NLA/TLS are never weakened. Report this, do not click through it as a pass.'
+      'The lab .rdp requires authentication level 2. A certificate/consent dialog is a blocker to report; do not click through it or weaken NLA/TLS for a pass.'
   },
   credentials_prompt: {
     state: 'BLOCKED_CREDENTIALS_PROMPT',

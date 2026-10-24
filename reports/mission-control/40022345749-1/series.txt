@@ -1,0 +1,4 @@
+# Patch series for dictationb1/supreme-lamp @ e432d3df4cf00a8528d574f8410f6a76e590db31
+# Apply IN THIS ORDER from the application checkout root (git apply -p1).
+# Each entry: <patch> <sha256>
+app-patches/0001-F201-probe-honesty.patch 0023a8841e545eedc4f03b51a0a673537241dd4e3c6ca3b5082529e26332a10f
