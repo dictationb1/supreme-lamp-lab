@@ -53,8 +53,8 @@ Already executed in this lab (Linux, Node v22):
 
 - Patch series applies cleanly on a fresh `832a82eb` download; output is
   byte-identical to the hand-built candidate.
-- Application smoke tests: **108 files / 1387 tests pass** (1378 historical +
-  9 new R2 structural tests; the R2 test fails on the pristine base and passes
+- Application smoke tests: **108 files / 1388 tests pass** (1378 historical +
+  10 new R2 structural tests; the R2 test fails on the pristine base and passes
   on the repaired file).
 - Production build `pnpm run build` (tsc + vite single-file) succeeds.
 - Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /
@@ -101,17 +101,26 @@ an R2 PASS yet:
   `System.Management.Automation.MethodException: Cannot find an overload for
   "Create" and the argument count "1"` from `[powershell]::Create($pool)`. The
   PS 5.1 `[powershell]` accelerator cannot bind the static
-  `Create(RunspacePool)` 1-arg overload. 0003 (now 457 lines) fixes it with
-  parameterless `[powershell]::Create()` plus the settable `RunspacePool`
-  property (works on PS 5.1 and PS 7), and a 9th static test pins the pattern
-  and forbids the 1-arg call. The admission semaphore and pool were proven
-  healthy (`avail=8`, no gate fault), and the worker dependency surface is
-  complete, so the next run should produce real 101 upgrades.
-- The earlier matrix honesty stands for the unfixed build: 7 PASS / 9 FAIL /
-  6 BLOCKED (see `control-coverage.csv` and
-  `evidence/windows-run-40078279249-r2-503-defect.md`). After the Create fix the
-  re-run's evidence supersedes those rows. Native RDP/Web Desktop remain
-  separately BLOCKED.
+  `Create(RunspacePool)` 1-arg overload. The fix uses parameterless
+  `[powershell]::Create()` plus the settable `RunspacePool` property (works on
+  PS 5.1 and PS 7); a static test pins the pattern and forbids the 1-arg call.
+- That removed all 503/MethodException lines, and run 40082655039 exposed a
+  second, distinct defect as `ECONNRESET` before any 101:
+  `Invoke-ClientRequest`'s outer `try/finally` disposes the stream and closes
+  the client on every return. The async `/ws` dispatcher returns immediately, so
+  the finally tore the socket down before the worker wrote 101 (the inline
+  baseline never hit this because its pump blocked inside the `try`). The fix
+  is an `$r2Dispatched` ownership flag set on the `/ws` branch, guarding the
+  outer cleanup; the worker `finally` remains the single owner that closes,
+  disposes and releases the gate. The worker's previously-empty `catch` now logs
+  `[LAB-R2] worker EXCEPTION` so a fault can never again appear as a bare reset.
+- 0003 is now 509 lines with ten static assertions (all green on LF and CRLF).
+  The next labelled run must show real 101 upgrades, capacity holding at eight
+  with a 503 only on the ninth, live frames/echo, idle expiry and reconnect.
+  Earlier matrix honesty (7 PASS / 9 FAIL / 6 BLOCKED on the unfixed builds) is
+  preserved in `control-coverage.csv` and the `evidence/windows-run-*.md`
+  records; the passing re-run's evidence supersedes those rows. Native RDP/Web
+  Desktop remain separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 

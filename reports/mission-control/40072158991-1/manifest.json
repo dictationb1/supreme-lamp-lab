@@ -1,8 +1,8 @@
 {
   "schema": "slab-mission-control-repair-bundle/2",
-  "bundleState": "R2_ALL_503_ROOT_CAUSED_AND_FIXED_PS51_CREATE_OVERLOAD_WINDOWS_RECONFIRM_PENDING",
+  "bundleState": "R2_TWO_RUNTIME_DEFECTS_FIXED_PS51_CREATE_OVERLOAD_AND_FINALLY_OWNERSHIP_WINDOWS_RECONFIRM_PENDING",
   "createdAt": "2026-10-24T07:59:00Z",
-  "updatedAt": "2026-10-24T09:35:00Z",
+  "updatedAt": "2026-10-24T09:58:00Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40072158991",
@@ -39,10 +39,10 @@
     "applicationSmokeTests": {
       "tool": "vitest 2.x in the patched application tree",
       "files": 108,
-      "tests": 1387,
-      "passed": 1387,
+      "tests": 1388,
+      "passed": 1388,
       "failed": 0,
-      "note": "1378 historical + 9 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 9) is 20/20"
+      "note": "1378 historical + 10 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 10) is 21/21"
     },
     "productionBuild": {
       "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
@@ -124,9 +124,19 @@
         "fix": "use [powershell]::Create() then set the settable RunspacePool property (binds on PS 5.1 and PS 7); added a 9th static assertion pinning the pattern and forbidding the 1-arg Create. 0003 is now 457 lines.",
         "verificationSoFar": "r2 static test 9/9 on LF and CRLF; clean replay 3 files/20 smoke tests; full app suite 108 files/1387 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
         "evidence": "evidence/windows-run-40081193119-root-cause.md"
+      },
+      {
+        "runId": "40082655039",
+        "headSha": "ae4bfad",
+        "result": "Create overload fix confirmed (zero dispatch/gate faults, no 503); step 9 measured, gate FAILed on a second distinct defect",
+        "newSymptom": "every /ws ended in ECONNRESET with an empty body before any 101; held=0, okCycles=0; ordinary HTTP stayed fast (health median 50ms), stall 3818ms->1049ms",
+        "rootCause": "Invoke-ClientRequest outer try/finally disposes the stream and closes the client on every return. The async /ws dispatcher returns immediately, so that finally tore the socket down before the worker wrote 101; the inline baseline never hit this because the pump blocked inside the try for the socket lifetime.",
+        "fix": "added an r2Dispatched ownership flag set true on the /ws branch and guarded the outer finally with if (-not r2Dispatched); the worker finally remains the single owner that closes/disposes/releases. Worker catch now logs [LAB-R2] worker EXCEPTION instead of swallowing it; a 10th static assertion pins the guard. 0003 is now 509 lines.",
+        "verificationSoFar": "r2 static 10/10 on LF and CRLF; clean replay 3 files/21 smoke tests; full app suite 108 files/1388 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+        "evidence": "evidence/windows-run-40082655039-finally-ownership.md"
       }
     ],
-    "status": "exact all-503 root cause found and fixed (PS 5.1 Create overload); re-confirm on the next Windows run which must show real 101 upgrades and a passing r2 matrix",
+    "status": "two distinct PS-runtime defects found and fixed (Create overload binding; outer-finally socket ownership). Re-confirm on the next Windows run which must show real 101 upgrades and a passing r2 matrix",
     "matrixControls": [
       "r2.no_ws_control_health",
       "r2.one_ws_health_responsive",
@@ -146,7 +156,7 @@
   },
   "verdictScope": {
     "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1387/1387; Windows step-7 20/20). On real Windows the accept-loop starvation is fixed (stall 4615ms->826ms, HTTP never blocked). The all-503 WebSocket defect was root-caused to a PS 5.1 [powershell]::Create(runspacePool) overload binding MethodException and fixed via parameterless Create() + RunspacePool property; re-confirmation on the Windows VM (real 101 upgrades + r2 matrix) is pending.",
+    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1388/1388; Windows step-7 21/21). On real Windows the accept-loop starvation is fixed (stall ~3.8-4.6s -> ~0.8-1.0s, HTTP never blocked). Two distinct PS-runtime defects were found via the VM and fixed: (1) PS 5.1 [powershell]::Create(runspacePool) 1-arg overload MethodException -> parameterless Create() + RunspacePool property; (2) the request handler's outer finally closed the async worker's socket before 101 (ECONNRESET) -> r2Dispatched ownership transfer with a guarded finally. Real 101 upgrades and the passing r2 matrix are pending the next Windows run.",
     "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
     "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",

@@ -61,13 +61,13 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1387/1387 + Windows step-7 20/20 PASS; build OK. **සත්‍ය Windows මැනුම: accept-loop starvation මැකී ඇත (stall 4615ms→826ms, HTTP කිසිදා නොනවතී). සියලු /ws 503 දෝෂය PS 5.1 `[powershell]::Create(runspacePool)` overload බැඳීමේ MethodException එකක් බව ධාවනය 40081193119 හිදී නිශ්චිතව හමුවී, `Create()` + `.RunspacePool=` ගැළපෙන ආකාරයට නිවැරදි කරන ලදී. ඊළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි + r2 matrix සනාථ කළ යුතුය.** |
+| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1388/1388 + Windows step-7 21/21 PASS; build OK. **සත්‍ය Windows මැනුම: accept-loop starvation මැකී ඇත (stall ~3.8–4.6s→~0.8–1.0s, HTTP කිසිදා නොනවතී). PS-runtime දෝෂ දෙකක් VM හිදී හමුවී නිවැරදි කර ඇත: (1) PS 5.1 `[powershell]::Create(runspacePool)` overload MethodException → `Create()` + `.RunspacePool=`; (2) request handler ගේ පිටත finally එක async worker ගේ socket එක 101ට පෙර වැසීම (ECONNRESET) → `$r2Dispatched` හිමිකාර-මාරු ආරක්ෂකයක්. ඊළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි + සමත් r2 matrix සනාථ කළ යුතුය.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
-සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1387 පරීක්ෂණ (1378 පෙර + 9 නව R2);
+සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1388 පරීක්ෂණ (1378 පෙර + 10 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
 
 ### 3.1 සත්‍ය Windows මැනුමෙන් හමුවූ දෝෂය (ධාවනය 40078279249) — වංචනික PASS නැත
@@ -87,14 +87,23 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   `Create(RunspacePool)` එක- argument overload එක බැඳින්නේ නැත. `gate FAULT`/`saturated`
   රේඛා කිසිවක් නොතිබීම සහ `avail=8` වීමෙන් semaphore ප්‍රවේශය සහ pool නිරෝගී බව සනාථ වේ;
   බිඳෙන්නේ worker PowerShell සෑදීමේ පේළිය පමණි.
-- නිවැරදි කිරීම (0003, දැන් 457 පේළි): පරාමිති-රහිත `[powershell]::Create()` භාවිතා කර,
-  සැකසිය හැකි `RunspacePool` ගුණාංගය හරහා pool එක පවරනු ලැබේ (PS 5.1 සහ PS 7 දෙකටම ගැළපේ).
-  නවවන ස්ථිතික පරීක්ෂණය මෙම රටාව අගුලු දමයි සහ එක-argument Create තහනම් කරයි. පිරිසිදු
-  replay: r2 9/9, smoke 20/20, සම්පූර්ණ suite 1387/1387, build OK.
-- evaluate gate එක පෙර දෝෂය නිවැරදිව FAIL ලෙස සලකුණු කළේය; R2 acceptance PASS ලෙස කිසි විටෙක
+- පළමු නිවැරදි කිරීම: පරාමිති-රහිත `[powershell]::Create()` භාවිතා කර, සැකසිය හැකි
+  `RunspacePool` ගුණාංගය හරහා pool එක පවරනු ලැබේ (PS 5.1 සහ PS 7 දෙකටම ගැළපේ). එමගින් 503/
+  MethodException රේඛා මුළුමනින් මැකී ගියේය.
+- නමුත් ධාවනය 40082655039 හිදී දෙවන වෙනස් දෝෂයක් මතු විය: 101ට පෙර සෑම සම්බන්ධතාවක්ම
+  `ECONNRESET`. හේතුව — `Invoke-ClientRequest` ගේ පිටත `try/finally` එක සෑම `return` එකකදීම
+  stream එක dispose කර client එක වසයි. async `/ws` dispatcher එක ක්ෂණිකව ආපසු එන බැවින්,
+  worker එක 101 ලිවීමට පෙර එම finally එක socket එක වසා දැමීය (පැරණි inline පොම්පය try තුළම
+  අවහිර වූ බැවින් එය මෙම ගැටලුවට මුහුණ දුන්නේ නැත).
+- දෙවන නිවැරදි කිරීම (0003, දැන් 509 පේළි): `/ws` ශාඛාවේ `$r2Dispatched = $true` හිමිකාර-
+  මාරු ධජයක් සකසා, පිටත cleanup එක `if (-not $r2Dispatched)` මගින් ආරක්ෂා කරයි; socket එක
+  වසන/dispose කරන/ගේට්ටුව මුදන එකම හිමිකරු worker ගේ `finally` වේ. පෙර හිස් `catch {}` වෙනුවට
+  `[LAB-R2] worker EXCEPTION` ලොගයක් එක් කර ඇත. දසවන ස්ථිතික පරීක්ෂණය මෙම ආරක්ෂකය අගුලු දමයි.
+- පිරිසිදු replay: r2 10/10 (LF + CRLF), smoke 21/21, සම්පූර්ණ suite 1388/1388, build OK.
+- evaluate gate එක සෑම දෝෂයක්ම නිවැරදිව FAIL ලෙස සලකුණු කළේය; R2 acceptance PASS ලෙස කිසි විටෙක
   උඩඟු ලෙස ප්‍රකාශ නොවේ. **මීළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි සහ සමත් r2 matrix එකක්
-  පෙන්වන තුරු R2 සම්පූර්ණ PASS නොවේ.** WebSocket නැවත ක්‍රියා කරන තුරු මුල් matrix පේළි FAIL/BLOCKED ලෙස
-  අවංකව පවතී (`control-coverage.csv`: 7 PASS / 9 FAIL / 6 BLOCKED).
+  පෙන්වන තුරු R2 සම්පූර්ණ PASS නොවේ.** නිවැරදි-නොකළ builds වල මුල් matrix පේළි FAIL/BLOCKED ලෙස
+  අවංකව සුරැකී ඇත (`control-coverage.csv`: 7 PASS / 9 FAIL / 6 BLOCKED).
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 

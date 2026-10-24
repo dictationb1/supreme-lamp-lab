@@ -1,4 +1,4 @@
-From 114849122e47a523f26c0de3c0e3b51b8d96535e Mon Sep 17 00:00:00 2001
+From 549b350e6cc25d4a9330b73adcf74ff886e271ba Mon Sep 17 00:00:00 2001
 From: RDP Mission Control Lab <lab@dictationb1.local>
 Date: Sat, 24 Oct 2026 07:26:44 +0000
 Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
@@ -13,13 +13,13 @@ dependency surface, serialize audits on a shared Monitor lock, and release
 the gate and close the socket in finally. Pool and semaphore are disposed
 at shutdown. Includes the static r2-websocket-worker smoke regression.
 ---
- payloads/ghrdp-server.ps1                   | 253 +++++++++++++++++++-
- src/tests/smoke/r2-websocket-worker.test.ts | 125 ++++++++++
- 2 files changed, 373 insertions(+), 5 deletions(-)
+ payloads/ghrdp-server.ps1                   | 280 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 136 ++++++++++
+ 2 files changed, 409 insertions(+), 7 deletions(-)
  create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
 
 diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
-index e74b4b03b..927412134 100644
+index e74b4b03b..868552946 100644
 --- a/payloads/ghrdp-server.ps1
 +++ b/payloads/ghrdp-server.ps1
 @@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
@@ -65,7 +65,20 @@ index e74b4b03b..927412134 100644
  }
  # [F17 §2] ROOT CAUSE of the +05:30 beacon-age bug (19805s): stored ISO ts
  # strings were read back through ConvertFrom-Json, which converts "…Z" into a
-@@ -2430,10 +2450,13 @@ function Invoke-ClientRequest {
+@@ -2389,6 +2409,12 @@ function Invoke-F91StreamFetch {
+ function Invoke-ClientRequest {
+     param($Client, $Token)
+     $stream = $null
++    # [LAB-R2] Ownership flag. A dispatched /ws connection is handed to a worker
++    # runspace that owns (and closes) the socket for its whole lifetime; the outer
++    # finally below must NOT dispose it the moment the dispatcher returns, or it
++    # would tear the socket down before the worker writes the 101 (measured as
++    # ECONNRESET on run 40082655039).
++    $r2Dispatched = $false
+     try {
+         $stream = $Client.GetStream()
+         $rr = Read-ClientRequest -Stream $stream
+@@ -2430,10 +2456,17 @@ function Invoke-ClientRequest {
          # handshake's token is validated inside the upgrade handler (which supports
          # both header and ?key= query, plus the hello-frame fallback).
          if ($path -eq '/ws') {
@@ -80,10 +93,30 @@ index e74b4b03b..927412134 100644
 +            # lifetime, so this call returns immediately and the accept loop
 +            # keeps draining ordinary HTTP while the socket stays open.
 +            Invoke-R2DispatchWebSocket -Client $Client -Stream $stream -Parts $parts -Token $Token
++            # Ownership transferred: the dispatcher (inline 400/503) or the worker
++            # runspace (async pump) now closes this socket. Suppress the outer
++            # finally's dispose so it cannot close a socket still in use.
++            $r2Dispatched = $true
              return
          }
          # [F10-2 §3] per-request creds authorization (strict subset of access).
-@@ -9753,6 +9776,220 @@ function Invoke-F99WatcherDiagnose {
+@@ -9366,8 +9399,13 @@ boot();
+             }) -ExtraHeaders ("X-Correlation-ID: $cId`r`n")
+         } catch { }
+     } finally {
+-        try { if ($stream) { $stream.Dispose() } } catch { }
+-        try { $Client.Close() } catch { }
++        # A dispatched /ws socket is owned by its worker runspace (or already
++        # closed by the inline 400/503 path); leave it alone here so the async
++        # pump keeps a live connection. Ordinary HTTP is disposed as before.
++        if (-not $r2Dispatched) {
++            try { if ($stream) { $stream.Dispose() } } catch { }
++            try { $Client.Close() } catch { }
++        }
+     }
+ }
+ $script:Wire = $null
+@@ -9753,6 +9791,228 @@ function Invoke-F99WatcherDiagnose {
      }
      return $out
  }
@@ -141,9 +174,17 @@ index e74b4b03b..927412134 100644
 +    $r2Handled = Invoke-F99WebSocketUpgrade -Client $Ctx.Client -Stream $Ctx.Stream -Parts $Ctx.Parts -Token $Ctx.Token
 +    if (-not $r2Handled) {
 +        # Malformed/non-upgrade handshake: preserve the original 400 behavior.
-+        try { Send-ClientResponse -Stream $Ctx.Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch { }
++        try { Write-Host '[LAB-R2] pump returned false; sending 400' } catch { }
++        try { Send-ClientResponse -Stream $Ctx.Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch {
++            try { Write-Host ('[LAB-R2] 400 send failed: ' + $_.Exception.Message) } catch { }
++        }
 +    }
-+} catch { }
++} catch {
++    # Never swallow a worker fault silently again: a bare reset with no message is
++    # how run 40082655039 presented the outer-finally ownership bug.
++    try { Write-Host ('[LAB-R2] worker EXCEPTION: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message) } catch { }
++    try { Write-ClientAudit ('ws worker exception: ' + $_.Exception.Message) } catch { }
++}
 +finally {
 +    # Deterministic ownership transfer: the worker always closes the socket it
 +    # accepted (normal close, idle expiry, abrupt peer disconnect, or shutdown).
@@ -304,7 +345,7 @@ index e74b4b03b..927412134 100644
  $start = Get-Date
  $limit = New-TimeSpan -Minutes $LimitMinutes
  $lastHeal = Get-Date
-@@ -9776,6 +10013,9 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9776,6 +10036,9 @@ while (((Get-Date) - $start) -lt $limit) {
          try { $client = $listener.AcceptTcpClient() } catch { }
          if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
      }
@@ -314,7 +355,7 @@ index e74b4b03b..927412134 100644
      # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
      # last-run timer and remains the sole writer of its state file; the guard
      # only spreads coincident ticks across adjacent 50ms iterations so their
-@@ -9806,3 +10046,6 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9806,3 +10069,6 @@ while (((Get-Date) - $start) -lt $limit) {
      Start-Sleep -Milliseconds $script:ScanDelayMs
  }
  try { $listener.Stop() } catch { }
@@ -323,10 +364,10 @@ index e74b4b03b..927412134 100644
 +try { Stop-R2WebSocketPool } catch { }
 diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
 new file mode 100644
-index 000000000..667ffc8c8
+index 000000000..736297a61
 --- /dev/null
 +++ b/src/tests/smoke/r2-websocket-worker.test.ts
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,136 @@
 +// [LAB-R2] WebSocket accept-loop starvation invariants - EXECUTED against the
 +// shipped payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base a
 +// single GET /ws runs Invoke-F99WebSocketUpgrade INLINE on the one accept
@@ -439,6 +480,17 @@ index 000000000..667ffc8c8
 +    expect(server).toMatch(/if\s*\(-not \$script:R2WsPoolAvailable\)/);
 +    // The fallback still performs the real upgrade rather than disabling /ws.
 +    expect(server).toMatch(/R2WsPoolAvailable[\s\S]{0,400}Invoke-F99WebSocketUpgrade/);
++  });
++
++  it("transfers socket ownership so the request finally does not close a dispatched /ws", () => {
++    // Measured on the client VM (run 40082655039): Invoke-ClientRequest's outer
++    // finally disposed the stream and closed the client on every return, so an
++    // async-dispatched /ws was torn down before the worker sent 101 (ECONNRESET).
++    // A dispatched connection must suppress that cleanup; the worker finally owns it.
++    expect(server).toMatch(/\$r2Dispatched\s*=\s*\$false/);
++    const wsBranch2 = server.slice(wsBranchStart, wsBranchEnd);
++    expect(wsBranch2).toMatch(/\$r2Dispatched\s*=\s*\$true/);
++    expect(server).toMatch(/if\s*\(\s*-not\s*\$r2Dispatched\s*\)\s*\{[\s\S]{0,160}?Dispose\(\)/);
 +  });
 +
 +  it("constructs the worker PowerShell in a PS 5.1-compatible way (no 1-arg Create overload)", () => {

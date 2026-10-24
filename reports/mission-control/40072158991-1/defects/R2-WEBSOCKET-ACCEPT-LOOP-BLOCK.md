@@ -123,8 +123,16 @@ fresh cap=8 gate. Instrumented run 40081193119 root-caused that to a PowerShell
 `System.Management.Automation.MethodException: Cannot find an overload for
 "Create" and the argument count "1"` from `[powershell]::Create($pool)` — while
 the admission semaphore and runspace pool were healthy (`avail=8`, no gate
-fault). The fix uses parameterless `[powershell]::Create()` plus the settable
-`RunspacePool` property and adds a 9th static test pinning it; clean replay is
-9/9 r2, 1387/1387 full suite, build OK. Do not claim R2 acceptance until the next
-Windows run shows real `/ws` 101 upgrades and a passing r2 matrix; see
-`evidence/windows-run-40081193119-root-cause.md`.
+fault). That first runtime fix (parameterless `[powershell]::Create()` plus the settable
+`RunspacePool` property) removed every 503, and run 40082655039 then exposed a
+second, distinct defect as `ECONNRESET` before the 101: `Invoke-ClientRequest`'s
+outer `try/finally` disposed the stream and closed the client on every return,
+which for an async-dispatched `/ws` tore the socket down before the worker could
+write. It is fixed with an `$r2Dispatched` ownership flag that suppresses the
+outer cleanup for dispatched sockets (the worker `finally` is now the single
+owner), and the previously-empty worker `catch` logs `[LAB-R2] worker
+EXCEPTION`. Ten static assertions pin both fixes; clean replay is 10/10 r2,
+1388/1388 full suite, build OK. Do not claim R2 acceptance until the next Windows
+run shows real `/ws` 101 upgrades and a passing r2 matrix; see
+`evidence/windows-run-40081193119-root-cause.md` and
+`evidence/windows-run-40082655039-finally-ownership.md`.
