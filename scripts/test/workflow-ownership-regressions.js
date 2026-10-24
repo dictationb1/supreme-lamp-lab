@@ -11,7 +11,12 @@ const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+// CRLF-robust read: a Windows runner may check the tree out with autocrlf
+// (the same root cause the capability CRLF guard fixed for git apply); every
+// assertion below anchors on \n, so normalize before matching. Measured on
+// the lab VM client job (run 40108408924): the raw read made this suite fail
+// on Windows while passing on Linux - a runner-environment false alarm.
+const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\r\n/g, '\n');
 
 module.exports = async function register({ test, assert }) {
   await test('ownership: the capability client job needs the capability-run label', async () => {
@@ -60,6 +65,28 @@ module.exports = async function register({ test, assert }) {
     assert.ok(server.includes('Publish sanitized server evidence'));
     const report = read('scripts/verification-report.js');
     assert.ok(report.includes('requiredJobsOk') && report.includes("capability: `required_job_${j.job}`"), 'job failures must remain visible even when every capability row is PASS');
+  });
+
+  await test('evidence permissions: the 8C handler enrollment fetches the app source, never a deleted served route', async () => {
+    // The application deleted /install.ps1 (remediation 8C); the probe used to
+    // fail with PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404 (run 40108408924).
+    // The enrollment must now follow docs/AUTOLOGIN.md: the app source zip at
+    // the pinned sha (pin-verified when available), csc compile + HKCU
+    // registration, interactive-only self-test recorded as skipped.
+    const mc = read('scripts/mission-control-check.js');
+    assert.ok(!mc.includes('\${args.target}/install.ps1'), 'the probe never fetches the deleted served route');
+    assert.match(mc, /codeload\.github\.com\/dictationb1\/supreme-lamp\/zip\/\$\{appShaForZip\}/, 'the handler kit comes from the app source zip at the pinned sha');
+    assert.match(mc, /APP_ZIP_SHA_MISMATCH/, 'the zip pin is enforced when provided');
+    const helper = read('scripts/ps/Install-ProductionHandler.ps1');
+    assert.match(helper, /docs\/AUTOLOGIN\.md/, 'the helper cites the documented enrollment');
+    assert.match(helper, /ghrdp-rdp-launcher\.cs/, 'compiles the production launcher source');
+    assert.match(helper, /Microsoft\.NET\\Framework64\\v4\.0\.30319/, 'in-box csc exactly like install.cmd');
+    assert.match(helper, /selfTestSkipped/, 'the interactive-only self-test is recorded as skipped, never silently claimed');
+    assert.match(helper, /HANDLER_PREEXISTING/, 'refuses to overwrite a preexisting registration');
+    assert.match(helper, /HANDLER_COMMAND_READBACK_FAILED/, 'the registry readback is the truth gate');
+    const wf = read('.github/workflows/capability-check.yml');
+    assert.match(wf, /--app-zip-sha256/, 'the workflow passes the zip pin');
+    assert.match(wf, /dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378/, 'the pin is the config-pinned base zip hash');
   });
 
   await test('candidate: the stub is never labelled as the application server', async () => {

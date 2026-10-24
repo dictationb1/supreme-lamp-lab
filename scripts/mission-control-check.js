@@ -53,13 +53,14 @@ const DEFS = {
 };
 
 function parseArgs(argv) {
-  const a = { scope: null, target: null, expectSha: null, expectBuild: null, expectPid: null, expectPort: 7331, headless: false, readyTimeoutMs: 120000, blockedReason: null, failReason: null };
+  const a = { scope: null, target: null, expectSha: null, expectBuild: null, appZipSha256: null, expectPid: null, expectPort: 7331, headless: false, readyTimeoutMs: 120000, blockedReason: null, failReason: null };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--scope') a.scope = argv[++i];
     else if (k === '--target') a.target = (argv[++i] || '').replace(/\/+$/, '');
     else if (k === '--expect-sha') a.expectSha = argv[++i];
     else if (k === '--expect-build') a.expectBuild = argv[++i];
+    else if (k === '--app-zip-sha256') a.appZipSha256 = argv[++i];
     else if (k === '--expect-pid') a.expectPid = Number(argv[++i]);
     else if (k === '--expect-port') a.expectPort = Number(argv[++i]);
     else if (k === '--headless') a.headless = true;
@@ -548,31 +549,47 @@ async function checkRdp(caps, browser, args, outDir, readinessBody, ownership = 
   handle.credSet = true;
   annotate.notice('rdp attempt setup', `${cred.out}; production UI/handler required; baseline ${baselineIso}`);
 
-  // Install the exact staged production handler only into a registration and
-  // helper paths that were absent. File snapshots make partial-install cleanup
-  // possible without deleting anything that predated this attempt.
-  const installer = await request(`${args.target}/install.ps1`, { timeoutMs: 15000 });
-  if (installer.status !== 200 || !installer.bytes || installer.bytes.length < 1000 || installer.text.includes('__HELPER_B64__')) {
-    caps.set(name, STATUS.FAIL, `PRODUCTION_INSTALLER_UNAVAILABLE: ${summarize(installer)}`, { tcp3389: tcp, nativePre });
+  // [8C enrollment] The application stopped serving an installer: /install.ps1
+  // is a 404-guarded deleted route (upstream remediation 8C). The documented
+  // auto-login enrollment is docs/AUTOLOGIN.md - compile
+  // payloads/ghrdp-rdp-launcher.cs with the in-box csc and register ghrdp://
+  // under HKCU. The probe fetches the app source zip at the pinned commit
+  // (sha-verified when the pin is available), then Install-ProductionHandler
+  // performs exactly that enrollment - minus install.cmd's interactive-only
+  // self-test MessageBox and pause, which are recorded as skipped.
+  const appShaForZip = String(args.expectSha || '');
+  if (!/^[0-9a-f]{40}$/.test(appShaForZip)) {
+    caps.set(name, STATUS.BLOCKED, 'APP_SHA_UNKNOWN: the source-pin sha is required to fetch the application handler kit', { tcp3389: tcp, nativePre });
     return handle;
   }
+  const zipUrl = `https://codeload.github.com/dictationb1/supreme-lamp/zip/${appShaForZip}`;
+  const zip = await request(zipUrl, { timeoutMs: 180000 });
+  if (zip.status !== 200 || !zip.bytes || zip.bytes.length < 10000) {
+    caps.set(name, STATUS.FAIL, `APP_SOURCE_ZIP_UNAVAILABLE: ${summarize(zip)}`, { tcp3389: tcp, nativePre });
+    return handle;
+  }
+  const zipSha = crypto.createHash('sha256').update(zip.bytes).digest('hex');
+  const zipPin = String(args.appZipSha256 || '').toLowerCase();
+  if (zipPin && zipSha !== zipPin) {
+    caps.set(name, STATUS.FAIL, `APP_ZIP_SHA_MISMATCH: got ${zipSha} expected ${zipPin}`, { tcp3389: tcp, nativePre });
+    return handle;
+  }
+  const zipPath = path.join(outDir, 'app-source.zip');
+  fs.writeFileSync(zipPath, zip.bytes);
+  const launcherExe = path.join(process.env.LOCALAPPDATA || '', 'ghrdp', 'ghrdp-rdp-launcher.exe');
   const oldDir = path.join(process.env.LOCALAPPDATA || '', 'ghrdp');
   const newDir = path.join(process.env.LOCALAPPDATA || '', 'GhrdpLauncher');
-  const oldHelper = path.join(oldDir, 'ghrdp-connect.ps1');
-  const newHelper = path.join(newDir, 'launch.ps1');
   const registrationBefore = resolveProtocolHandler();
   handle.enrollment = {
     attempted: false, registrationBefore, oldTree: snapshotTree(oldDir), newTree: snapshotTree(newDir),
-    installerSha256: crypto.createHash('sha256').update(installer.bytes).digest('hex')
+    appZipSha256: zipSha, zipPinVerified: Boolean(zipPin)
   };
-  if (registrationBefore.registered || fs.existsSync(oldHelper) || fs.existsSync(newHelper)) {
-    caps.set(name, STATUS.BLOCKED, 'HANDLER_PREEXISTING: refusing to overwrite an existing user registration/helper', { registrationBefore, tcp3389: tcp });
+  if (registrationBefore.registered || fs.existsSync(launcherExe)) {
+    caps.set(name, STATUS.BLOCKED, 'HANDLER_PREEXISTING: refusing to overwrite an existing user registration/launcher', { registrationBefore, tcp3389: tcp });
     return handle;
   }
-  const installerPath = path.join(outDir, 'production-install.ps1');
-  fs.writeFileSync(installerPath, installer.bytes);
   handle.enrollment.attempted = true;
-  const install = await runPs('Install-ProductionHandler.ps1', ['-InstallerPath', installerPath, '-ExpectedSha256', handle.enrollment.installerSha256], { operation: 'production-handler-install', timeoutMs: 90000 });
+  const install = await runPs('Install-ProductionHandler.ps1', ['-ZipPath', zipPath, '-ExpectedZipSha256', zipSha], { operation: 'production-handler-install', timeoutMs: 180000 });
   handle.enrollment.result = parseJsonLoose(install.out);
   if (install.code !== 0 || !handle.enrollment.result || handle.enrollment.result.registered !== true) {
     const st = /PREEXISTING|PROCESS_CONFLICT/.test(install.out) ? STATUS.BLOCKED : STATUS.FAIL;
@@ -580,9 +597,12 @@ async function checkRdp(caps, browser, args, outDir, readinessBody, ownership = 
     return handle;
   }
   handle.launch.installer = {
-    sha256: handle.enrollment.result.installerSha256,
-    helperSha256: handle.enrollment.result.helperSha256,
-    commandVerified: handle.enrollment.result.commandVerified === true
+    method: handle.enrollment.result.method,
+    installCmdSha256: handle.enrollment.result.installCmdSha256,
+    launcherSourceSha256: handle.enrollment.result.launcherSourceSha256,
+    launcherExeSha256: handle.enrollment.result.launcherExeSha256,
+    commandVerified: handle.enrollment.result.commandVerified === true,
+    selfTestSkipped: handle.enrollment.result.selfTestSkipped
   };
 
   // Real visible dashboard + real token dialog. No storage injection and no

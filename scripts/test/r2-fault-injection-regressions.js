@@ -42,6 +42,14 @@ module.exports = async function r2FaultInjectionTests({ test, assert, tmpRoot })
     assert.ok(t1.includes(mod.PERSISTENT_THROW), 'persistent variant carries the injected throw');
     assert.ok(t2.includes(mod.TRANSIENT_THROW), 'transient variant carries the one-shot throw');
     assert.ok(t2.includes('[runspacefactory]::CreateRunspacePool'), 'transient variant keeps pool creation (only Open is one-shot)');
+    // [RUN 40108408903 LESSON] A one-shot guard WITHOUT an else-branch calling
+    // the real Open() makes the second init a silent no-op: the pool stays
+    // BeforeOpen while the bookkeeping says available - the harness then
+    // measures its own mutation bug, not the repair. The else branch MUST call
+    // the real Open() so later attempts genuinely succeed.
+    assert.match(mod.TRANSIENT_THROW, /\} else \{ \$script:R2WsPool\.Open\(\) \}/, 'the transient guard calls the REAL Open() on later attempts');
+    const guardCount = (t2.match(/LabR2FaultOnce/g) || []).length;
+    assert.ok(guardCount >= 2, 'the one-shot guard state is set and read');
     // Unknown kinds are refused.
     let threw = null;
     try { mod.deriveFaultVariant(fake, 'everything', 't-bad'); } catch (e) { threw = e; }

@@ -660,11 +660,19 @@ jobs:
           CLIENT_TAILNET_IP: ${{ steps.peer.outputs.client_ip }}
           RDP_USER: slabrdp
           RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+          APP_ZIP_SHA256: dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378
         run: |
           if (-not $env:PEER_IP) {
             node scripts/mission-control-check.js --scope remote --blocked-reason 'DEPENDS_ON_TAILNET: server peer not reachable (see tailnet_connectivity)'
           } else {
-            node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-build $env:CANDIDATE_BUILD --expect-port 7331 --ready-timeout-ms 180000
+            # [8C] The app no longer serves /install.ps1 (deleted route). The
+            # auto-login enrollment fetches the app source zip at the pinned
+            # sha; the zip pin below is the hash of the CONFIG-PINNED base
+            # (4a91c5c2), so it is only asserted when that is the sha in play -
+            # a dispatch-selected source runs unpinned and records that truth.
+            $zipPin = ''
+            if ($env:APP_SHA -eq '4a91c5c2eadc12e5b071bc46bae7683087f56fbd') { $zipPin = $env:APP_ZIP_SHA256 }
+            node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-build $env:CANDIDATE_BUILD --expect-port 7331 --ready-timeout-ms 180000 $(if ($zipPin) { "--app-zip-sha256 $zipPin" } else { '' })
           }
           exit $LASTEXITCODE
 

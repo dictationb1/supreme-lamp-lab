@@ -139,7 +139,7 @@ function sha256File(p) { return crypto.createHash('sha256').update(fs.readFileSy
 // ---------------------------------------------------------------------------
 const INIT_SITE = "$script:R2WsPool = [runspacefactory]::CreateRunspacePool($r2Iss)";
 const PERSISTENT_THROW = "throw 'LAB-INJECTED persistent pool init failure (fault-injection harness)'";
-const TRANSIENT_THROW = "if (-not $script:LabR2FaultOnce) { $script:LabR2FaultOnce = $true; throw 'LAB-INJECTED transient pool init failure (fault-injection harness)' }";
+const TRANSIENT_THROW = "if (-not $script:LabR2FaultOnce) { $script:LabR2FaultOnce = $true; throw 'LAB-INJECTED transient pool init failure (fault-injection harness)' } else { $script:R2WsPool.Open() }";
 const OPEN_SITE = "$script:R2WsPool.Open()";
 
 function deriveFaultVariant(sourceFile, kind, variantName) {
@@ -163,7 +163,7 @@ function deriveFaultVariant(sourceFile, kind, variantName) {
     variantSha256: sha256File(target),
     mutation: kind === 'persistent'
       ? 'CreateRunspacePool call replaced by a throw (pool can NEVER initialize)'
-      : 'first Open() replaced by a one-shot throw (init fails once, later attempts succeed)'
+      : 'first Open() call throws once; every later call performs the REAL Open() (the transient scenario under test)'
   };
   report.variants.push(v);
   return target;
