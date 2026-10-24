@@ -1907,6 +1907,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert });
   }
 
+  // ===== complete patched-candidate staging + cert observability =====
+  {
+    const register = require('./test/candidate-staging-regressions');
+    await register({ test, assert });
+  }
+
   // ===== evidence publish gate (the lab is public; refusals are security) =====
   {
     const register = require('./test/publish-evidence-regressions');

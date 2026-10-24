@@ -53,12 +53,13 @@ const DEFS = {
 };
 
 function parseArgs(argv) {
-  const a = { scope: null, target: null, expectSha: null, expectPid: null, expectPort: 7331, headless: false, readyTimeoutMs: 120000, blockedReason: null, failReason: null };
+  const a = { scope: null, target: null, expectSha: null, expectBuild: null, expectPid: null, expectPort: 7331, headless: false, readyTimeoutMs: 120000, blockedReason: null, failReason: null };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--scope') a.scope = argv[++i];
     else if (k === '--target') a.target = (argv[++i] || '').replace(/\/+$/, '');
     else if (k === '--expect-sha') a.expectSha = argv[++i];
+    else if (k === '--expect-build') a.expectBuild = argv[++i];
     else if (k === '--expect-pid') a.expectPid = Number(argv[++i]);
     else if (k === '--expect-port') a.expectPort = Number(argv[++i]);
     else if (k === '--headless') a.headless = true;
@@ -152,7 +153,7 @@ async function checkDashboard(caps, name, browser, args, outDir) {
     if (banner) throw new Error(`DASHBOARD_V2_NOT_STAGED: ${((await banner.textContent()) || '').trim().slice(0, 160)}`);
     const title = await page.title();
     if (title !== 'RDP Mission Control') throw new Error(`DASHBOARD_WRONG_TITLE: ${JSON.stringify(title)}`);
-    const v = await dashboardVariant(page, args.expectSha, pageErrors);
+    const v = await dashboardVariant(page, args.expectBuild || args.expectSha, pageErrors);
     let auth = { notApplicable: 'v1' };
     if (v.variant === 'v2') {
       auth = await unlockDashboard(page);

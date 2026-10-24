@@ -94,7 +94,13 @@ function main() {
     runStartedAt: now,
     sessionId: `capability-${runId}-${runAttempt}`,
     webdeskUrl,
-    webdeskReason
+    webdeskReason,
+    // [CANDIDATE] The search lane (F56-d/F59, default ON in production
+    // main.yml via search_enable=true) is enabled on the lab candidate so the
+    // federated search lifecycle can be functionally verified through the real
+    // UI. The ephemeral hosted server has internet access; the adapters hit
+    // public APIs only (arxiv/wikipedia/ia/gutenberg), never credentials.
+    searchEnabled: true
   };
   fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), { encoding: 'utf8', mode: 0o600 });
   const tokenPath = path.join(root, 'dash-token.txt');
