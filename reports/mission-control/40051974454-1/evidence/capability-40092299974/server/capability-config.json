@@ -1,0 +1,27 @@
+{
+  "schema": "slab-capability-config/1",
+  "generatedAt": "2026-10-24T12:07:54.915Z",
+  "appSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "identity": {
+    "dnsName": "slab-srv-40092299974-1.tail7cf774.ts.net",
+    "rdpIp": "100.77.13.106",
+    "user": "slabrdp",
+    "hostKind": "ephemeral"
+  },
+  "dashboardToken": {
+    "derivation": "HMAC-SHA256(run-attempt-bound)",
+    "fingerprint": "8860199b6e1abf3c",
+    "runId": "40092299974",
+    "runAttempt": "1"
+  },
+  "webDesktop": {
+    "configured": true,
+    "url": "https://slab-srv-40092299974-1.tail7cf774.ts.net/webdesk",
+    "reason": null,
+    "proxy": "Tailscale HTTPS 443 -> loopback 7331"
+  },
+  "acl": {
+    "config": "SYSTEM+Administrators only",
+    "token": "SYSTEM+Administrators only"
+  }
+}
