@@ -1,0 +1,17 @@
+{
+  "ver": 18,
+  "appVersion": "2.6.0",
+  "version": "2.6.0",
+  "buildDate": "2026-10-24",
+  "session": "7",
+  "title": "Session 7 - Travel & Transport",
+  "settingsRev": 18,
+  "updatedAt": "2026-10-24T00:00:00Z",
+  "updatedAtMs": 1792800000000,
+  "features": {
+    "keyboard": "zero-suggestions shield (built-in QWERTY + IME suppression)",
+    "feedback": "animated tick, streak breakdown and false-answer correction flow",
+    "exit": "one-tap cross mark on the ready sheet and in the player topbar",
+    "visual": "swan badge, see-through hero title, Settings mixer, 60 FPS capsules"
+  }
+}
