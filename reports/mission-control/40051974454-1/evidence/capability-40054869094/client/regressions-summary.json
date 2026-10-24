@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "platform": "win32",
+  "node": "v22.23.3",
+  "requireBrowser": true,
+  "total": 231,
+  "passed": 231,
+  "failed": 0,
+  "skipped": 0,
+  "failures": [],
+  "skips": [],
+  "finishedAt": "2026-10-24T02:43:29.109Z"
+}
