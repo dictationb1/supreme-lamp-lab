@@ -1,7 +1,8 @@
 {
   "schema": "slab-mission-control-repair-bundle/1",
-  "bundleState": "CHECKPOINT_NOT_FINAL_ACCEPTANCE",
+  "bundleState": "CONSOLIDATED_REPAIR_CHECKPOINT_VM_BACKEND_VERIFICATION_PENDING",
   "createdAt": "2026-10-24T02:16:31Z",
+  "updatedAt": "2026-10-24T04:22:00Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40051974454",
@@ -14,59 +15,48 @@
     "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
     "archiveSha256": "dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378",
     "observedRunStatus": "in_progress",
-    "observedRdpPhase": "cleanup after step 28 failure",
+    "observedRdpPhase": "stuck in Cleanup step since 2026-10-24T02:04:15Z after step 28 failure; everything downstream of step 28 failed/skipped; effectively terminal",
     "firstObservedFailure": {
       "step": 28,
       "name": "Stage files + write config.json (UTF8 no BOM, Rentry secrets + provided edit code, token, ACLs)",
       "conclusion": "failure",
-      "internalException": "UNAVAILABLE_LOG_DOWNLOAD"
+      "internalException": "UNAVAILABLE_LOG_DOWNLOAD",
+      "note": "step logs and artifact ZIPs redirect to hosts blocked in this sandbox (productionresultssa*.blob.core.windows.net / results-receiver.actions.githubusercontent.com). The exact inner exception is unknown and not fabricated."
     },
     "readinessStep": "skipped",
     "signalPublicationStep": "skipped",
-    "exactSignalCheckRuns": 0
+    "exactSignalCheckRuns": 0,
+    "reclassified": "unpublished signal during a failed setup is NOT a broken MC-SIGNAL publisher"
   },
   "lab": {
     "repository": "dictationb1/supreme-lamp-lab",
-    "branch": "arena/daf94107-supreme-lamp-lab",
     "baseMain": "a3eb4b79cdec5049781d7b2b2df7c3b880730835",
-    "consolidatedReaderHead": "f41804b9446134a606d9f205a470c45bae2ee91e",
-    "consolidatedRepairHead": "481de98ab036091e01dab26e1b0b31a60035743d",
+    "readerPrHead_f41804b": "PR #26 reader/harness (mc-signal/v1 parseAppSignal/openAppCredential/resolveAnySignal)",
+    "repairBranchHead_481de98": "F201-only report and sanitized patch (legacy signal reader only)",
+    "allowedBranch": "arena/69b9956b-supreme-lamp-lab",
+    "consolidatedFrom": "arena/daf94107-supreme-lamp-lab (PR #27 head 6e5fd96, itself a superset of PR #26 + the F201 repair)",
+    "consolidationMethod": "fast-forward of the allowed branch to 6e5fd96; reader, harness, F201 replay, capability and VM-preflight evidence all preserved; newer repairs not reverted",
     "hostedRegressions": {
       "platform": "linux",
       "node": "v22.22.3",
-      "total": 230,
-      "passed": 222,
+      "total": 236,
+      "passed": 228,
       "failed": 0,
-      "skipped": 8
+      "skipped": 8,
+      "addedThisSession": ["real-backend workflow: label/lock/BLOCKED honesty", "R1 patch at app root + nav weak-check replaced", "revision gate extended to real-backend.yml"]
     }
   },
   "candidate": {
-    "scope": "F201_ONLY_AT_THIS_CHECKPOINT",
-    "localOnlyCommit": "9bfe9946a2ca779085babaedc040e68dff95c233",
-    "localOnlyTree": "06dce4388261f272ef2e45644bfb13f9b619a34b",
     "applicationRemoteModified": false,
     "liveServerOverwritten": false,
-    "frontend": {
-      "path": "ui/dist/index.html",
-      "bytes": 1273547,
-      "sha256": "b6a5dfc84316c315601a47f1a1aaffe08d2e0336177ee304547952e0401d5bbe",
-      "buildStamp": "candidate-4a91c5c2eadc-f201"
-    },
+    "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "orderedPatchSeries": ["0001-F201-probe-honesty.patch", "0002-R1-server-startup-readiness.patch"],
+    "reviewedCandidateTree": "62679b8edfde8ba2180f8bb3ca86c03e00d02b31",
+    "cleanReplay": "PASS (clean codeload download; archive SHA verified; both regressions fail on baseline, pass on candidate; tree matches; 1378 smoke tests across 107 files; production build PASS)",
     "hostedChecks": {
-      "baselineF201": {
-        "passed": 0,
-        "failed": 8,
-        "expectedFailureReproduced": true
-      },
-      "candidateF201": {
-        "passed": 8,
-        "failed": 0
-      },
-      "candidateFullSmoke": {
-        "files": 106,
-        "passed": 1375,
-        "failed": 0
-      },
+      "baselineRegressions": { "f201": "8 FAIL", "r1": "3 FAIL", "expectedFailureReproduced": true },
+      "candidateRegressions": { "f201": "8 PASS", "r1": "3 PASS" },
+      "candidateFullSmoke": { "files": 107, "passed": 1378, "failed": 0 },
       "productionBuild": "PASS"
     }
   },
@@ -79,30 +69,54 @@
       "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
       "appliesToBase": true,
       "includesRegressionTests": true,
-      "previousPackagingSha256": "6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f",
-      "packagingCorrection": "Regenerated from the exact local-only candidate tree so the regression is at src/tests/smoke, not candidate/src/tests; runtime repair hunks are unchanged."
+      "scope": "frontend probe honesty; 8 invariant tests"
+    },
+    {
+      "order": 2,
+      "id": "R1",
+      "file": "app-patches/0002-R1-server-startup-readiness.patch",
+      "sha256": "eb9d7efeb001ea536a7e99a4e80289856c93fa71a6f8445b77abce0eebf70b33",
+      "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "appliesAfter": "0001-F201-probe-honesty.patch",
+      "appliesToSeries": true,
+      "includesRegressionTests": true,
+      "scope": "PowerShell server startup readiness + one-scan-per-iteration bounding + server-ready.txt; 3 invariant tests",
+      "windowsTimingVerifiedBy": "evidence/real-backend-*/comparison.json (pending this VM run)"
     }
   ],
   "environments": {
-    "A_live_origin": "Actual application workflow metadata; no served UI was reached",
-    "B_isolated_baseline": "Unmodified complete clone at the pinned application SHA",
-    "C_isolated_candidate": "Separate detached worktree with the ordered patch series; local commits only",
-    "client_vm": "PREFLIGHT_PASS_ONLY: run 40053842579, interactive session 1, headed synthetic browser click; no application/RDP acceptance"
+    "A_live_origin": "Actual application workflow metadata; staging failed before any served UI/signal (origin-run.json, origin-rdp-job.json, origin-signal-publication.json)",
+    "B_isolated_baseline": "Unmodified complete clone at the pinned application SHA; F201+R1 regressions fail; real-backend baseline server measured on the client VM",
+    "C_isolated_candidate": "Separate clean-clone worktree with the ordered 2-patch series; hosted regressions/smoke/build PASS; real-backend patched server measured on the client VM",
+    "client_vm": "PREFLIGHT PASS (run 40054869099, interactive session 1, headed native browser click, online tailnet); REAL-BACKEND verification job defined by .github/workflows/real-backend.yml gated by label real-backend-run"
+  },
+  "realBackendVerification": {
+    "workflow": ".github/workflows/real-backend.yml",
+    "harness": "scripts/candidate/real-backend.js",
+    "runner": "self-hosted Windows X64 rdp-lab-client (interactive, headed)",
+    "label": "real-backend-run",
+    "exclusiveLock": "registry.sessionLockDir() shared with live-run and client_preflight",
+    "measures": ["connect->first /health (baseline vs patched)", "server-ready.txt publication", "/health latency sampling across a lab-shortened telescope tick", "concurrent inline-scan vs /health", "endpoint schemas (redacted)", "listening socket PID/exe"],
+    "drivesRealBrowser": true,
+    "acceptanceItemsKeptBlocked": ["native RDP connect (needs signed launcher + real listener)", "Web Desktop frames (needs a real captured session)", "real 4624 logon correlation", "external mirror uploads"],
+    "status": "PENDING_VM_RUN",
+    "evidenceDir": "evidence/real-backend-<labRunId>/",
+    "note": "This field is updated from the committed VM evidence before the bundle is declared final."
   },
   "verdicts": {
-    "LAB_HARNESS": "IN_PROGRESS",
-    "LIVE_ORIGIN_APPLICATION": "FAIL",
-    "PATCHED_APPLICATION_CANDIDATE": "IN_PROGRESS",
-    "UPSTREAM_DEPLOYMENT": "NOT_RUN",
-    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED"
+    "LAB_HARNESS": "PASS (consolidated; 228 pass / 0 fail / 8 skip hosted; clean replay PASS)",
+    "LIVE_ORIGIN_APPLICATION": "FAIL (staging step 28 failed before any served UI or signal; signal not published, not a broken publisher)",
+    "PATCHED_APPLICATION_CANDIDATE": "PASS_HOSTED (F201+R1 regressions, 1378 smoke, production build, clean replay); WINDOWS_BACKEND PENDING real-backend VM run",
+    "UPSTREAM_DEPLOYMENT": "NOT_RUN (application remote is read-only this session; no push/merge/deploy)",
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED (origin never published an exact run+attempt MC-SIGNAL; discovery/claim/decrypt path remains wired and tested in the lab harness)"
   },
-  "blockingPrerequisites": [
-    "The exact origin did not publish a live MC-SIGNAL because staging failed before readiness.",
-    "Real client preflight passed, but no real application UI, native RDP, or Web Desktop acceptance has passed.",
-    "Full production backend, native RDP, Web Desktop, and every actionable control remain to be exercised."
+  "blockingPrerequisitesForFullAcceptance": [
+    "The pinned origin ended at staging with no live signal; a FRESH main.yml mode=rdp run URL is needed to verify the LIVE origin end-to-end (operator action requested once).",
+    "Native RDP and Web Desktop need a real signed launcher, a real captured session and a real credential chain; the lab candidate is loopback with synthetic identity and these are honestly BLOCKED.",
+    "Real-backend Windows timing evidence is published by the VM job and must be non-failing before the candidate is labelled fully verified on Windows."
   ],
   "evidenceRetention": {
-    "repositoryEvidence": "Immutable after the final commit is pinned",
-    "actionsArtifacts": "Supplemental only; artifact and log redirect downloads were inaccessible from this sandbox and have provider retention limits"
+    "repositoryEvidence": "Immutable once the final commit is pinned; all text/screenshots sanitized by publish-evidence.js credential-shape gate",
+    "actionsArtifacts": "Supplemental only; artifact/log redirect downloads inaccessible from this sandbox and have provider retention limits"
   }
 }

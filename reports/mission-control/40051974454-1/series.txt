@@ -1,2 +1,8 @@
 # Ordered application patch prefixes, relative to this bundle.
+# 0001 F201: probe honesty (frontend) — a refused/empty backend probe must not
+#            become confirmed credential/DNS/listener failure.
+# 0002 R1:   server startup readiness — remove the three synchronous pre-accept
+#            Get-WinEvent scans, publish HTTP readiness from inside the accept
+#            loop, and bound the periodic inline ticks to one scan per iteration.
 app-patches/0001-F201-probe-honesty.patch
+app-patches/0002-R1-server-startup-readiness.patch

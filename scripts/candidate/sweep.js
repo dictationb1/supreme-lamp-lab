@@ -36,19 +36,31 @@ const bundlePath = arg('bundle', '');
 const sourceInventoryPath = arg('source-inventory', '');
 const modes = (arg('modes', 'refuse,empty,healthy')).split(',');
 
+// [LAB-DEFECT NAV-1] The previous navigation checks asserted only that the app
+// shell was mounted and that document.body.innerText was non-empty. That passes
+// even when the routed page renders nothing, when the router silently falls
+// back to Overview, and when the page throws behind an error boundary - which
+// is exactly how eleven "PASS" rows were produced for zero real navigation.
+// Every route therefore names the stable test id of the page component that
+// MUST mount for that hash, and the check asserts (a) that marker is visible,
+// (b) it is not one of the other pages' markers, and (c) the URL hash really
+// is the hash we navigated to.
 const ROUTES = [
-  { id: 'nav.overview', hash: '#/', marker: 'overview-connect-panel' },
-  { id: 'nav.search', hash: '#/search', marker: null },
-  { id: 'nav.sessions', hash: '#/sessions', marker: null },
-  { id: 'nav.connections', hash: '#/connections', marker: null },
-  { id: 'nav.keys', hash: '#/keys', marker: null },
-  { id: 'nav.files', hash: '#/files', marker: null },
-  { id: 'nav.mirror', hash: '#/mirror', marker: null },
-  { id: 'nav.telemetry', hash: '#/telemetry', marker: null },
-  { id: 'nav.health', hash: '#/health', marker: null },
-  { id: 'nav.collector', hash: '#/collector', marker: null },
-  { id: 'nav.settings', hash: '#/settings', marker: null }
+  { id: 'nav.overview', hash: '#/', marker: 'overview-page' },
+  { id: 'nav.search', hash: '#/search', marker: 'search-page' },
+  { id: 'nav.sessions', hash: '#/sessions', marker: 'page-sessions' },
+  { id: 'nav.connections', hash: '#/connections', marker: 'page-connections' },
+  { id: 'nav.keys', hash: '#/keys', marker: 'page-keys' },
+  { id: 'nav.files', hash: '#/files', marker: 'file-explorer-page' },
+  { id: 'nav.mirror', hash: '#/mirror', marker: 'page-mirror' },
+  { id: 'nav.telemetry', hash: '#/telemetry', marker: 'page-telemetry' },
+  { id: 'nav.health', hash: '#/health', marker: 'health-page' },
+  { id: 'nav.collector', hash: '#/collector', marker: 'collector-page' },
+  { id: 'nav.settings', hash: '#/settings', marker: 'page-settings' }
 ];
+// Every routed page marker, so a "wrong page rendered" can be named instead of
+// being silently accepted as a non-empty body.
+const ALL_PAGE_MARKERS = ROUTES.map(r => r.marker);
 
 const rows = [];
 const findings = [];
@@ -580,23 +592,45 @@ async function main() {
         let ok = false, detail = '';
         try {
           await page.goto(base + '/v2' + r.hash, { waitUntil: 'domcontentloaded', timeout: 20000 });
-          await page.waitForTimeout(700);
-          const shell = await page.$('[data-testid="app-topbar"]');
-          const body = (await page.evaluate(() => document.body.innerText || '')).slice(0, 200);
-          ok = !!shell && body.length > 0;
-          detail = body.replace(/\s+/g, ' ').slice(0, 120);
+          await page.waitForTimeout(900);
+          // (a) THIS page's own component marker must be visible.
+          let markerVisible = false;
+          try {
+            await page.waitForSelector(`[data-testid="${r.marker}"]`, { state: 'visible', timeout: 8000 });
+            markerVisible = true;
+          } catch (e) { /* recorded below, not fatal */ }
+          // (b) no OTHER page marker may be the one on screen (catches a router
+          //     that silently renders Overview for every hash).
+          const visibleMarkers = await page.evaluate((markers) => {
+            const out = [];
+            for (const m of markers) {
+              const el = document.querySelector(`[data-testid="${m}"]`);
+              if (el && el.offsetParent !== null) out.push(m);
+            }
+            return out;
+          }, ALL_PAGE_MARKERS);
+          // (c) the address bar really holds the hash we asked for.
+          const landedHash = await page.evaluate(() => String(location.hash || ''));
+          const heading = await page.evaluate((m) => {
+            const el = document.querySelector(`[data-testid="${m}"]`);
+            return el ? String((el.textContent || '').trim()).replace(/\s+/g, ' ').slice(0, 90) : '';
+          }, r.marker);
+          const wanted = r.hash === '#/' ? '' : r.hash;
+          ok = markerVisible && visibleMarkers.indexOf(r.marker) >= 0 && (landedHash === wanted || (wanted === '' && landedHash === '#/'));
+          detail = `marker=${r.marker} visible=${markerVisible} heading="${heading}" landedHash="${landedHash}" otherVisibleMarkers=[${visibleMarkers.filter(m => m !== r.marker).join(',')}]`;
         } catch (e) {
-          detail = 'error: ' + String(e.message || e).slice(0, 120);
+          detail = 'error: ' + String(e.message || e).slice(0, 160);
         }
         const evidence2 = await shot(page, r.id.replace(/\./g, '-') + '-healthy');
         await inventoryDom(page, r.hash.replace(/^#\//, '') || 'overview', mode, evidence2);
         record({
           mode, control: r.id, area: 'navigation',
-          action: `Navigate to ${r.hash} in the built bundle.`,
-          expectUi: 'the app shell stays mounted and the page renders its own content',
+          action: `Navigate to ${r.hash} in the built bundle and assert that page's own component mounted.`,
+          expectUi: `[data-testid="${r.marker}"] is visible, the URL hash is ${r.hash}, and no other page marker is the one rendered`,
           actual: detail,
           evidence: evidence2,
-          verdict: ok ? 'PASS' : 'FAIL'
+          verdict: ok ? 'PASS' : 'FAIL',
+          note: ok ? '' : 'a non-empty body is not navigation; the routed page component must mount'
         });
       }
 

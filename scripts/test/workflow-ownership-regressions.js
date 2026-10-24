@@ -98,7 +98,7 @@ module.exports = async function register({ test, assert }) {
   });
 
   await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {
-    for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml', '.github/workflows/capability-check.yml']) {
+    for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml', '.github/workflows/capability-check.yml', '.github/workflows/real-backend.yml']) {
       const wf = read(file);
       const lines = wf.split('\n');
       let checkoutCount = 0;
@@ -158,11 +158,47 @@ module.exports = async function register({ test, assert }) {
       assert.strictEqual(registry.sessionLockDir(), path.join(os.tmpdir(), 'isolated-test-state', 'desktop-session.lock.d'));
       const live = read('scripts/live-run.js');
       const preflight = read('scripts/candidate/vm-preflight.js');
+      const realBackend = read('scripts/candidate/real-backend.js');
       assert.ok(/lockDir:\s*registry\.sessionLockDir\(\)/.test(live));
       assert.ok(/lockDir:\s*registry\.sessionLockDir\(\)/.test(preflight));
+      assert.ok(/lockDir:\s*registry\.sessionLockDir\(\)/.test(realBackend), 'the real-backend job must share the same desktop lock');
     } finally {
       if (oldState === undefined) delete process.env.LAB_STATE_DIR; else process.env.LAB_STATE_DIR = oldState;
       if (oldLock === undefined) delete process.env.LAB_LOCK_DIR; else process.env.LAB_LOCK_DIR = oldLock;
     }
+  });
+
+  await test('real-backend workflow: same-repo label gate, exclusive lock, honest BLOCKED acceptance', async () => {
+    const wf = read('.github/workflows/real-backend.yml');
+    assert.ok(/contains\(github\.event\.pull_request\.labels\.\*\.name, 'real-backend-run'\)/.test(wf), 'gate on the real-backend-run label');
+    assert.ok(/github\.event\.pull_request\.head\.repo\.full_name == github\.repository/.test(wf), 'same-repository guard, never fork code on the VM');
+    assert.ok(/runs-on:\s*\[self-hosted, Windows, X64, rdp-lab-client\]/.test(wf), 'runs on the interactive client VM');
+    assert.ok(/concurrency:\s*\n\s*group:\s*real-backend/.test(wf), 'serialized with its own concurrency group');
+    // Baseline + patched MUST both run against the same pristine/patched server.
+    assert.ok(/pristine-ghrdp-server\.ps1/.test(wf), 'a pristine baseline server is preserved before patching');
+    assert.ok(/foreach \(\$lbl in @\('baseline','patched'\)\)/.test(wf) && /--label \$lbl/.test(wf), 'both baseline and patched labels are measured via one loop');
+    const evaluate = wf.slice(wf.indexOf('Evaluate real-backend verdict'));
+    assert.ok(evaluate.includes('if ($fails -gt 0)') && evaluate.includes('exit 2'), 'a real control FAIL must fail the job');
+    const rb = read('scripts/candidate/real-backend.js');
+    assert.ok(/not the live origin/i.test(rb), 'the harness must say what it is not');
+    assert.ok(/BLOCKED: native RDP/.test(rb) && /BLOCKED: web desktop/i.test(rb), 'native RDP and Web Desktop are BLOCKED, never simulated PASS');
+    assert.ok(/real-backend-report\.json/.test(rb), 'structured evidence is always written');
+  });
+
+  await test('R1 patch: applies at app root, includes the regression, nav weak-check replaced', async () => {
+    const fsx = require('fs');
+    const patchPath = path.join(ROOT, 'reports/mission-control/40051974454-1/app-patches/0002-R1-server-startup-readiness.patch');
+    assert.ok(fsx.existsSync(patchPath), 'R1 patch must exist in the bundle');
+    const patch = read('reports/mission-control/40051974454-1/app-patches/0002-R1-server-startup-readiness.patch');
+    const diffs = patch.split('\n').filter(l => l.startsWith('diff --git '));
+    assert.ok(diffs.every(l => !l.includes('a/candidate/') && !l.includes('b/candidate/')), 'R1 patch applies at the application root');
+    assert.ok(diffs.some(l => l.includes('a/payloads/ghrdp-server.ps1')) && diffs.some(l => l.includes('a/src/tests/smoke/r1-server-readiness.test.ts')));
+    const series = read('reports/mission-control/40051974454-1/series.txt');
+    assert.ok(series.indexOf('0001-F201') >= 0 && series.indexOf('0002-R1') >= 0);
+    assert.ok(series.indexOf('0001-F201') < series.indexOf('0002-R1'), 'series order is F201 then R1');
+    // The nav check must assert a page-specific marker, not a non-empty body.
+    const sweep = read('scripts/candidate/sweep.js');
+    assert.ok(/ALL_PAGE_MARKERS/.test(sweep) && /NAV-1/.test(sweep), 'navigation must assert routed page markers');
+    assert.ok(!/ok\s*=\s*!!shell\s*&&\s*body\.length\s*>\s*0/.test(sweep), 'the old body-nonempty navigation check must be gone');
   });
 };
