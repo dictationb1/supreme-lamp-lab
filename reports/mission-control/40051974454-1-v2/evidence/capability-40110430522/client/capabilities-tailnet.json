@@ -1,0 +1,31 @@
+{
+  "scope": "tailnet",
+  "job": "client",
+  "runId": "40110430522",
+  "runAttempt": "1",
+  "runner": "rdp-lab-client",
+  "writtenAt": "2026-10-24T16:25:16.793Z",
+  "capabilities": {
+    "tailnet_connectivity": {
+      "status": "PASS",
+      "required": true,
+      "contract": "server peer of this run attempt online in client tailscale status AND Mission Control port reachable over the tailnet",
+      "reason": "peer slab-srv-40110430522-1.tail7cf774.ts.net. 100.77.244.26 online; tcp 7331 reachable from 100.93.94.15",
+      "evidence": {
+        "hostname": "slab-srv-40110430522-1",
+        "peer": {
+          "HostName": "slab-srv-40110430522-1",
+          "DNSName": "slab-srv-40110430522-1.tail7cf774.ts.net.",
+          "Online": true,
+          "ip": "100.77.244.26"
+        },
+        "clientIp": "100.93.94.15",
+        "probe": {
+          "ok": true
+        },
+        "serverJob": null,
+        "lastStatusErr": null
+      }
+    }
+  }
+}
