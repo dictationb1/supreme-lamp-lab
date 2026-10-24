@@ -1,0 +1,6 @@
+control_id,phase,verdict,actual,note
+r2b.defect_reproduction.old_inline_fallback_starves_http,A,PASS,"REPRODUCED: /ws served 101 by the inline fallback; /health stalled 4004ms (timeout) after 0 ok probes","negative control on the PRE-REPAIR server: PASS means the source-identified starvation defect is real and reproducible"
+r2b.repair.health_advertises_truthful_degraded_state,B,PASS,"ws=false wsReason=\"websocket worker pool unavailable\"","the UI must not be told ws=true while /ws answers 503"
+r2b.repair.faulted_ws_gets_immediate_truthful_503,B,PASS,"503,503,503,503,503,503","bounded refusal with the reason, never a silent disable and never an inline pump"
+r2b.repair.http_never_starves_while_ws_refused,B,PASS,"8 samples, p95=70ms, max=70ms, starved=false","the pre-0004 fallback pinned the accept thread here; the repair must not"
+r2b.recovery.transient_fault_recovers_after_retry_window,C,PASS,"first=503, second=101, health={\"ws\":true,\"wsReason\":null}","degraded state is bounded: a transient init failure must not pin /ws off for the process lifetime"
