@@ -78,3 +78,15 @@ See the prior records for the four defects fixed along the way:
 `windows-run-40084261133-slot-leak.md` (pump EOF slot leak, `Socket.Poll`) and
 `windows-run-40089578561-instrumentation-blind-spot.md` (Playwright event blind
 spot + recorder), plus the shadowed-`/health` route fix in 0003.
+
+## Reproducibility
+
+The same green result was reproduced on two further consecutive real-backend
+runs with identical verdict counts (33 PASS / 0 FAIL / 5 BLOCKED):
+run 40092088400 at head `c76882f` and run 40092300001 at head `aba6fa9` (the
+latter heads changed only bundle documentation, not the server/harness code).
+On run 40092088400 the app socket recorded 12 inbound / 6 outbound frames and
+the reconnect control again passed; all eleven r2/backend controls passed on
+every run. This establishes that R2 acceptance is stable and not a single-run
+fluke. Bot evidence for each run is committed under
+`evidence/real-backend-<runId>/`.

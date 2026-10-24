@@ -1,8 +1,8 @@
 {
  "schema": "slab-mission-control-repair-bundle/2",
- "bundleState": "R2_ACCEPTED_ON_REAL_WINDOWS_HEADED_ACTUAL_APPLICATION_NO_STUB_RUN_40091165292",
+ "bundleState": "R2_ACCEPTED_REPRODUCED_3_CONSECUTIVE_GREEN_WINDOWS_RUNS",
  "createdAt": "2026-10-24T07:59:00Z",
- "updatedAt": "2026-10-24T12:55:00Z",
+ "updatedAt": "2026-10-24T13:35:00Z",
  "origin": {
   "repository": "dictationb1/supreme-lamp",
   "runId": "40072158991",
@@ -129,7 +129,25 @@
     "outer-finally socket ownership ECONNRESET (run 40082655039)",
     "pump EOF slot leak via Socket.Poll (run 40084261133)",
     "shadowed /health ws advertisement + Playwright event blind spot via native recorder (runs 40086011776/40089578561)"
-   ]
+   ],
+   "reproducedOn": [
+    {
+     "runId": "40091165292",
+     "headSha": "5ba3745",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    },
+    {
+     "runId": "40092088400",
+     "headSha": "c76882f",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    },
+    {
+     "runId": "40092300001",
+     "headSha": "aba6fa9",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    }
+   ],
+   "reproducibility": "three consecutive real-backend runs on the Windows client are green with identical verdict counts; the last two re-confirm at later lab heads that changed only bundle documentation, proving the result is stable and not a one-off"
   }
  },
  "windowsVerification": {

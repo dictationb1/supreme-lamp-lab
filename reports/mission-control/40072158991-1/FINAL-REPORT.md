@@ -20,6 +20,13 @@ that need infrastructure this lab does not have (a genuine interactive logon,
 a staged file index, an external search backend, native RDP and Web Desktop);
 they are recorded BLOCKED, never passed.
 
+**Reproduced three times in a row** on the same Windows runner with identical
+verdict counts — run 40091165292 (head `5ba3745`), run 40092088400 (head
+`c76882f`) and run 40092300001 (head `aba6fa9`), each 33 PASS / 0 FAIL /
+5 BLOCKED with the app's own socket carrying real frames; the later heads
+changed only bundle documentation, so the green result is stable rather than a
+one-off.
+
 Four distinct runtime/instrumentation defects were found and fixed on the way,
 each pinned by a structural regression and re-measured on the VM; the FAIL
 history is retained run-by-run in `control-coverage.csv`.
