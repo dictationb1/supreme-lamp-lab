@@ -2,7 +2,7 @@
   "schema": "slab-mission-control-repair-bundle/1",
   "bundleState": "CONSOLIDATED_REPAIR_BUNDLE_VM_BACKEND_VERIFIED_NOT_FULL_ACCEPTANCE",
   "createdAt": "2026-10-24T02:16:31Z",
-  "updatedAt": "2026-10-24T06:33:22Z",
+  "updatedAt": "2026-10-24T06:47:35Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40051974454",
@@ -15,7 +15,7 @@
     "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
     "archiveSha256": "dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378",
     "observedRunStatus": "in_progress",
-    "observedRdpPhase": "stuck in Cleanup step since 2026-10-24T02:04:15Z after step 28 failure; everything downstream of step 28 failed/skipped; effectively terminal",
+    "observedRdpPhase": "rdp job still in_progress in cleanup step 69 at the 2026-10-24T06:46:23Z recheck; step 28 is the first failure and no live UI/exact MC-SIGNAL became available",
     "firstObservedFailure": {
       "step": 28,
       "name": "Stage files + write config.json (UTF8 no BOM, Rentry secrets + provided edit code, token, ACLs)",
@@ -26,7 +26,24 @@
     "readinessStep": "skipped",
     "signalPublicationStep": "skipped",
     "exactSignalCheckRuns": 0,
-    "reclassified": "unpublished signal during a failed setup is NOT a broken MC-SIGNAL publisher"
+    "reclassified": "unpublished signal during a failed setup is NOT a broken MC-SIGNAL publisher",
+    "lastRecheckedAt": "2026-10-24T06:46:23Z",
+    "signalCloseStep": "success (close/cleanup step; NOT a publication)",
+    "laterFailures": [
+      {
+        "step": 67,
+        "name": "F92 smoke (wait for backend + assert self-test)",
+        "conclusion": "failure",
+        "classification": "downstream of step 28"
+      },
+      {
+        "step": 68,
+        "name": "Run actions/upload-artifact@v4",
+        "conclusion": "failure",
+        "classification": "downstream of step 28"
+      }
+    ],
+    "recheckEvidence": "evidence/origin-rdp-recheck-20261024T064623Z.json"
   },
   "lab": {
     "repository": "dictationb1/supreme-lamp-lab",
@@ -269,10 +286,10 @@
   ],
   "verdicts": {
     "LAB_HARNESS": "PASS (consolidated; 229 pass / 0 fail / 8 skip hosted; clean replay PASS; definitive real-backend VM job 40068292422 SUCCESS). Other PR acceptance gates at that head are separately reported as FAIL because their BLOCKED/NOT_RUN criteria are not full acceptance.",
-    "LIVE_ORIGIN_APPLICATION": "FAIL (staging step 28 failed before any served UI or signal; signal not published, not a broken publisher)",
+    "LIVE_ORIGIN_APPLICATION": "FAIL (step 28 staging failed before any served UI or exact MC-SIGNAL; recheck at 2026-10-24T06:46:23Z still in_progress in cleanup; signal publication skipped, close-signal success is not publication; not a broken publisher)",
     "PATCHED_APPLICATION_CANDIDATE": "PARTIAL — hosted PASS (F201+R1 regressions, 1378 smoke, production build, clean replay) AND real Windows client-VM backend verification in successful run 40068292422 (18 PASS / 6 BLOCKED / 1 real FAIL; R1 startup stall 3474->841ms; server-ready.txt published). R2 inline-WS accept-loop stall CONFIRMED and NOT fixed (high-severity, likely the user's UI-freeze cause). NOT full acceptance: native RDP/Web Desktop/real-logon BLOCKED.",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (application remote is read-only this session; no push/merge/deploy)",
-    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED (origin never published an exact run+attempt MC-SIGNAL; discovery/claim/decrypt path remains wired and tested in the lab harness)"
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED (origin never published an exact run+attempt MC-SIGNAL; recheck found zero matching check runs; discovery/claim/decrypt path remains wired and tested in the lab harness)"
   },
   "openObservations": [
     {

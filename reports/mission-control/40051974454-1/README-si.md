@@ -30,12 +30,16 @@ candidate + පැරණි `main` code මිශ්‍රණයක් ධාව
 - Workflow `.github/workflows/main.yml`; event `workflow_dispatch`; attempt `1`; SHA `4a91c5c2…`.
 - **පළමු නිරීක්ෂිත fail වීම:** step 28, `Stage files + write config.json` → `failure`.
   Dashboard startup, readiness සහ `Publish live Mission Control signal (MC-SIGNAL)` steps **skipped** විය.
-- 2026-10-24T02:04:15Z සිට run එක Cleanup step එකේ ඇලී ඇත; downstream සියල්ල fail/skip නිසා එය ප්‍රායෝගිකව අවසන් ය.
-- නිශ්චිත repository+run+attempt+SHA සඳහා MC-SIGNAL check run එකක් නැත. මෙය **publication නොමැතිකම** මිස
+- 2026-10-24T06:46:23Z නැවත පරීක්ෂාවේදීත් run එක සහ `rdp` job එක `in_progress` — step 69
+  `Cleanup (wipe profiles/storage, reset funnel/serve)` තුළය. Step 28 පළමු failure එක ලෙසම පවතී.
+  Step 60 `Publish live Mission Control signal (MC-SIGNAL)` **skipped**; step 62 `Close live Mission Control signal`
+  success වූවද එය publication එකක් **නොවේ**. Step 67 F92 smoke සහ step 68 upload-artifact පසුව fail වී ඇත.
+- නිශ්චිත repository+run+attempt+SHA සඳහා MC-SIGNAL check run ගණන **0** ය. මෙය **publication නොමැතිකම** මිස
   broken publisher එකක් නොවේ — setup අතරතුර unpublished signal එක එසේ වර්ගීකරණය නොකෙරේ.
 - Step logs / artifact ZIP authenticated redirect මගින් sandbox-allowlist නොවන hosts වෙත යන නිසා step 28 ඇතුළේ
   නිශ්චිත exception එක කියවිය නොහැකි විය. එය fabricate කර නැත.
-- සාක්ෂි: `evidence/origin-run.json`, `evidence/origin-rdp-job.json`, `evidence/origin-signal-publication.json`.
+- සාක්ෂි: `evidence/origin-run.json`, `evidence/origin-rdp-job.json`, `evidence/origin-signal-publication.json`,
+  සහ නැවුම් `evidence/origin-rdp-recheck-20261024T064623Z.json`.
 
 ## 3. Isolated baseline (B) සහ patched candidate (C)
 

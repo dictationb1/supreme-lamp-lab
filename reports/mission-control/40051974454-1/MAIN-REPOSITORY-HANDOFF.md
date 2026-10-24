@@ -71,6 +71,8 @@ covered instead by the pinned commit hash itself.
 | Origin run | `40051974454` attempt `1`, workflow `.github/workflows/main.yml` |
 | Origin outcome | **step 28 staging failed** before any served UI/signal; MC-SIGNAL not published (not a broken publisher). See `defects/ORIGIN-STAGING.md`. |
 
+Rechecked at `2026-10-24T06:46:23Z`: the run and `rdp` job were still `in_progress` in cleanup step 69. Step 28 remained the first failure, publication step 60 was skipped, close-signal step 62 succeeded (which is not a publication), and the exact `mission-control-live-signal` check-run query returned zero matches. F92 smoke and upload-artifact steps 67/68 failed downstream. Evidence: `evidence/origin-rdp-recheck-20261024T064623Z.json`.
+
 ```bash
 curl -fsSL "https://codeload.github.com/dictationb1/supreme-lamp/zip/4a91c5c2eadc12e5b071bc46bae7683087f56fbd" -o app.zip
 echo "dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378  app.zip" | sha256sum -c -
