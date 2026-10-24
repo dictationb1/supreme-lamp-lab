@@ -32,7 +32,7 @@ on:
       app_sha:
         description: 'supreme-lamp base commit (40-hex)'
         required: false
-        default: '4a91c5c2eadc12e5b071bc46bae7683087f56fbd'
+        default: '832a82eb7c29613b0b101585c56b5011ea008a06'
         type: string
       runner:
         description: 'vm = interactive client VM; anything else = hosted Windows'
@@ -49,11 +49,13 @@ permissions:
   actions: read
 
 env:
-  APP_SHA: ${{ inputs.app_sha || '4a91c5c2eadc12e5b071bc46bae7683087f56fbd' }}
-  BUNDLE_DIR: reports/mission-control/40051974454-1
+  APP_SHA: ${{ inputs.app_sha || '832a82eb7c29613b0b101585c56b5011ea008a06' }}
+  BUNDLE_DIR: reports/mission-control/40072158991-1
   LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
   HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
-  APP_ZIP_SHA256: dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378
+  # codeload ZIP of supreme-lamp @ 832a82eb; verified deterministic across
+  # two downloads in the lab before pinning.
+  APP_ZIP_SHA256: c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393
 
 jobs:
   real_backend:
@@ -140,7 +142,7 @@ jobs:
           Push-Location $env:APP_DIR
           npx --yes pnpm@9.15.9 install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { Write-Host "::error title=app pnpm install::exit $LASTEXITCODE"; Pop-Location; exit 1 }
-          npx --yes vitest run src/tests/smoke/f201-probe-honesty.test.tsx src/tests/smoke/r1-server-readiness.test.ts --reporter=dot
+          npx --yes vitest run src/tests/smoke/f201-probe-honesty.test.tsx src/tests/smoke/r1-server-readiness.test.ts src/tests/smoke/r2-websocket-worker.test.ts --reporter=dot
           $trc = $LASTEXITCODE
           Write-Host "::notice title=app regressions::exit=$trc"
           if ($trc -ne 0) { Write-Host "::error title=app regressions FAIL::exit $trc"; Pop-Location; exit 1 }
@@ -188,7 +190,7 @@ jobs:
             $root = Join-Path $env:RUNNER_TEMP "rbro-$lbl-$env:GITHUB_RUN_ID"
             $o = Join-Path $rbOut $lbl
             Write-Host "::notice title=real-backend::running label=$lbl server=$srv"
-            node scripts\candidate\real-backend.js --app-dir $env:APP_DIR --server-source $srv --root $root --out $o --label $lbl --bundle $env:BUNDLE --port 7331 --key 'lab-synthetic-key-000' --measure-seconds 16 --max-seconds 180 --app-sha $env:APP_SHA --lab-revision $env:LAB_REVISION
+            node scripts\candidate\real-backend.js --app-dir $env:APP_DIR --server-source $srv --root $root --out $o --label $lbl --bundle $env:BUNDLE --port 7331 --key 'lab-synthetic-key-000' --measure-seconds 16 --max-seconds 240 --app-sha $env:APP_SHA --lab-revision $env:LAB_REVISION
             Write-Host "::notice title=real-backend::$lbl node exit=$LASTEXITCODE"
           }
           # Cross-label comparison (baseline stall must be >= patched stall on
@@ -266,22 +268,35 @@ jobs:
           if (-not $bMeasured -or -not $pMeasured) {
             Write-Host "::error title=real-backend MEASUREMENT FAILED::baseline measured=$bMeasured ($($bd.fatal)); patched measured=$pMeasured ($($pd.fatal))"; exit 2
           }
-          $fails = 0; $passes = 0; $blocked = 0; $r2Confirmed = $false
+          $fails = 0; $passes = 0; $blocked = 0
+          $r2MatrixPass = 0; $r2MatrixFail = 0; $r2MatrixBlocked = 0; $r2PatchedBlock = $false
           foreach ($c in $pd.controls) {
-            if ($c.control_id -eq 'backend.ws_accept_loop_block') { if ($c.verdict -eq 'FAIL') { $r2Confirmed = $true }; continue }
+            if ($c.control_id -like 'r2.*') {
+              if ($c.verdict -eq 'PASS') { $r2MatrixPass++ } elseif ($c.verdict -eq 'FAIL') { $r2MatrixFail++ } else { $r2MatrixBlocked++ }
+            }
+            if ($c.control_id -eq 'backend.ws_accept_loop_block' -and $c.verdict -eq 'FAIL') { $r2PatchedBlock = $true }
             if ($c.verdict -eq 'FAIL') { $fails++ }; if ($c.verdict -eq 'PASS') { $passes++ }; if ($c.verdict -eq 'BLOCKED') { $blocked++ }
           }
+          # The same probe on the PRISTINE baseline must still demonstrate the
+          # defect, proving the matrix discriminates the repair from the bug.
+          $r2BaselineBlock = $false
+          foreach ($c in $bd.controls) { if ($c.control_id -eq 'backend.ws_accept_loop_block' -and $c.verdict -eq 'FAIL') { $r2BaselineBlock = $true } }
           Write-Host "::notice title=real-backend measurement::baselineStall=$($bd.timings.stallMs)ms patchedStall=$($pd.timings.stallMs)ms patchedReadyFile=$(($null -ne $pd.timings.readyText))"
-          Write-Host "::notice title=real-backend patched controls::PASS=$passes FAIL=$fails BLOCKED=$blocked"
-          # R2 is a CONFIRMED, deliberately-UNFIXED application defect measured
-          # on the real server. It is reported loudly, never hidden as a pass,
-          # and never silently collapsed into a job failure that erases the
-          # measurement. The candidate verdict is PARTIAL because of it.
-          if ($r2Confirmed) { Write-Host "::warning title=R2 CONFIRMED (unfixed)::inline /ws handling blocks the single-threaded accept loop; see defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md; PATCHED_APPLICATION_CANDIDATE is PARTIAL, not fully verified" }
+          Write-Host "::notice title=real-backend patched controls::PASS=$passes FAIL=$fails BLOCKED=$blocked r2Matrix(PASS=$r2MatrixPass FAIL=$r2MatrixFail BLOCKED=$r2MatrixBlocked)"
+          Write-Host "::notice title=R2 discrimination::baselineWsBlock=$r2BaselineBlock patchedWsBlock=$r2PatchedBlock browserWsStubbed=$($pd.browserWebSocketStubbed) backendKind=$($pd.backendKind)"
+          # Acceptance identity: the real application with an UNSTUBBED, headed
+          # real browser WebSocket. A stub or a non-application backend fails.
+          if ($pd.backendKind -ne 'actual_application') { Write-Host "::error title=real-backend BACKEND IDENTITY::backendKind must be actual_application, got $($pd.backendKind)"; exit 2 }
+          if ($pd.browserWebSocketStubbed -ne $false) { Write-Host '::error title=real-backend WS STUB::browser WebSocket must be unstubbed for R2 acceptance'; exit 2 }
+          # The repair must (a) remove the single-socket accept-loop block and
+          # (b) pass every behavioral R2 matrix control on the real server.
+          if ($r2PatchedBlock) { Write-Host '::error title=R2 NOT FIXED::a held WebSocket still blocks /health on the patched server'; exit 2 }
+          if ($r2MatrixFail -gt 0) { Write-Host "::error title=R2 MATRIX FAIL::$r2MatrixFail WebSocket behavioral control(s) failed on the real server"; exit 2 }
+          if (-not $r2BaselineBlock) { Write-Host '::warning title=R2 baseline probe::the pristine baseline did not show the expected inline-WS block; inspect the probe before treating the repair as proven' }
           if ($fails -gt 0) { Write-Host "::error title=real-backend FAIL::$fails behavioral control(s) failed on the real server"; exit 2 }
           if ((IsDeadlineFatal $bd) -or (IsDeadlineFatal $pd)) { Write-Host "::warning title=real-backend PARTIAL::a harness deadline deferred some browser phases; measurement was still captured" }
           if ($null -ne $bd.timings.stallMs -and $null -ne $pd.timings.stallMs -and [double]$pd.timings.stallMs -gt [double]$bd.timings.stallMs) {
             Write-Host "::warning title=stall regression::patched ($($pd.timings.stallMs)ms) slower than baseline ($($bd.timings.stallMs)ms) - investigate, do not hide"
           }
-          Write-Host "::notice title=real-backend MEASUREMENT VERIFIED::$passes real controls passed; $blocked BLOCKED by design; R2 inline-WS stall $(if($r2Confirmed){'CONFIRMED and REPORTED'}else{'not observed'}). This is NOT full acceptance."
+          Write-Host "::notice title=real-backend MEASUREMENT VERIFIED::$passes real controls passed; R2 matrix PASS=$r2MatrixPass FAIL=$r2MatrixFail; $blocked BLOCKED by design. Native RDP/Web Desktop remain separately gated."
           exit 0

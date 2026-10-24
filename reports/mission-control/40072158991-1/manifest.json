@@ -1,0 +1,126 @@
+{
+  "schema": "slab-mission-control-repair-bundle/2",
+  "bundleState": "R2_REPAIRED_CANDIDATE_HOSTED_GREEN_WINDOWS_RUN_PENDING",
+  "createdAt": "2026-10-24T07:59:00Z",
+  "updatedAt": "2026-10-24T07:59:00Z",
+  "origin": {
+    "repository": "dictationb1/supreme-lamp",
+    "runId": "40072158991",
+    "attempt": 1,
+    "jobId": "120808083081",
+    "workflow": ".github/workflows/main.yml",
+    "applicationSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "applicationPatchBase": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "baseDelta": "832a82eb is one commit on top of 4a91c5c2 changing only docs/status.json; the 4a91c5c2-based patch series still applies cleanly",
+    "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991",
+    "jobUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991/job/120808083081",
+    "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/832a82eb7c29613b0b101585c56b5011ea008a06",
+    "archiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
+    "archiveSha256Determinism": "identical sha256 across two independent codeload downloads in the lab",
+    "observedRunStatusAtBundle": "in_progress",
+    "readOnlyRemote": true,
+    "note": "the application remote is read-only this session; no push/deploy/setting change is made upstream. The lab candidate is an isolated, separately-identified build."
+  },
+  "lab": {
+    "repository": "dictationb1/supreme-lamp-lab",
+    "continuationBranch": "arena/25db7e16-supreme-lamp-lab",
+    "consolidatedFrom": "PR #28 head c7a0bf647c4e4702c0d77908fb90b2908c2cb670 (fast-forwarded onto this branch; reader, harness, signing, authorization and UI repairs preserved)",
+    "priorBundle": "reports/mission-control/40051974454-1 (immutable historical evidence retained)",
+    "hostedRegressions": {
+      "platform": "linux",
+      "node": "v22.22.3",
+      "runner": "scripts/run-regressions.js",
+      "total": 243,
+      "passed": 235,
+      "failed": 0,
+      "skipped": 8,
+      "skippedReason": "browser-e2e optional lanes"
+    },
+    "applicationSmokeTests": {
+      "tool": "vitest 2.x in the patched application tree",
+      "files": 108,
+      "tests": 1385,
+      "passed": 1385,
+      "failed": 0,
+      "note": "1378 historical + 7 new LAB-R2 structural tests; F201/R1/R2 all green"
+    },
+    "productionBuild": {
+      "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
+      "result": "ok",
+      "bundle": "ui/dist/index.html",
+      "localBuildSha256": "ac47872fb3b7168d892d09e43d307ae830dd75c7d426db824c15b60bb2ad7c2f",
+      "note": "local sandbox build; the CI build on the Windows job records its own provenance and sha"
+    }
+  },
+  "patchSeries": [
+    {
+      "order": 1,
+      "file": "app-patches/0001-F201-probe-honesty.patch",
+      "title": "F201 probe honesty (frontend)",
+      "preservedFrom": "40051974454-1",
+      "appliesTo": "832a82eb clean"
+    },
+    {
+      "order": 2,
+      "file": "app-patches/0002-R1-server-startup-readiness.patch",
+      "title": "R1 server startup readiness",
+      "preservedFrom": "40051974454-1",
+      "appliesTo": "832a82eb clean"
+    },
+    {
+      "order": 3,
+      "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
+      "title": "R2 bounded WebSocket worker runspace (accept-loop starvation repair)",
+      "newThisBundle": true,
+      "appliesTo": "after 0001+0002",
+      "staticRegression": "src/tests/smoke/r2-websocket-worker.test.ts",
+      "labRegression": "scripts/test/ws-frame-regressions.js + scripts/lib/ws-frame.js"
+    }
+  ],
+  "r2Repair": {
+    "defectRecord": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md",
+    "approach": "offload only the long-lived /ws pump to a bounded runspace pool behind a non-blocking SemaphoreSlim; ordinary HTTP stays inline so all script-scope shared state keeps single-threaded semantics",
+    "admission": "GHRDP_WS_MAX_CLIENTS default 16 clamped 4..64; Wait(0) non-blocking; over-capacity answered 503 and closed",
+    "sharedStateSafety": "worker receives only the pump dependency surface; no RdpTokens/credential-ledger/cache access; per-connection token validated in the pump; audit serialized on a shared Monitor lock; socket/stream/gate released in finally; reaper + shutdown dispose pool and semaphore",
+    "tunables": {
+      "GHRDP_WS_MAX_CLIENTS": "4..64, default 16",
+      "GHRDP_WS_PING_INTERVAL_SEC": "1..120, default 20",
+      "GHRDP_WS_IDLE_TIMEOUT_SEC": "5..300, default 90",
+      "GHRDP_WS_MAX_LIFETIME_SEC": "10..3600, default 1800"
+    },
+    "frozenThresholds": "scripts/candidate/real-backend.js R2_THRESHOLDS (declared before any run; never adjusted post-failure)"
+  },
+  "windowsVerification": {
+    "workflow": ".github/workflows/real-backend.yml",
+    "trigger": "same-repository pull_request with label real-backend-run (synchronize/labeled); workflow_dispatch also defined",
+    "runner": "[self-hosted, Windows, X64, rdp-lab-client]",
+    "historicalIdentity": "WIN-NFU1JG4VESE\\User; interactive session previously 1 (re-read, not assumed, by the runner identity step)",
+    "backendKind": "actual_application",
+    "browserWebSocketStubbed": false,
+    "browserMode": "headed",
+    "status": "PENDING - results land in evidence/real-backend-<runId> via the publish step and are folded into this manifest",
+    "matrixControls": [
+      "r2.no_ws_control_health",
+      "r2.one_ws_health_responsive",
+      "r2.multi_ws_health_and_config",
+      "r2.capacity_limit_predictable",
+      "r2.state_change_while_ws_open",
+      "r2.ws_real_frames_and_echo",
+      "r2.ws_close_abrupt_reconnect",
+      "r2.ws_idle_expiry",
+      "r2.ws_malformed_handshake_bounded",
+      "r2.repeated_cycles_no_leak",
+      "real.browser_ws_real_frames",
+      "real.browser_ws_http_concurrent",
+      "real.browser_ws_reconnect",
+      "backend.ws_accept_loop_block"
+    ]
+  },
+  "verdictScope": {
+    "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
+    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS; Windows behavioral R2 verdict PENDING the labelled run",
+    "LIVE_ORIGIN_APPLICATION": "in_progress observed read-only; not modified",
+    "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
+    "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md)"
+  }
+}

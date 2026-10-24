@@ -1886,6 +1886,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert });
   }
 
+  // ===== R2 WebSocket framing + accept-loop repair structure (no Windows) =====
+  {
+    const register = require('./test/ws-frame-regressions');
+    await register({ test, assert, fs, path });
+  }
+
   // ===== queue claim path (poll-records -> pick-record) =====
   {
     const register = require('./test/pick-record-regressions');

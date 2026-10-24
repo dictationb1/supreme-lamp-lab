@@ -1,0 +1,423 @@
+From c026e8e0bf0c8b9175c73d7f9097b2aaa0b5bd0e Mon Sep 17 00:00:00 2001
+From: RDP Mission Control Lab <lab@dictationb1.local>
+Date: Sat, 24 Oct 2026 07:26:44 +0000
+Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
+ starvation repair)
+
+Move only the long-lived /ws pump off the single accept thread onto a
+bounded runspace pool gated by a non-blocking SemaphoreSlim. Ordinary HTTP
+stays inline so all script-scope ticket/cache/credential state keeps its
+single-threaded semantics. At capacity the server answers 503 immediately;
+the accept loop never parks. Workers receive only the pump's small
+dependency surface, serialize audits on a shared Monitor lock, and release
+the gate and close the socket in finally. Pool and semaphore are disposed
+at shutdown. Includes the static r2-websocket-worker smoke regression.
+---
+ payloads/ghrdp-server.ps1                   | 230 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 114 ++++++++++
+ 2 files changed, 339 insertions(+), 5 deletions(-)
+ create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
+
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index e74b4b03b..41b1d7bb3 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
+ $script:F99WsPingIntervalSec = 20
+ $script:F99WsIdleTimeoutSec = 90
+ $script:F99WsMaxLifetimeSec = 1800
++# [LAB-R2] Test/ops tunables. Defaults above are unchanged when the environment
++# variables are absent, so production keepalive/idle/lifetime behavior is
++# identical. A lab harness can shrink the idle/lifetime windows to make the
++# idle-expiry and max-lifetime close paths observable inside a bounded test.
++if ($env:GHRDP_WS_PING_INTERVAL_SEC -match '^[0-9]+$') { $script:F99WsPingIntervalSec = [Math]::Max(1, [Math]::Min(120, [int]$env:GHRDP_WS_PING_INTERVAL_SEC)) }
++if ($env:GHRDP_WS_IDLE_TIMEOUT_SEC -match '^[0-9]+$') { $script:F99WsIdleTimeoutSec = [Math]::Max(5, [Math]::Min(300, [int]$env:GHRDP_WS_IDLE_TIMEOUT_SEC)) }
++if ($env:GHRDP_WS_MAX_LIFETIME_SEC -match '^[0-9]+$') { $script:F99WsMaxLifetimeSec = [Math]::Max(10, [Math]::Min(3600, [int]$env:GHRDP_WS_MAX_LIFETIME_SEC)) }
+ function Invoke-F99WebSocketUpgrade {
+     param($Client, $Stream, $Parts, $Token)
+     try {
+@@ -646,6 +653,12 @@ $script:HandlerChain = @()
+ $script:DeviceTokens = @{}
+ $script:DeviceTokensPath = Join-Path $Root 'device-tokens.json'
+ $script:ClientAuditLog = Join-Path $Root 'client-audit.log'
++# [LAB-R2] Process-wide audit lock. The WebSocket worker runspaces (see
++# Invoke-R2DispatchWebSocket below) and the inline accept thread append to the
++# same client-audit.log. Runspaces in this process share one AppDomain, so a
++# Monitor on one object serializes EVERY writer: an audit line is never
++# interleaved or lost when a /ws pump and an HTTP request finish together.
++$script:ClientAuditLock = New-Object object
+ $script:AgentPath = Join-Path $Root 'ghrdp-agent.ps1'
+ $script:DiagDir = Join-Path $Root 'diag-bundles'
+ try {
+@@ -663,7 +676,14 @@ function Save-DeviceTokens {
+ }
+ function Write-ClientAudit {
+     param([string]$Line)
+-    try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) } catch { }
++    # [LAB-R2] Serialize inline + worker-runspace appends on the shared lock.
++    # The uncontended Monitor path is a single interlocked compare, so ordinary
++    # single-threaded HTTP handling keeps its original cost and behavior.
++    try {
++        [System.Threading.Monitor]::Enter($script:ClientAuditLock)
++        try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) }
++        finally { [System.Threading.Monitor]::Exit($script:ClientAuditLock) }
++    } catch { }
+ }
+ # [F17 §2] ROOT CAUSE of the +05:30 beacon-age bug (19805s): stored ISO ts
+ # strings were read back through ConvertFrom-Json, which converts "…Z" into a
+@@ -2430,10 +2450,13 @@ function Invoke-ClientRequest {
+         # handshake's token is validated inside the upgrade handler (which supports
+         # both header and ?key= query, plus the hello-frame fallback).
+         if ($path -eq '/ws') {
+-            $f99Handled = $false
+-            try { $f99Handled = Invoke-F99WebSocketUpgrade -Client $Client -Stream $stream -Parts $parts -Token $Token } catch { $f99Handled = $false }
+-            if ($f99Handled) { return }
+-            Send-ClientResponse -Stream $stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required'))
++            # [LAB-R2] The long-lived WebSocket pump is dispatched to a bounded
++            # worker runspace (Invoke-R2DispatchWebSocket) instead of running
++            # inline on this accept thread. The dispatcher owns the response
++            # (101 inside the worker, or 400/503 inline) and the socket
++            # lifetime, so this call returns immediately and the accept loop
++            # keeps draining ordinary HTTP while the socket stays open.
++            Invoke-R2DispatchWebSocket -Client $Client -Stream $stream -Parts $parts -Token $Token
+             return
+         }
+         # [F10-2 §3] per-request creds authorization (strict subset of access).
+@@ -9753,6 +9776,197 @@ function Invoke-F99WatcherDiagnose {
+     }
+     return $out
+ }
++# =============================================================================
++# [LAB-R2] BOUNDED WEBSOCKET WORKER POOL - the R2 accept-loop starvation repair.
++#
++# Defect: the accept loop is a single thread and used to invoke
++# Invoke-ClientRequest synchronously; GET /ws ran Invoke-F99WebSocketUpgrade
++# INLINE, whose pump lives up to $script:F99WsMaxLifetimeSec (1800s). While one
++# socket was open the accept thread could not drain any other connection, so
++# /health, /api/config, /api/native-status, /api/progress and button POSTs all
++# stalled in the TCP backlog - the dashboard froze the instant its /ws connected.
++#
++# Smallest supported repair (no general concurrency rewrite):
++#   * ordinary HTTP stays INLINE on the accept thread, so every existing
++#     $script: cache / ticket / credential / revocation state keeps its proven
++#     single-threaded semantics (a single-use ticket can never be consumed
++#     twice, because only the accept thread touches the ticket store);
++#   * only the long-lived /ws pump moves to a worker runspace drawn from a pool
++#     whose MaxRunspaces equals a bounded admission SemaphoreSlim;
++#   * admission is NON-BLOCKING (SemaphoreSlim.Wait(0)): at capacity the server
++#     answers 503 and closes at once instead of queueing without bound or
++#     parking the accept thread;
++#   * the worker runspace receives only the small, explicitly-passed dependency
++#     surface the pump uses (4 functions + 3 tunables + the audit path/lock).
++#     It never shares mutable $script: security/cache/ticket state, so credential
++#     rotation/revocation on the accept thread cannot be revived from a stale
++#     worker snapshot (the token is passed per-connection and validated inside
++#     the pump exactly as before);
++#   * sockets, streams, PowerShell handles and the pool/semaphore are disposed
++#     on every close and at process shutdown.
++# =============================================================================
++$script:R2WsMaxClients = 16
++if ($env:GHRDP_WS_MAX_CLIENTS -match '^[0-9]+$') {
++    $script:R2WsMaxClients = [Math]::Max(4, [Math]::Min(64, [int]$env:GHRDP_WS_MAX_CLIENTS))
++}
++# Bounded admission authority: one semaphore count == one concurrent /ws worker.
++$script:R2WsGate = New-Object System.Threading.SemaphoreSlim($script:R2WsMaxClients, $script:R2WsMaxClients)
++# Synchronized registry of in-flight worker handles (reaper + shutdown only).
++$script:R2WsActive = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
++$script:R2WsSeq = 0
++$script:R2WsPool = $null
++$script:R2WsPoolAvailable = $false
++# The worker body, executed inside each pool runspace. A single-quoted
++# here-string keeps every $-reference literal until it runs in the worker's own
++# scope; nothing from the accept runspace is visible except what $Ctx carries.
++$script:R2WsWorker = @'
++param($Ctx)
++$script:F99WsPingIntervalSec = [int]$Ctx.WsPingIntervalSec
++$script:F99WsIdleTimeoutSec   = [int]$Ctx.WsIdleTimeoutSec
++$script:F99WsMaxLifetimeSec   = [int]$Ctx.WsMaxLifetimeSec
++$script:ClientAuditLog        = [string]$Ctx.ClientAuditLog
++$script:ClientAuditLock       = $Ctx.ClientAuditLock
++try {
++    $r2Handled = Invoke-F99WebSocketUpgrade -Client $Ctx.Client -Stream $Ctx.Stream -Parts $Ctx.Parts -Token $Ctx.Token
++    if (-not $r2Handled) {
++        # Malformed/non-upgrade handshake: preserve the original 400 behavior.
++        try { Send-ClientResponse -Stream $Ctx.Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch { }
++    }
++} catch { }
++finally {
++    # Deterministic ownership transfer: the worker always closes the socket it
++    # accepted (normal close, idle expiry, abrupt peer disconnect, or shutdown).
++    try { $Ctx.Stream.Dispose() } catch { }
++    try { $Ctx.Client.Close() } catch { }
++    try { $Ctx.Record.Done = $true } catch { }
++    # Release capacity only after the socket is closed. The gate, not the active
++    # list, is the admission authority.
++    try { $Ctx.Gate.Release() | Out-Null } catch { }
++}
++'@
++# Thread-safe audit writer used INSIDE worker runspaces. The inline
++# Write-ClientAudit above shares the same lock object, so all writers serialize.
++$script:R2WsAuditDef = @'
++function Write-ClientAudit {
++    param([string]$Line)
++    try {
++        [System.Threading.Monitor]::Enter($script:ClientAuditLock)
++        try { [System.IO.File]::AppendAllText($script:ClientAuditLog, ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $Line + "`n")) }
++        finally { [System.Threading.Monitor]::Exit($script:ClientAuditLock) }
++    } catch { }
++}
++'@
++try {
++    $r2Iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
++    # The pump's exact dependency surface - nothing else is copied across, so
++    # the worker cannot reach mutable ticket/cache/credential state by accident.
++    foreach ($r2Fn in 'Invoke-F99WebSocketUpgrade', 'Test-TicketBearer', 'Test-IsLoopbackAddr', 'Send-ClientResponse') {
++        $r2Fi = Get-Item ("Function:" + $r2Fn) -ErrorAction Stop
++        $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($r2Fn, $r2Fi.Definition)))
++    }
++    $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry('Write-ClientAudit', $script:R2WsAuditDef)))
++    $script:R2WsPool = [runspacefactory]::CreateRunspacePool($r2Iss)
++    $script:R2WsPool.SetMinRunspaces(1)
++    $script:R2WsPool.SetMaxRunspaces([int]$script:R2WsMaxClients)
++    $script:R2WsPool.Open()
++    $script:R2WsPoolAvailable = $true
++    Write-Host ('[LAB-R2] websocket worker pool ready max=' + [string]$script:R2WsMaxClients)
++} catch {
++    $script:R2WsPoolAvailable = $false
++    try { Write-Host ('[LAB-R2] worker pool unavailable; /ws falls back to inline: ' + $_.Exception.Message) } catch { }
++}
++
++function Invoke-R2ReapWebSocketWorkers {
++    # Non-blocking reaper: dispose PowerShell handles whose pump has finished so
++    # a long-lived server never accumulates runspace objects. Runs once per
++    # accept-loop iteration; the synchronized active set is small.
++    try {
++        foreach ($r2Rec in @($script:R2WsActive)) {
++            $r2Finished = $false
++            try { $r2Finished = [bool]$r2Rec.Done -or ($null -ne $r2Rec.Ar -and $r2Rec.Ar.IsCompleted) } catch { $r2Finished = [bool]$r2Rec.Done }
++            if ($r2Finished) {
++                try { if ($null -ne $r2Rec.Ar) { $r2Rec.Ps.EndInvoke($r2Rec.Ar) | Out-Null } } catch { }
++                try { $r2Rec.Ps.Dispose() } catch { }
++                try { $script:R2WsActive.Remove($r2Rec) } catch { }
++            }
++        }
++    } catch { }
++}
++
++function Invoke-R2DispatchWebSocket {
++    param($Client, $Stream, $Parts, $Token)
++    # Fallback when no pool could be created (e.g. a constrained host): keep the
++    # feature available with the legacy inline pump rather than disabling /ws.
++    # Availability is audited; this path never silently turns WebSockets off.
++    if (-not $script:R2WsPoolAvailable) {
++        $r2Inline = $false
++        try { $r2Inline = Invoke-F99WebSocketUpgrade -Client $Client -Stream $Stream -Parts $Parts -Token $Token } catch { $r2Inline = $false }
++        if (-not $r2Inline) {
++            try { Send-ClientResponse -Stream $Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch { }
++        }
++        try { $Client.Close() } catch { }
++        return
++    }
++    # Non-blocking bounded admission. Wait(0) never parks the accept thread: a
++    # denied attempt gets an immediate, predictable 503 (the frontend's reconnect
++    # ladder retries) instead of an unbounded queue, and ordinary HTTP keeps
++    # being served because this returns at once.
++    $r2Admitted = $false
++    try { $r2Admitted = [bool]$script:R2WsGate.Wait(0) } catch { $r2Admitted = $false }
++    if (-not $r2Admitted) {
++        try { Write-ClientAudit ('ws rejected: at capacity ' + [string]$script:R2WsMaxClients) } catch { }
++        Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket capacity exhausted; retry'))
++        try { $Stream.Dispose() } catch { }
++        try { $Client.Close() } catch { }
++        return
++    }
++    $script:R2WsSeq++
++    $r2Record = [pscustomobject]@{ Id = $script:R2WsSeq; Ps = $null; Ar = $null; Client = $Client; Done = $false }
++    $r2Ctx = @{
++        Client            = $Client
++        Stream            = $Stream
++        Parts             = $Parts
++        Token             = $Token
++        WsPingIntervalSec = [int]$script:F99WsPingIntervalSec
++        WsIdleTimeoutSec  = [int]$script:F99WsIdleTimeoutSec
++        WsMaxLifetimeSec  = [int]$script:F99WsMaxLifetimeSec
++        ClientAuditLog    = [string]$script:ClientAuditLog
++        ClientAuditLock   = $script:ClientAuditLock
++        Gate              = $script:R2WsGate
++        Record            = $r2Record
++    }
++    try {
++        $r2Ps = [powershell]::Create($script:R2WsPool)
++        [void]$r2Ps.AddScript($script:R2WsWorker).AddArgument($r2Ctx)
++        $r2Ar = $r2Ps.BeginInvoke()
++        $r2Record.Ps = $r2Ps
++        $r2Record.Ar = $r2Ar
++        [void]$script:R2WsActive.Add($r2Record)
++    } catch {
++        # Dispatch failed after taking a slot: free capacity and answer cleanly.
++        try { Write-ClientAudit ('ws dispatch failed: ' + $_.Exception.Message) } catch { }
++        try { $script:R2WsGate.Release() | Out-Null } catch { }
++        try { Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket worker unavailable')) } catch { }
++        try { $Stream.Dispose() } catch { }
++        try { $Client.Close() } catch { }
++    }
++}
++
++function Stop-R2WebSocketPool {
++    # Deterministic, bounded shutdown. Close live WS sockets so their pumps
++    # unblock, reap the finished handles, then close/dispose the pool and the
++    # admission semaphore. Never blocks process teardown for more than ~3s.
++    try { foreach ($r2Rec in @($script:R2WsActive)) { try { $r2Rec.Client.Close() } catch { } } } catch { }
++    $r2Grace = 0
++    while ($r2Grace -lt 30 -and $script:R2WsActive.Count -gt 0) {
++        Invoke-R2ReapWebSocketWorkers
++        if ($script:R2WsActive.Count -gt 0) { Start-Sleep -Milliseconds 100 }
++        $r2Grace++
++    }
++    try { if ($script:R2WsPool) { $script:R2WsPool.Close() } } catch { }
++    try { if ($script:R2WsPool) { $script:R2WsPool.Dispose() } } catch { }
++    try { if ($script:R2WsGate) { $script:R2WsGate.Dispose() } } catch { }
++}
+ $start = Get-Date
+ $limit = New-TimeSpan -Minutes $LimitMinutes
+ $lastHeal = Get-Date
+@@ -9776,6 +9990,9 @@ while (((Get-Date) - $start) -lt $limit) {
+         try { $client = $listener.AcceptTcpClient() } catch { }
+         if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
+     }
++    # [LAB-R2] Dispose completed WebSocket worker handles without blocking the
++    # accept loop; the long-lived pumps themselves run on the worker pool.
++    Invoke-R2ReapWebSocketWorkers
+     # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
+     # last-run timer and remains the sole writer of its state file; the guard
+     # only spreads coincident ticks across adjacent 50ms iterations so their
+@@ -9806,3 +10023,6 @@ while (((Get-Date) - $start) -lt $limit) {
+     Start-Sleep -Milliseconds $script:ScanDelayMs
+ }
+ try { $listener.Stop() } catch { }
++# [LAB-R2] Close any live WebSocket sockets and dispose the worker pool and
++# admission semaphore so the process leaves no runspace/handle/socket behind.
++try { Stop-R2WebSocketPool } catch { }
+diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
+new file mode 100644
+index 000000000..d8c0e6091
+--- /dev/null
++++ b/src/tests/smoke/r2-websocket-worker.test.ts
+@@ -0,0 +1,114 @@
++// [LAB-R2] WebSocket accept-loop starvation invariants - EXECUTED against the
++// shipped payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base a
++// single GET /ws runs Invoke-F99WebSocketUpgrade INLINE on the one accept
++// thread, so one open socket starves every HTTP endpoint for up to
++// F99WsMaxLifetimeSec (1800s). These assertions fail on that base and pass only
++// after the LAB-R2 repair moves the long-lived pump onto a bounded worker
++// runspace while leaving ordinary HTTP inline.
++//
++// Static by necessity: this Linux CI lane has no PowerShell interpreter. The
++// timing CONSEQUENCE (a /health round-trip while several /ws sockets are held
++// open, the 503 at capacity, close/reconnect/idle behaviour and process
++// cleanup) is measured for real on the Windows client VM by
++// scripts/candidate/real-backend.js in the lab repository. This test pins the
++// source structure that produces it.
++import { readFileSync } from "node:fs";
++import { describe, expect, it } from "vitest";
++
++const server = readFileSync("payloads/ghrdp-server.ps1", "utf8");
++
++// The /ws branch lives inside Invoke-ClientRequest. Isolate it so the assertions
++// below describe the request path rather than some unrelated occurrence.
++const wsBranchStart = server.indexOf("if ($path -eq '/ws')");
++const wsBranchEnd = server.indexOf("$credsAllowed = Test-CredsAllowed", wsBranchStart);
++const wsBranch = server.slice(wsBranchStart, wsBranchEnd);
++
++// The accept loop drain (the single-threaded place that used to pin on /ws).
++const acceptLoopIdx = server.indexOf("while (((Get-Date) - $start) -lt $limit)");
++
++describe("LAB-R2 WebSocket worker pool (accept-loop starvation repair)", () => {
++  it("no longer pumps the WebSocket inline on the accept thread", () => {
++    expect(wsBranchStart).toBeGreaterThan(0);
++    // The request path must DISPATCH to the worker pool instead of awaiting the
++    // long-lived Invoke-F99WebSocketUpgrade loop inline.
++    expect(wsBranch).toContain("Invoke-R2DispatchWebSocket");
++    expect(wsBranch).not.toMatch(/Invoke-F99WebSocketUpgrade/);
++    // It returns immediately so the accept loop keeps draining.
++    expect(wsBranch).toMatch(/\breturn\b/);
++  });
++
++  it("creates a bounded runspace pool whose size equals the admission limit", () => {
++    expect(server).toMatch(/CreateRunspacePool\(/);
++    expect(server).toMatch(/SetMaxRunspaces\(\[int\]\$script:R2WsMaxClients\)/);
++    // The limit is tunable but clamped to a finite, sane range.
++    expect(server).toMatch(/GHRDP_WS_MAX_CLIENTS/);
++    expect(server).toMatch(/\[Math\]::Max\(4,\s*\[Math\]::Min\(64/);
++  });
++
++  it("uses a non-blocking bounded admission semaphore and a predictable 503 at capacity", () => {
++    expect(server).toMatch(/New-Object System\.Threading\.SemaphoreSlim/);
++    // Wait(0) must never park the accept thread; excess connections fail fast.
++    expect(server).toMatch(/\$script:R2WsGate\.Wait\(0\)/);
++    expect(wsBranch).not.toContain("Wait(0)"); // admission lives in the dispatcher
++    expect(server).toMatch(/Code 503/);
++    expect(server).toMatch(/websocket capacity exhausted; retry/);
++  });
++
++  it("runs the pump in a worker that re-establishes only the small WS dependency surface", () => {
++    // The worker here-string re-declares the F99 tunables at its own script
++    // scope and never reaches the accept runspace's mutable ticket/cache state.
++    expect(server).toMatch(/\$script:R2WsWorker\s*=\s*@'/);
++    expect(server).toContain("$script:F99WsMaxLifetimeSec   = [int]$Ctx.WsMaxLifetimeSec");
++    expect(server).toContain("Invoke-F99WebSocketUpgrade -Client $Ctx.Client");
++    // Capacity is released in finally AFTER the socket is closed, on every path.
++    const workerStart = server.indexOf("$script:R2WsWorker = @'");
++    const workerEnd = server.indexOf("'@", workerStart);
++    const worker = server.slice(workerStart, workerEnd);
++    expect(worker).toMatch(/finally\s*\{/);
++    expect(worker).toMatch(/\$Ctx\.Gate\.Release\(\)/);
++    expect(worker).toMatch(/\$Ctx\.Client\.Close\(\)/);
++    // The worker must NOT touch the single-use ticket store or credential ledger.
++    expect(worker).not.toMatch(/RdpTokens/);
++    expect(worker).not.toMatch(/DashTokenRevoked/);
++  });
++
++  it("serializes every audit writer (inline + worker) on one shared lock", () => {
++    expect(server).toMatch(/\$script:ClientAuditLock\s*=\s*New-Object object/);
++    // Both the inline function and the worker-local function enter the same lock.
++    const lockEnters = server.match(/\[System\.Threading\.Monitor\]::Enter\(\$script:ClientAuditLock\)/g) || [];
++    expect(lockEnters.length).toBeGreaterThanOrEqual(2);
++  });
++
++  it("reaps finished worker handles inside the accept loop and disposes everything at shutdown", () => {
++    expect(acceptLoopIdx).toBeGreaterThan(0);
++    const loopBody = server.slice(acceptLoopIdx);
++    expect(loopBody).toContain("Invoke-R2ReapWebSocketWorkers");
++    expect(server).toContain("function Stop-R2WebSocketPool");
++    // Shutdown closes live sockets, then closes and disposes pool + semaphore.
++    const shutdownIdx = server.indexOf("function Stop-R2WebSocketPool");
++    const shutdown = server.slice(shutdownIdx, shutdownIdx + 1400);
++    expect(shutdown).toMatch(/\$r2Rec\.Client\.Close\(\)/);
++    expect(shutdown).toMatch(/R2WsPool\.Close\(\)/);
++    expect(shutdown).toMatch(/R2WsPool\.Dispose\(\)/);
++    expect(shutdown).toMatch(/R2WsGate\.Dispose\(\)/);
++    // And it is actually invoked after the listener stops.
++    expect(server).toMatch(/\$listener\.Stop\(\)[\s\S]{0,200}Stop-R2WebSocketPool/);
++  });
++
++  it("exposes bounded env tunables without changing production defaults", () => {
++    // Defaults remain 20/90/1800; the overrides are clamped and only take effect
++    // when an environment variable is present, so an unconfigured host is identical.
++    expect(server).toMatch(/\$script:F99WsPingIntervalSec = 20/);
++    expect(server).toMatch(/\$script:F99WsIdleTimeoutSec = 90/);
++    expect(server).toMatch(/\$script:F99WsMaxLifetimeSec = 1800/);
++    expect(server).toMatch(/GHRDP_WS_IDLE_TIMEOUT_SEC/);
++    expect(server).toMatch(/Math::Max\(5,\s*\[Math\]::Min\(300/);
++    expect(server).toMatch(/GHRDP_WS_MAX_LIFETIME_SEC/);
++  });
++
++  it("keeps an inline fallback so WebSockets stay available if a pool cannot be created", () => {
++    expect(server).toMatch(/if\s*\(-not \$script:R2WsPoolAvailable\)/);
++    // The fallback still performs the real upgrade rather than disabling /ws.
++    expect(server).toMatch(/R2WsPoolAvailable[\s\S]{0,400}Invoke-F99WebSocketUpgrade/);
++  });
++});
+-- 
+2.39.5
+

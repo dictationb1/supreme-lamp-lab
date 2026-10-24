@@ -183,13 +183,20 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/not the live origin/i.test(rb), 'the harness must say what it is not');
     assert.ok(/BLOCKED: native RDP/.test(rb) && /BLOCKED: web desktop/i.test(rb), 'native RDP and Web Desktop are BLOCKED, never simulated PASS');
     assert.ok(/real-backend-report\.json/.test(rb), 'structured evidence is always written');
-    // R2: the inline-WS accept-loop stall must be MEASURED (bounded) and the
-    // browser WS must be stubbed, else one socket freezes the run for 30 min.
-    assert.ok(/measureWsBlock/.test(rb) && /backend\.ws_accept_loop_block/.test(rb), 'R2 inline-WS accept-loop block must be probed');
-    assert.ok(/browserWsStubbed/.test(rb) && /LabStubWS/.test(rb), 'the driven browser must stub WebSocket to keep the run bounded');
+    // R2: the accept-loop starvation is measured with the bounded single-socket
+    // probe (for a direct baseline-vs-candidate comparison) AND the full real-
+    // socket matrix. After the runspace repair the browser drives a REAL
+    // WebSocket: the old LabStubWS interception is removed and genuine /ws
+    // frames are observed at the Playwright context level.
+    assert.ok(/measureWsBlock/.test(rb) && /backend\.ws_accept_loop_block/.test(rb), 'R2 single-socket block must still be probed for baseline comparison');
+    assert.ok(/measureR2Matrix/.test(rb), 'the full R2 starvation matrix must run against the real server');
+    assert.ok(/browserWebSocketStubbed:\s*false/.test(rb), 'acceptance must record an unstubbed real browser WebSocket');
+    assert.ok(!/LabStubWS/.test(rb), 'the WebSocket stub must be removed after the R2 runspace repair');
+    assert.ok(/ctx\.on\('websocket'/.test(rb), 'real browser /ws frames must be observed, not faked');
+    assert.ok(/backendKind:\s*'actual_application'/.test(rb), 'backend kind must be the actual application, never a stub');
     assert.ok(/GLOBAL_DEADLINE_MS/.test(rb) && /function flush\(\)/.test(rb), 'the harness must be time-bounded and publish incrementally');
     assert.ok(/port,\s*headless,/.test(rb) && !/headless:\s*!headless/.test(rb), 'the report browser-mode field must equal the value passed to chromium.launch');
-    assert.ok(read('reports/mission-control/40051974454-1/defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md').includes('fix deferred'), 'R2 must be documented as confirmed-but-unfixed');
+    assert.ok(read('reports/mission-control/40051974454-1/defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md').includes('fix deferred'), 'the historical R2 record stays immutable inside its own bundle');
   });
 
   await test('real-backend evidence: reported browser mode equals the Chromium launch mode', async () => {
