@@ -345,3 +345,34 @@ jobs:
             ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           node scripts/cleanup-lab.js --mode postflight
           exit 0
+
+      - name: Evaluate the published candidate verdict (FAIL/BLOCKED are not success)
+        if: always()
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\candidate-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $reports = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Filter 'candidate-report.json' -ErrorAction SilentlyContinue)
+          $modes = @($reports | ForEach-Object { try { (Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json).modes[0] } catch { '' } } | Where-Object { $_ })
+          $missing = @('refuse','empty','healthy') | Where-Object { $_ -notin $modes }
+          $fail = 0; $blocked = 0; $pass = 0
+          foreach ($r in $reports) {
+            try {
+              $doc = Get-Content -LiteralPath $r.FullName -Raw | ConvertFrom-Json
+              $fail += [int]$doc.counts.FAIL
+              $blocked += [int]$doc.counts.BLOCKED
+              $pass += [int]$doc.counts.PASS
+            } catch { $fail += 1 }
+          }
+          Write-Host "::notice title=candidate evidence totals::PASS=$pass FAIL=$fail BLOCKED=$blocked modes=$($modes -join ',')"
+          if ($env:APP_CI_EXIT -ne '0' -or $env:APP_TEST_EXIT -ne '0' -or -not $env:BUNDLE_SHA) {
+            Write-Host "::error title=candidate source/build FAIL::npmCi=$env:APP_CI_EXIT tests=$env:APP_TEST_EXIT bundlePresent=$([bool]$env:BUNDLE_SHA)"
+            exit 1
+          }
+          if ($reports.Count -ne 3 -or $missing.Count -gt 0) {
+            Write-Host "::error title=candidate evidence INCOMPLETE::reports=$($reports.Count) missingModes=$($missing -join ',')"
+            exit 1
+          }
+          if ($fail -gt 0) { Write-Host "::error title=candidate FAIL::$fail behavioral control(s) failed; see the published reports"; exit 2 }
+          if ($blocked -gt 0) { Write-Host "::error title=candidate BLOCKED::$blocked control(s) still name an unmet real-backend/RDP prerequisite; this is not acceptance"; exit 4 }
+          if ($pass -le 0) { Write-Host '::error title=candidate INCOMPLETE::no behavioral control passed'; exit 1 }
+          Write-Host "::notice title=candidate stub sweep PASS::$pass controls passed; stub scope is still not production/RDP acceptance"
+          exit 0

@@ -437,7 +437,7 @@ jobs:
       !(github.event_name == 'workflow_dispatch' && (inputs.mode == 'auth-diagnostic' || inputs.mode == 'live-origin')) &&
       (github.event_name != 'pull_request' ||
         (github.event.pull_request.head.repo.full_name == github.repository &&
-         github.event.label.name == 'capability-run'))
+         contains(github.event.pull_request.labels.*.name, 'capability-run')))
     # ONE DESKTOP OWNER AT A TIME. The client VM has a single interactive
     # session; a pull_request event used to queue this 25-minute client job on
     # the same desktop every time any branch was pushed, so a live-run

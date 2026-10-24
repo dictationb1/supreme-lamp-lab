@@ -18,7 +18,7 @@ module.exports = async function register({ test, assert }) {
     const wf = read('.github/workflows/capability-check.yml');
     assert.ok(/types:\s*\[[^\]]*labeled[^\]]*\]/.test(wf), 'pull_request must include the labeled type');
     const clientJob = wf.slice(wf.indexOf('\n  client:'));
-    assert.ok(/github\.event\.label\.name == 'capability-run'/.test(clientJob), 'the client job must gate on the capability-run label');
+    assert.ok(/contains\(github\.event\.pull_request\.labels\.\*\.name, 'capability-run'\)/.test(clientJob), 'the client job must gate on the current PR label set, including synchronize events after evidence commits');
   });
 
   await test('ownership: live-run verify is the only job on the self-hosted desk in that file', async () => {
@@ -69,6 +69,11 @@ module.exports = async function register({ test, assert }) {
     assert.ok(sweep.indexOf('await unlockWithSyntheticToken(page, mode)') < sweep.indexOf("control: 'settings.theme_toggle'"));
     assert.ok(/clickError=\$\{themeClickError\}/.test(sweep));
     assert.ok(!/themeBtn\.click\([^\n]+\)\.catch\(\(\) => \{\}\)/.test(sweep), 'a timed-out click must not be recorded as clicked');
+    const workflow = read('.github/workflows/app-candidate.yml');
+    const verdict = workflow.slice(workflow.indexOf('Evaluate the published candidate verdict'));
+    assert.ok(verdict.includes('if ($fail -gt 0)'), 'failed controls must fail the candidate run');
+    assert.ok(verdict.includes('if ($blocked -gt 0)'), 'BLOCKED controls must not produce a green candidate run');
+    assert.ok(workflow.indexOf('Publish sanitized candidate evidence') < workflow.indexOf('Postflight (stop anything') && workflow.indexOf('Postflight (stop anything') < workflow.indexOf('Evaluate the published candidate verdict'), 'publish and cleanup must precede the honest failing verdict');
   });
 
   await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {
