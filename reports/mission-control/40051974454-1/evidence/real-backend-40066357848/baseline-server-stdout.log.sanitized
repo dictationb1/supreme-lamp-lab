@@ -1,0 +1,8 @@
+# sanitized server stdout (secrets redacted)
+[F28] logon scan #1 result=none sub=- eventTs=- 4624=0 4625=0 scanTs=2026-10-24T05:32:33.8377231Z
+[F30] conn-log scan #1 items=0 reasons=(none) scanTs=2026-10-24T05:32:34.0928682Z probeError=conn-logs-unreadable
+[F45] fx upload worker: started=True reason=
+[F28] logon scan #2 result=none sub=- eventTs=- 4624=0 4625=0 scanTs=2026-10-24T05:34:30.2706475Z
+[F30] conn-log scan #2 items=0 reasons=(none) scanTs=2026-10-24T05:34:30.3135603Z probeError=conn-logs-unreadable
+[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run
+
