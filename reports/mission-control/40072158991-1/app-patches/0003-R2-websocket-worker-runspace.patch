@@ -1,4 +1,4 @@
-From caa9a4a958923f37cab61fb4eadf2686d526e76c Mon Sep 17 00:00:00 2001
+From 947f299982cdfba48607d297fb7a94dab53d335c Mon Sep 17 00:00:00 2001
 From: RDP Mission Control Lab <lab@dictationb1.local>
 Date: Sat, 24 Oct 2026 07:26:44 +0000
 Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
@@ -13,13 +13,13 @@ dependency surface, serialize audits on a shared Monitor lock, and release
 the gate and close the socket in finally. Pool and semaphore are disposed
 at shutdown. Includes the static r2-websocket-worker smoke regression.
 ---
- payloads/ghrdp-server.ps1                   | 230 +++++++++++++++++++-
- src/tests/smoke/r2-websocket-worker.test.ts | 114 ++++++++++
- 2 files changed, 339 insertions(+), 5 deletions(-)
+ payloads/ghrdp-server.ps1                   | 246 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 114 +++++++++
+ 2 files changed, 355 insertions(+), 5 deletions(-)
  create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
 
 diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
-index e74b4b03b..41b1d7bb3 100644
+index e74b4b03b..6028d06dc 100644
 --- a/payloads/ghrdp-server.ps1
 +++ b/payloads/ghrdp-server.ps1
 @@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
@@ -83,7 +83,7 @@ index e74b4b03b..41b1d7bb3 100644
              return
          }
          # [F10-2 §3] per-request creds authorization (strict subset of access).
-@@ -9753,6 +9776,197 @@ function Invoke-F99WatcherDiagnose {
+@@ -9753,6 +9776,213 @@ function Invoke-F99WatcherDiagnose {
      }
      return $out
  }
@@ -223,9 +223,21 @@ index e74b4b03b..41b1d7bb3 100644
 +    # ladder retries) instead of an unbounded queue, and ordinary HTTP keeps
 +    # being served because this returns at once.
 +    $r2Admitted = $false
-+    try { $r2Admitted = [bool]$script:R2WsGate.Wait(0) } catch { $r2Admitted = $false }
++    $r2GateFault = ''
++    try { $r2Admitted = [bool]$script:R2WsGate.Wait(0) } catch { $r2Admitted = $false; $r2GateFault = $_.Exception.Message }
 +    if (-not $r2Admitted) {
-+        try { Write-ClientAudit ('ws rejected: at capacity ' + [string]$script:R2WsMaxClients) } catch { }
++        # Diagnostic state: distinguish genuine saturation (count hits 0) from a
++        # semaphore/runtime fault. CurrentCount and pool availability are logged to
++        # both the audit file and stdout (stdout is captured by the lab harness).
++        $r2GateCount = -1; try { $r2GateCount = [int]$script:R2WsGate.CurrentCount } catch { }
++        $r2PoolAvail = -1; try { $r2PoolAvail = [int]$script:R2WsPool.GetAvailableRunspaces() } catch { }
++        if ($r2GateFault -ne '') {
++            try { Write-ClientAudit ('ws gate fault: ' + $r2GateFault + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
++            try { Write-Host ('[LAB-R2] gate FAULT: ' + $r2GateFault + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
++        } else {
++            try { Write-ClientAudit ('ws rejected: at capacity ' + [string]$script:R2WsMaxClients + ' count=' + $r2GateCount + ' avail=' + $r2PoolAvail) } catch { }
++            try { Write-Host ('[LAB-R2] ws 503 saturated count=' + $r2GateCount + ' avail=' + $r2PoolAvail + ' max=' + [string]$script:R2WsMaxClients) } catch { }
++        }
 +        Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket capacity exhausted; retry'))
 +        try { $Stream.Dispose() } catch { }
 +        try { $Client.Close() } catch { }
@@ -255,7 +267,11 @@ index e74b4b03b..41b1d7bb3 100644
 +        [void]$script:R2WsActive.Add($r2Record)
 +    } catch {
 +        # Dispatch failed after taking a slot: free capacity and answer cleanly.
-+        try { Write-ClientAudit ('ws dispatch failed: ' + $_.Exception.Message) } catch { }
++        # Log the full exception type/message and pool state so a host-specific
++        # runspace fault is diagnosable from the captured stdout/audit.
++        $r2PoolAvail = -1; try { $r2PoolAvail = [int]$script:R2WsPool.GetAvailableRunspaces() } catch { }
++        try { Write-ClientAudit ('ws dispatch failed: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message + ' avail=' + $r2PoolAvail) } catch { }
++        try { Write-Host ('[LAB-R2] dispatch FAULT: ' + $_.Exception.GetType().FullName + ' ' + $_.Exception.Message + ' avail=' + $r2PoolAvail) } catch { }
 +        try { $script:R2WsGate.Release() | Out-Null } catch { }
 +        try { Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket worker unavailable')) } catch { }
 +        try { $Stream.Dispose() } catch { }
@@ -281,7 +297,7 @@ index e74b4b03b..41b1d7bb3 100644
  $start = Get-Date
  $limit = New-TimeSpan -Minutes $LimitMinutes
  $lastHeal = Get-Date
-@@ -9776,6 +9990,9 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9776,6 +10006,9 @@ while (((Get-Date) - $start) -lt $limit) {
          try { $client = $listener.AcceptTcpClient() } catch { }
          if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
      }
@@ -291,7 +307,7 @@ index e74b4b03b..41b1d7bb3 100644
      # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
      # last-run timer and remains the sole writer of its state file; the guard
      # only spreads coincident ticks across adjacent 50ms iterations so their
-@@ -9806,3 +10023,6 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9806,3 +10039,6 @@ while (((Get-Date) - $start) -lt $limit) {
      Start-Sleep -Milliseconds $script:ScanDelayMs
  }
  try { $listener.Stop() } catch { }

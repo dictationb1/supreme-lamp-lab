@@ -105,9 +105,19 @@
         "rootCause": "the new 8th LAB-R2 assertion used a regex Math::Max(5...) missing the [Math] qualifier, so it could never match the correct source line [Math]::Max(5, [Math]::Min(300...)); a test-only defect, no production code changed",
         "fix": "corrected the regex to \\[Math\\]::Max(5,...); regenerated 0003 (same 423 lines, one in-place test line); clean replay now 19/19 on the exact VM vitest command and 1386/1386 full suite",
         "evidence": "evidence/windows-run-40076700953-step7-fix.md"
+      },
+      {
+        "runId": "40078279249",
+        "headSha": "015a7ae",
+        "result": "step 7 smoke 19/19 PASS; step 8 PS parse PASS; step 9 measured; evaluate gate FAILed on the R2 matrix",
+        "r2Headline": "accept-loop starvation reproduced on pristine (wsUpgraded=true, /health blocked 5011ms; stall 4615ms) and removed on patched (stall 826ms, HTTP never blocked, median health 23-54ms)",
+        "remainingDefect": "every /ws upgrade is answered 503 even for the first connection on a fresh cap=8 gate (held=0, rejected=9); the worker never runs. Two inline 503 branches exist (admission Wait(0) vs dispatch BeginInvoke catch); the prior harness discarded the body so the branch was not attributable",
+        "matrixCounts": "PASS=20 FAIL=9 BLOCKED=9; r2Matrix PASS=1 FAIL=6 BLOCKED=3",
+        "nextStep": "instrumented 0003 (439 lines) logs gate CurrentCount, pool available runspaces and any exception via [LAB-R2] stdout+audit; harness captures the 503 body and r2AuditLines; the following run attributes the exact branch/.NET fault",
+        "evidence": "evidence/windows-run-40078279249-r2-503-defect.md"
       }
     ],
-    "status": "PENDING re-run after the test-only fix; results land in evidence/real-backend-<runId> via the publish step and are folded into this manifest",
+    "status": "R2 starvation structurally fixed and measured (4615ms->826ms) but the WebSocket feature is non-functional on Windows due to an all-503 defect; instrumented re-run pending to localize the exact fault",
     "matrixControls": [
       "r2.no_ws_control_health",
       "r2.one_ws_health_responsive",
@@ -127,9 +137,10 @@
   },
   "verdictScope": {
     "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS; Windows behavioral R2 verdict PENDING the labelled run",
-    "LIVE_ORIGIN_APPLICATION": "in_progress observed read-only; not modified",
+    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1386/1386; Windows 19/19). On real Windows the accept-loop starvation is fixed (stall 4615ms->826ms, HTTP never blocked) BUT every /ws upgrade returns 503 so WebSockets are non-functional; r2 matrix FAIL/BLOCKED and the gate correctly hard-fails. Instrumented re-run pending to localize the fault.",
+    "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
-    "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md)"
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",
+    "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md and the capability verification reports)"
   }
 }

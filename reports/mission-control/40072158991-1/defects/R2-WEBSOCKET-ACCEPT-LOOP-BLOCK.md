@@ -108,11 +108,18 @@ ladder re-establishes the bridge after a controlled interruption.
   workflow, baseline vs repaired with identical fixtures. Thresholds are frozen
   in the harness and never adjusted after a failure.
 
-## 5. Confidence
+## 5. Confidence and measured runtime status
 
 HIGH for the structural defect and its UI consequence (source + prior VM
 timing). HIGH for the repair's structural correctness (static tests + clean
-replay + full 1385-test frontend suite + production build). The runtime
-behavioural verdict on Windows PowerShell 5.1 is recorded by the labelled
-`real-backend-run` job in `evidence/real-backend-*`; it is not asserted from this
-document alone.
+replay + full 1386-test frontend suite + production build).
+
+Measured on the real Windows client (run 40078279249): the starvation itself is
+fixed — pristine blocks `/health` 5011 ms under one `/ws` (stall 4615 ms), the
+patched server keeps HTTP responsive (stall 826 ms, median health 23–54 ms).
+However every `/ws` upgrade currently returns 503 even for the first connection
+on a fresh cap=8 gate, so the WebSocket feature is not yet functional. This is a
+distinct runspace-admission/dispatch defect under PowerShell 5.1, tracked in
+`evidence/windows-run-40078279249-r2-503-defect.md`; instrumented 0003 logs the
+exact gate/pool/exception state on the next run. Do not claim R2 acceptance until
+a real `/ws` upgrade returns 101 and the r2 matrix passes.

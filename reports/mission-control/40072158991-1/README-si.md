@@ -61,14 +61,33 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | static/build PASS; Windows R2 ධාවනය බලාපොරොත්තුවෙන් | smoke 1386/1386 PASS; production build සාර්ථක; සත්‍ය සොකට් හැසිරීම `real-backend-run` label ධාවනයෙන් |
+| PATCHED_APPLICATION_CANDIDATE | අර්ධ PASS — Windows හි තව දෝෂයක් | smoke 1386/1386 + Windows 19/19 PASS; build OK. **සත්‍ය Windows මැනුම (ධාවනය 40078279249): accept-loop starvation සැබවින්ම මැකී ඇත — stall 4615ms→826ms, HTTP කිසිදා නොනවතී. නමුත් සෑම /ws උත්ශ්‍රේණියකටම 503 ලැබේ (නැවුම් cap=8 gate එකක පළමු සම්බන්ධතාවය පවා), එනම් WebSocket විශේෂාංගය දැන් ක්‍රියා නොකරයි. හේතුව හඳුනා ගැනීමට රෝග-විනිශ්චය (diagnostics) එක් කළ නැවත-ධාවනයක් බලාපොරොත්තුවෙන්.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
-| AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | BLOCKED | MC-SIGNAL ප්‍රකාශනය සත්‍යාපනයට නව healthy origin අවශ්‍යයි |
+| AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
 සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1386 පරීක්ෂණ (1378 පෙර + 8 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
+
+### 3.1 සත්‍ය Windows මැනුමෙන් හමුවූ දෝෂය (ධාවනය 40078279249) — වංචනික PASS නැත
+
+- පැරණි (pristine) සේවාදායකය එක් සත්‍ය `/ws` සම්බන්ධතාවයකදී `/health` මිලි තත්පර 5011ක්
+  අවහිර කරයි (stall 4615ms) — R2 දෝෂය නැවත නිපදවයි. පැච් කළ සේවාදායකය එය 826ms දක්වා අඩු
+  කරයි; සාමාන්‍ය HTTP කිසිදා නොනවතී (මධ්‍යනය 23–54ms). එනම් runspace වෙත ගෙනයාමේ ගෘහ නිර්මාණය
+  (architecture) starvation යාන්ත්‍රණය මකා දමයි.
+- නමුත් දැන් **සෑම** `/ws` උත්ශ්‍රේණියකටම `503` ලැබේ — ධාරිතාව 8ක gate එකක පළමු
+  සම්බන්ධතාවය පවා ප්‍රතික්ෂේප වේ (`held=0, rejected=9`). මෙය නීත්‍යානුකූල saturation එකක් විය
+  නොහැක. අන්තර්ගත 503 මාර්ග දෙකක් තිබේ: (අ) ප්‍රවේශ gate `Wait(0)` අසමත් වීම, හෝ (ආ) worker
+  dispatch (`BeginInvoke`) විසි කිරීම. පෙර harness එක පිළිතුරු-සිරුර (body) ඉවත දැමූ බැවින්
+  නිවැරදි මාර්ගය වෙන්කර හඳුනා ගැනීමට නොහැකි විය.
+- එබැවින් 0003 පැචයට රෝග-විනිශ්චය එක් කරන ලදී (පාලන-ප්‍රවාහ වෙනසක් නැත): සෑම ප්‍රතික්ෂේපයකදීම
+  gate `CurrentCount`, runspace pool `GetAvailableRunspaces()`, සහ ඕනෑම ව්‍යතිරේකයක්
+  `[LAB-R2]` සලකුණු සහිතව stdout + audit වෙත ලොග වේ. Harness එක දැන් 503 සිරුර සහ audit
+  පේළි වාර්තාවට එකතු කරයි. මීළඟ ධාවනය මගින් නිශ්චිත .NET දෝෂය හෙළි වේ.
+- evaluate gate එක මෙය නිවැරදිව FAIL ලෙස සලකුණු කරයි; R2 acceptance PASS ලෙස කිසි විටෙක
+  උඩඟු ලෙස ප්‍රකාශ නොවේ. WebSocket නැවත ක්‍රියා කරන තුරු matrix පේළි FAIL/BLOCKED ලෙස
+  අවංකව පවතී (`control-coverage.csv`: 7 PASS / 9 FAIL / 6 BLOCKED).
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 

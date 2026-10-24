@@ -537,7 +537,14 @@ async function measureWsBlock() {
         finish({ wsUpgraded: true, healthDuringWsMs: h.ms, healthOk: h.ok, healthStatus: h.status, blocked: !(h.ok && h.status === 200) });
       }, 1500);
     });
-    req.on('response', (res) => { res.resume(); finish({ wsUpgraded: false, httpStatus: res.statusCode }); });
+    req.on('response', (res) => {
+      // Capture the small 503 body: the two inline R2 rejections carry distinct
+      // text ("capacity exhausted; retry" vs "worker unavailable"), so the body
+      // localizes whether admission or worker dispatch rejected the upgrade.
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => finish({ wsUpgraded: false, httpStatus: res.statusCode, httpBody: Buffer.concat(chunks).toString('utf8').slice(0, 160) }));
+    });
     req.on('error', (e) => finish({ wsUpgraded: false, error: String(e.code || e.message) }));
     req.setTimeout(7000, () => finish({ wsUpgraded: false, error: 'upgrade-timeout' }));
     req.end();
@@ -548,7 +555,7 @@ async function measureWsBlock() {
     action: 'Open one /ws connection and concurrently GET /health.',
     expect_ui: 'an unrelated lightweight endpoint stays responsive while a long-lived WS is open',
     expect_req: 'GET /ws (101) + GET /health in parallel',
-    actual: `wsUpgraded=${result.wsUpgraded} blocked=${result.blocked} healthDuringWsMs=${result.healthDuringWsMs} ${result.error || ''}`,
+    actual: `wsUpgraded=${result.wsUpgraded} blocked=${result.blocked} healthDuringWsMs=${result.healthDuringWsMs} ${result.error || ''}${result.wsUpgraded ? '' : ' http=' + result.httpStatus + ' body=' + JSON.stringify(result.httpBody || '')}`,
     evidence: '', verdict: (result.wsUpgraded && result.blocked) ? 'FAIL' : (result.wsUpgraded ? 'PASS' : 'BLOCKED'),
     note: 'FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden' });
 }
@@ -578,7 +585,11 @@ function openRawWs(openKey, timeoutMs) {
       s.on('error', () => {});
       finish({});
     });
-    req.on('response', (res) => { res.resume(); finish({ upgraded: false, rejectedStatus: res.statusCode }); });
+    req.on('response', (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => finish({ upgraded: false, rejectedStatus: res.statusCode, rejectedBody: Buffer.concat(chunks).toString('utf8').slice(0, 160) }));
+    });
     req.on('error', (e) => finish({ upgraded: false, error: String(e.code || e.message) }));
     req.setTimeout(timeoutMs || R2_THRESHOLDS.frameWaitMs, () => { try { req.destroy(); } catch (e) {} finish({ upgraded: sock.upgraded, error: 'upgrade-timeout' }); });
     req.end();
@@ -632,7 +643,7 @@ async function measureR2Matrix() {
     if (!one.upgraded) {
       record({ control_id: 'r2.one_ws_health_responsive', area: 'health', pre: 'authenticated /ws upgrade',
         action: 'open one /ws then GET /health.', expect_req: '101 + parallel 200 /health', expect_ui: 'n/a',
-        actual: 'upgrade did not complete: ' + (one.error || one.rejectedStatus), evidence: '', verdict: 'BLOCKED', note: 'cannot measure starvation without an upgrade' });
+        actual: 'upgrade did not complete: ' + (one.error || one.rejectedStatus) + ' body=' + JSON.stringify(one.rejectedBody || ''), evidence: '', verdict: 'BLOCKED', note: 'cannot measure starvation without an upgrade' });
     } else {
       await sleep(1200); // let the worker enter its pump (mirrors measureWsBlock)
       const samples = [];
@@ -692,7 +703,7 @@ async function measureR2Matrix() {
       action: `open ${cap + T.wsCapacityOverSubscribe} sockets, then GET /health while saturated.`,
       expect_req: `exactly ${cap} upgrades, excess answered 503 (not queued/hung), /health still 200`,
       expect_ui: 'a denied extra socket retries on the ladder instead of freezing the app',
-      actual: `held=${held.length} rejected=${rejected.length} rejectStatuses=[${rejected.map((r) => r.rejectedStatus).join(',')}] healthDuring=${during.status}/${during.ms}ms audit=${auditLine}`,
+      actual: `held=${held.length} rejected=${rejected.length} rejectStatuses=[${rejected.map((r) => r.rejectedStatus).join(',')}] firstRejectBody=${JSON.stringify((rejected[0] && rejected[0].rejectedBody) || '')} healthDuring=${during.status}/${during.ms}ms audit=${auditLine}`,
       evidence: '', verdict: pass ? 'PASS' : 'FAIL',
       note: 'bounded admission: excess fails fast and never monopolizes the accept thread' });
     for (const w of held) closeRawWs(w.handle);
@@ -729,7 +740,7 @@ async function measureR2Matrix() {
     if (!w.upgraded) {
       record({ control_id: 'r2.ws_real_frames_and_echo', area: 'telemetry', pre: 'authenticated /ws', action: 'upgrade and read frames, send hello.',
         expect_req: '101 then server heartbeat/hello-ack frames', expect_ui: 'the bridge shows genuine protocol traffic',
-        actual: 'upgrade failed: ' + (w.error || w.rejectedStatus), evidence: '', verdict: 'BLOCKED', note: '' });
+        actual: 'upgrade failed: ' + (w.error || w.rejectedStatus) + ' body=' + JSON.stringify(w.rejectedBody || ''), evidence: '', verdict: 'BLOCKED', note: '' });
     } else {
       const sawFrame = await (async () => { const t0 = Date.now(); while (Date.now() - t0 < T.frameWaitMs) { if (w.frames.length) return true; await sleep(100); } return false; })();
       const textBefore = w.frames.filter((f) => f.opcode === 0x1).map((f) => f.text);
@@ -1191,6 +1202,18 @@ async function main() {
       fs.writeFileSync(path.join(out, 'server-stderr.log.sanitized'),
         '# sanitized server stderr (secrets redacted)\n' + cleanErr + '\n');
     } catch (e) {}
+    // Surface the server's own WS admission/dispatch diagnostics (the
+    // "[LAB-R2]" gate/dispatch lines are also in stdout; this is the audit-file
+    // view, capped and sanitized) so a 503 can be attributed to saturation vs
+    // a semaphore/runspace fault without access to the VM.
+    try {
+      const auditPath = path.join(root, 'client-audit.log');
+      if (fs.existsSync(auditPath)) {
+        const wsLines = fs.readFileSync(auditPath, 'utf8').split(/\r?\n/)
+          .filter((l) => /\bws\b|websocket|LAB-R2/i.test(l)).slice(-60).map((l) => sanitize(l));
+        report.timings.r2AuditLines = wsLines;
+      }
+    } catch (e) { report.timings.r2AuditError = String(e.message || e).slice(0, 120); }
     // Startup-stall verdict for THIS label, then one final flush (a BLOCKED
     // acceptance item is NOT collapsed into PASS).
     if (report.timings.stallMs !== null && report.timings.stallMs !== undefined) {

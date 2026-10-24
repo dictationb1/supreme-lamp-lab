@@ -81,8 +81,30 @@ and ten cycles with a process-handle trend. Results publish to
 the patched server still blocks, any `r2.*` control fails, the backend is not
 `actual_application`, or the browser is stubbed.
 
-Current status of that run is recorded in `manifest.json → windowsVerification`
-and the Sinhala README; do not assume PASS without the published evidence.
+### Measured outcome (real Windows client, run 40078279249)
+
+The hard gate did its job and caught a real remaining defect — this is **not**
+an R2 PASS yet:
+
+- The starvation mechanism is gone: the pristine server reproduces R2 exactly
+  (one `/ws` holds the accept thread, `/health` blocked 5011 ms, stall 4615 ms),
+  while the patched server never blocks HTTP (stall 826 ms, `/health` median
+  23–54 ms, zero timeouts, real POST file writes succeed).
+- But every `/ws` upgrade is answered **503**, including the first connection on
+  a fresh `GHRDP_WS_MAX_CLIENTS=8` gate (`held=0, rejected=9`), so the worker
+  never runs and WebSockets are currently non-functional. The browser (real,
+  unstubbed, headed) honestly shows "No /ws endpoint".
+- Two inline 503 branches exist: admission `SemaphoreSlim.Wait(0)` vs the
+  `[powershell]::Create(pool).BeginInvoke()` dispatch catch. The earlier harness
+  discarded the response body, so the branch was not attributable.
+- 0003 was extended (439 lines, no control-flow change, static test still 8/8 on
+  LF+CRLF) to log gate `CurrentCount`, pool available runspaces and any exception
+  via `[LAB-R2]` stdout/audit, and the harness now captures the 503 body and
+  `timings.r2AuditLines`. The next labelled run pinpoints the exact .NET fault;
+  the fix must keep ordinary HTTP inline and the bounded admission contract.
+- Matrix honesty: 7 PASS / 9 FAIL / 6 BLOCKED (see `control-coverage.csv` and
+  `evidence/windows-run-40078279249-r2-503-defect.md`). Native RDP/Web Desktop
+  remain separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 
