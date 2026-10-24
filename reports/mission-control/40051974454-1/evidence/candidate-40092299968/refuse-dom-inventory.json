@@ -1,0 +1,2368 @@
+{
+  "schema": "slab-dom-action-inventory/1",
+  "summary": {
+    "discoveredUnique": 124,
+    "visibleUnique": 96,
+    "coveredByReportRow": 1,
+    "blockedNotExecuted": 95,
+    "withoutStableTestIdOrHref": 9
+  },
+  "controls": [
+    {
+      "key": "dom:overview:summary:101",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:103",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:108",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:111",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:112",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:74",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:81",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:87",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "dom:overview:summary:91",
+      "stableKind": "none",
+      "testid": null,
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Overview",
+      "href": "#/",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/connections",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Connections",
+      "href": "#/connections",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/keys",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Keys & Secrets",
+      "href": "#/keys",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/mirror",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Mirror",
+      "href": "#/mirror",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/sessions",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Sessions",
+      "href": "#/sessions",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/settings",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Settings",
+      "href": "#/settings",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#/telemetry",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Telemetry",
+      "href": "#/telemetry",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:#main",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Skip to main content",
+      "href": "#main",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:http://127.0.0.1:7331/dl/ghrdp-handler-kit.zip",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "http://127.0.0.1:7331/dl/ghrdp-handler-kit.zip",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:https://github.com/dekarita/supreme-lamp/actions",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "https://github.com/dekarita/supreme-lamp/actions",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "href:https://login.tailscale.com/admin/dns",
+      "stableKind": "href",
+      "testid": null,
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "https://login.tailscale.com/admin/dns",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:archiveLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "archiveLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:btnKitDl",
+      "stableKind": "id",
+      "testid": null,
+      "id": "btnKitDl",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "http://127.0.0.1:7331/dl/ghrdp-handler-kit.zip",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:decryptLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "decryptLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:explorerLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "explorerLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:f56.search.nav",
+      "stableKind": "id",
+      "testid": null,
+      "id": "f56.search.nav",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Search",
+      "href": "#/search",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:f57.explorer.nav",
+      "stableKind": "id",
+      "testid": null,
+      "id": "f57.explorer.nav",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "File Explorer",
+      "href": "#/files",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:f92.health.nav",
+      "stableKind": "id",
+      "testid": null,
+      "id": "f92.health.nav",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Health",
+      "href": "#/health",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:f99.collector.nav",
+      "stableKind": "id",
+      "testid": null,
+      "id": "f99.collector.nav",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Collector",
+      "href": "#/collector",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:fallbackLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "fallbackLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "http://127.0.0.1:7331/",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:legacyLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "legacyLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "https://rentry.co/myurl0",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:nrCmdkeyConfirmed",
+      "stableKind": "id",
+      "testid": null,
+      "id": "nrCmdkeyConfirmed",
+      "tag": "input",
+      "type": "checkbox",
+      "role": null,
+      "ariaLabel": null,
+      "text": "on",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:pagesLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "pagesLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:primaryLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "primaryLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "http://127.0.0.1:7332/",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:rdpAuthPassCopy",
+      "stableKind": "id",
+      "testid": null,
+      "id": "rdpAuthPassCopy",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:searchLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "searchLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:telegraphLink",
+      "stableKind": "id",
+      "testid": null,
+      "id": "telegraphLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:vncPassInput",
+      "stableKind": "id",
+      "testid": null,
+      "id": "vncPassInput",
+      "tag": "input",
+      "type": "password",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "id:vncPassRemember",
+      "stableKind": "id",
+      "testid": null,
+      "id": "vncPassRemember",
+      "tag": "input",
+      "type": "checkbox",
+      "role": null,
+      "ariaLabel": null,
+      "text": "on",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:classic-ui-link",
+      "stableKind": "data-testid",
+      "testid": "classic-ui-link",
+      "id": "classicUiLink",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": "Classic UI",
+      "text": "Classic UI",
+      "href": "http://127.0.0.1:7331/v2?ui=v1",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:connections-copy-ip",
+      "stableKind": "data-testid",
+      "testid": "connections-copy-ip",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Tailscale IP",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:connections-copy-mstsc-line",
+      "stableKind": "data-testid",
+      "testid": "connections-copy-mstsc-line",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "MSTSC command",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:connections-copy-user",
+      "stableKind": "data-testid",
+      "testid": "connections-copy-user",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "RDP username",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:diag-drawer-close",
+      "stableKind": "data-testid",
+      "testid": "diag-drawer-close",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Close",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:diag-drawer-copy",
+      "stableKind": "data-testid",
+      "testid": "diag-drawer-copy",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy diag",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:diag-drawer-refresh",
+      "stableKind": "data-testid",
+      "testid": "diag-drawer-refresh",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Refresh",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:dvr-fab",
+      "stableKind": "data-testid",
+      "testid": "dvr-fab",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Open the DVR — the last 30 s of clicks",
+      "text": "DVR 2",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:issue-action-launch-gate",
+      "stableKind": "data-testid",
+      "testid": "issue-action-launch-gate",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Re-check",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-archive",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-archive",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-decryptor",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-decryptor",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-explorer",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-explorer",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-file-search",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-file-search",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-legacy-key",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-legacy-key",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-legacy-rentry",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-legacy-rentry",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-mirror-github",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-mirror-github",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-telegraph",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-telegraph",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copy-terminal",
+      "stableKind": "data-testid",
+      "testid": "keys-copy-terminal",
+      "id": "btnTermCopy",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Terminal URL",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-copylink-remember-vnc",
+      "stableKind": "data-testid",
+      "testid": "keys-copylink-remember-vnc",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:keys-open-terminal",
+      "stableKind": "data-testid",
+      "testid": "keys-open-terminal",
+      "id": "btnTermOpen",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mirror-copy-all-links",
+      "stableKind": "data-testid",
+      "testid": "mirror-copy-all-links",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mirror-diagnose",
+      "stableKind": "data-testid",
+      "testid": "mirror-diagnose",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mirror-start-watcher",
+      "stableKind": "data-testid",
+      "testid": "mirror-start-watcher",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mirror-upload-now",
+      "stableKind": "data-testid",
+      "testid": "mirror-upload-now",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mobile-nav-f56.search.nav",
+      "stableKind": "data-testid",
+      "testid": "mobile-nav-f56.search.nav",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Search",
+      "href": "#/search",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mobile-nav-f57.explorer.nav",
+      "stableKind": "data-testid",
+      "testid": "mobile-nav-f57.explorer.nav",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "File Explorer",
+      "href": "#/files",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mobile-nav-home",
+      "stableKind": "data-testid",
+      "testid": "mobile-nav-home",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Overview",
+      "href": "#/",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mobile-nav-mirror",
+      "stableKind": "data-testid",
+      "testid": "mobile-nav-mirror",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Mirror",
+      "href": "#/mirror",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:mobile-nav-more",
+      "stableKind": "data-testid",
+      "testid": "mobile-nav-more",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "More",
+      "text": "More",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-advanced-summary",
+      "stableKind": "data-testid",
+      "testid": "overview-advanced-summary",
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Advanced detail credentials, deployment status, raw connectivity rows, log tail",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-auto-login",
+      "stableKind": "data-testid",
+      "testid": "overview-auto-login",
+      "id": "btnWinAuto",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "WINDOWS AUTO-LOGIN",
+      "href": null,
+      "disabled": true,
+      "visible": true,
+      "behaviouralStatus": "COVERED_BY_REPORT_ROW",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-auto-login-vps",
+      "stableKind": "data-testid",
+      "testid": "overview-auto-login-vps",
+      "id": "autoLoginNative",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": true,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-cmdkey",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-cmdkey",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "copy",
+      "href": "javascript:void(0)",
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-cmdkey-delete",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-cmdkey-delete",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-cmdkey-line",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-cmdkey-line",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-install-files",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-install-files",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-mstsc-line",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-mstsc-line",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-schannel-check",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-schannel-check",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-copy-webdesk-url",
+      "stableKind": "data-testid",
+      "testid": "overview-copy-webdesk-url",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-clientDnsFix1",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-clientDnsFix1",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-clientDnsFix2",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-clientDnsFix2",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-clientDnsFix3",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-clientDnsFix3",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagCiphers",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagCiphers",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagCredsspPol",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagCredsspPol",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagEvtClient",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagEvtClient",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagEvtList",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagEvtList",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagEvtSch",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagEvtSch",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagEvtSec",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagEvtSec",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagEvtTerm",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagEvtTerm",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagLmCompat",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagLmCompat",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagMstscVerbose",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagMstscVerbose",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagPing",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagPing",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagPurgeAll",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagPurgeAll",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagRd",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagRd",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagServerPurge",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagServerPurge",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagTls13",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagTls13",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagTnc",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagTnc",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-connDiagTshark",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-connDiagTshark",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-rdpAuthCmdCapi2",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-rdpAuthCmdCapi2",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-rdpAuthCmdKeyDel",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-rdpAuthCmdKeyDel",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-copy-rdpAuthCmdSystem",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-copy-rdpAuthCmdSystem",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diag-expand",
+      "stableKind": "data-testid",
+      "testid": "overview-diag-expand",
+      "id": "f96.diagExpand",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Show details",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-diagnose",
+      "stableKind": "data-testid",
+      "testid": "overview-diagnose",
+      "id": "overview-diagnose",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Diagnose",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-download-diag",
+      "stableKind": "data-testid",
+      "testid": "overview-download-diag",
+      "id": "f96.downloadDiag",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "Export diagnostics",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-fix-reconnect",
+      "stableKind": "data-testid",
+      "testid": "overview-fix-reconnect",
+      "id": "btnFixReconnect",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "FIX & RECONNECT",
+      "href": null,
+      "disabled": true,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-glass-settings-link",
+      "stableKind": "data-testid",
+      "testid": "overview-glass-settings-link",
+      "id": "overview-glass-settings-link",
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": "Theme, glass quality and clarity settings: Frosted / Tinted / 75%",
+      "text": "Frosted / Tinted / 75%",
+      "href": "#/settings",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-launch-detail-summary",
+      "stableKind": "data-testid",
+      "testid": "overview-launch-detail-summary",
+      "id": null,
+      "tag": "summary",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Launch detail (certificate, NLA, CredSSP)",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-log-copy",
+      "stableKind": "data-testid",
+      "testid": "overview-log-copy",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy log",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-log-pause",
+      "stableKind": "data-testid",
+      "testid": "overview-log-pause",
+      "id": "logPauseBtn",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-vnc-forget",
+      "stableKind": "data-testid",
+      "testid": "overview-vnc-forget",
+      "id": "vncPassForget",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:overview-web-desktop",
+      "stableKind": "data-testid",
+      "testid": "overview-web-desktop",
+      "id": "btnWebDesk",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "WEB DESKTOP",
+      "href": null,
+      "disabled": true,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:sidebar-collapse",
+      "stableKind": "data-testid",
+      "testid": "sidebar-collapse",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Collapse sidebar",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:telemetry-copy-launcher-log",
+      "stableKind": "data-testid",
+      "testid": "telemetry-copy-launcher-log",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:telemetry-copy-schannel-cmd",
+      "stableKind": "data-testid",
+      "testid": "telemetry-copy-schannel-cmd",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "copy",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:telemetry-run-check",
+      "stableKind": "data-testid",
+      "testid": "telemetry-run-check",
+      "id": "btnRunCheck",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:telemetry-run-diag",
+      "stableKind": "data-testid",
+      "testid": "telemetry-run-diag",
+      "id": "btnRunDiag",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:topbar-lang-toggle",
+      "stableKind": "data-testid",
+      "testid": "topbar-lang-toggle",
+      "id": "langToggle",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Language",
+      "text": "සිං",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:topbar-mobile-menu",
+      "stableKind": "data-testid",
+      "testid": "topbar-mobile-menu",
+      "id": null,
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Open navigation",
+      "text": "",
+      "href": null,
+      "disabled": false,
+      "visible": false,
+      "behaviouralStatus": "NOT_VISIBLE_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:topbar-status-summary",
+      "stableKind": "data-testid",
+      "testid": "topbar-status-summary",
+      "id": "topbar-status-summary",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Live status: Data unavailable",
+      "text": "Data unavailable",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:topbar-text-scale-toggle",
+      "stableKind": "data-testid",
+      "testid": "topbar-text-scale-toggle",
+      "id": "textScaleToggle",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Text size: Comfort",
+      "text": "Aa",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:topbar-theme-toggle",
+      "stableKind": "data-testid",
+      "testid": "topbar-theme-toggle",
+      "id": "themeToggle",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": "Toggle theme",
+      "text": "dark",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:viewing-mode-toggle-btn",
+      "stableKind": "data-testid",
+      "testid": "viewing-mode-toggle-btn",
+      "id": "f95.viewingModeToggleBtn",
+      "tag": "button",
+      "type": "button",
+      "role": null,
+      "ariaLabel": null,
+      "text": "I'm in WEB DESKTOP now",
+      "href": null,
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:workspace-files",
+      "stableKind": "data-testid",
+      "testid": "workspace-files",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "File Explorer No runner host published yet",
+      "href": "#/files",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:workspace-search",
+      "stableKind": "data-testid",
+      "testid": "workspace-search",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Search No search run yet",
+      "href": "#/search",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:workspace-sessions",
+      "stableKind": "data-testid",
+      "testid": "workspace-sessions",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Sessions Session history and usage",
+      "href": "#/sessions",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    },
+    {
+      "key": "testid:workspace-transfers",
+      "stableKind": "data-testid",
+      "testid": "workspace-transfers",
+      "id": null,
+      "tag": "a",
+      "type": null,
+      "role": null,
+      "ariaLabel": null,
+      "text": "Transfers Queue idle",
+      "href": "#/files",
+      "disabled": false,
+      "visible": true,
+      "behaviouralStatus": "BLOCKED_NOT_EXECUTED",
+      "routes": [
+        "overview"
+      ],
+      "evidence": "shots/overview-refuse.png"
+    }
+  ]
+}

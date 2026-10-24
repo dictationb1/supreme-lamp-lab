@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-24T05:31:56.686Z",
+  "runId": "40066357849",
+  "runAttempt": "1",
+  "status": "OK",
+  "audienceSource": "TS_AUDIENCE secret",
+  "audienceConfigured": true,
+  "claims": {
+    "sub": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "iss": "https://token.actions.githubusercontent.com",
+    "repository": "dictationb1/supreme-lamp-lab",
+    "repository_id": "1425092794",
+    "repository_owner": "dictationb1",
+    "repository_owner_id": "342137832",
+    "ref": "refs/pull/28/merge",
+    "event_name": "pull_request",
+    "workflow_ref": "dictationb1/supreme-lamp-lab/.github/workflows/capability-check.yml@refs/pull/28/merge",
+    "job_workflow_ref": "dictationb1/supreme-lamp-lab/.github/workflows/capability-check.yml@refs/pull/28/merge",
+    "runner_environment": "github-hosted",
+    "environment": null,
+    "aud_present": true
+  },
+  "analysis": {
+    "subject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "immutableSubjectFormat": true,
+    "matchesDocumentedLegacyPattern": false,
+    "recommendedSubjectPattern": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:*",
+    "matchesRecommendedPattern": true
+  },
+  "audienceMatchesConfigured": true
+}

@@ -1,0 +1,220 @@
+{
+  "schema": "slab-real-backend/1",
+  "generatedAt": "2026-10-24T05:44:46.773Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "identity": {
+    "label": "patched",
+    "appSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "labRevision": "5665907f05b9d2ddf50dc4b33b9ad43b6fdaadad",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": true,
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "ghrdp-server.ps1",
+    "serverPid": 6536
+  },
+  "timings": {
+    "desktopLockMs": 486,
+    "markerAppearedMs": 1534,
+    "markerText": "LISTENING pid=6536 bind=127.0.0.1 port=7331 at=2026-10-24T11:14:48.5569906+05:30",
+    "listenerAppearedMs": 1536,
+    "connectMs": 0,
+    "firstHealthMs": 718,
+    "stallMs": 719,
+    "firstHealthStatus": 200,
+    "readyAppearedMs": 2255,
+    "readyText": "READY pid=6536 port=7331 at=2026-10-24T11:14:48.7294884+05:30",
+    "healthSampleCount": 49,
+    "healthLatencyP95Ms": 75,
+    "healthLatencyMaxMs": 2336,
+    "healthLatencySamples": [
+      {
+        "t": 76,
+        "ms": 75
+      },
+      {
+        "t": 2372,
+        "ms": 58
+      },
+      {
+        "t": 4589,
+        "ms": 57
+      },
+      {
+        "t": 7110,
+        "ms": 10
+      },
+      {
+        "t": 11575,
+        "ms": 59
+      },
+      {
+        "t": 13735,
+        "ms": 27
+      },
+      {
+        "t": 16004,
+        "ms": 54
+      }
+    ],
+    "concurrent": {
+      "healthMs": 344,
+      "healthStatus": 200,
+      "slowFired": true,
+      "slowEndpoint": "/api/native-status",
+      "slowMs": 338,
+      "slowStatus": 200,
+      "slowBytes": 2609
+    },
+    "wsBlock": {
+      "wsUpgraded": true,
+      "healthDuringWsMs": 5006,
+      "healthOk": false,
+      "blocked": true
+    },
+    "recoveredAfterWsMs": 6002
+  },
+  "endpoints": {
+    "/health": {
+      "status": 200,
+      "ok": true,
+      "ms": 54,
+      "bytes": 599,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "app",
+        "pid",
+        "listenerBound",
+        "bind",
+        "port",
+        "serverStartedUtc",
+        "scans"
+      ],
+      "bodyHead": "{\"ok\":true,\"app\":\"ghrdp\",\"pid\":6536,\"listenerBound\":true,\"bind\":\"127.0.0.1\",\"port\":7331,\"serverStartedUtc\":\"10/24/2026 05:44:48\",\"scans\":{\"logon\":{\"scanTs\":null,\"probeError\":null},\"connLog\":{\"scanTs\":null,\"probeError\":null},\"telescope\":{\"scanTs\":\"2026-10-24T05:44:57.6269783Z\",\"probeError\":\"telescope red: {\\\"ts\\\":\\\"2026-10-24T05:44:59.7450704Z\\\",\\\"trace\\\":\\\"t261024054457-live-010b1cb8\\\",\\\"src\\\":\\\"l"
+    },
+    "/api/config": {
+      "status": 200,
+      "ok": true,
+      "ms": 2201,
+      "bytes": 811,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"labCandidate\":true,\"labOnly\":true,\"identity\":\"isolated-lab-candidate-not-live-origin\",\"rdpIp\":\"127.0.0.1\",\"ghrdp\":\"lab-candidate\",\"dnsName\":\"lab-candidate.invalid\",\"hostKind\":\"lab-isolated\",\"buildSha\":\"cand-5665907f05b9\",\"repo\":\"dictationb1/supreme-lamp-lab\",\"mirror\":false,\"mirrorHosts\":[],\"encryptMode\":\"all\",\"telegraphToken\":\"\",\"telegraphPath\":\"\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\""
+    },
+    "/api/native-status": {
+      "status": 200,
+      "ok": true,
+      "ms": 130,
+      "bytes": 12838,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"fqdn\":\"lab-candidate.invalid\",\"hostKind\":\"ephemeral\",\"buildSha\":\"cand-5665907f05b9\",\"rdpListener\":{\"authLast\":null,\"logonCollector\":{\"intervalSec\":30,\"staleSec\":90,\"scans\":0,\"alive\":true,\"startedAt\":\"2026-10-24T05:44:48.1017772Z\",\"uptimeSec\":21,\"lastScanAgeSec\":null,\"probeError\":\"\"},\"credsspLive\":\"warn\",\"credsspLiveWhy\":\"cert-not-bound\",\"credsspLiveTs\":\"2026-10-24T05:45:08.9475351Z\",\"connLog\":nu"
+    },
+    "/api/progress": {
+      "status": 200,
+      "ok": true,
+      "ms": 100,
+      "bytes": 1180,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"ok\":true,\"status\":\"ok\",\"phase\":\"ready\",\"serverTs\":\"2026-10-24T05:45:09Z\",\"mirror\":false,\"encryptMode\":\"all\",\"mirrorPlaintextElection\":false,\"mirrorDiag\":null,\"mirrorProbe\":null,\"ghrdp\":\"lab-candidate\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\",\"startedAt\":\"2026-10-24T05:44:47.364Z\",\"runStartedAt\":\"2026-10-24T05:44:47.364Z\",\"sessionStartedAt\":\"\",\"sessionEnd\":\"\",\"legacyIndexUrl\":\"\",\"rentryNe"
+    },
+    "/api/version": {
+      "status": 200,
+      "ok": true,
+      "ms": 69,
+      "bytes": 288,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "server",
+        "sha",
+        "sha7",
+        "shaSource",
+        "features"
+      ],
+      "bodyHead": "{\"ok\":true,\"server\":\"ghrdp\",\"sha\":\"4a91c5c2eadc12e5b071bc46bae7683087f56fbd\",\"sha7\":\"4a91c5c\",\"shaSource\":\"env.GITHUB_SHA\",\"features\":{\"autoHttps\":true,\"wwwTolerance\":true,\"noFallback\":true,\"downloadToRdp\":true,\"launchTiers\":true,\"selfTest\":true,\"mirrorLauncher\":true,\"streamProxy\":true}}"
+    },
+    "/ping": {
+      "status": 200,
+      "ok": true,
+      "ms": 46,
+      "bytes": 42,
+      "ctype": "application/json",
+      "topLevelKeys": [
+        "ok",
+        "wire",
+        "ts"
+      ],
+      "bodyHead": "{\"ok\":true,\"wire\":null,\"ts\":{\"Length\":33}}"
+    },
+    "/": {
+      "status": 200,
+      "ok": true,
+      "ms": 1261,
+      "bytes": 1273470,
+      "ctype": "text/html; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "\n\n  \n    \n    \n    <meta name="
+    }
+  },
+  "socketOwner": "pid=6536 name=powershell start=2026-10-24T11:14:47.3725362+05:30",
+  "controls": [
+    {
+      "control_id": "backend.ws_accept_loop_block",
+      "area": "health",
+      "pre": "real PowerShell server, authenticated raw WebSocket upgrade",
+      "action": "Open one /ws connection and concurrently GET /health.",
+      "expect_ui": "an unrelated lightweight endpoint stays responsive while a long-lived WS is open",
+      "expect_req": "GET /ws (101) + GET /health in parallel",
+      "actual": "wsUpgraded=true blocked=true healthDuringWsMs=5006 ",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden"
+    },
+    {
+      "control_id": "real.browser_suite_deferred",
+      "area": "browser",
+      "pre": "real server",
+      "action": "drive the real UI",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "skipped: accept loop still pinned by inline WS (R2) 2s after the bounded probe",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "startup/tick/endpoint/ws-block evidence already published before this skip"
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "verdicts": {
+    "PASS": 0,
+    "FAIL": 1,
+    "BLOCKED": 1,
+    "PENDING": 0
+  },
+  "fatal": "",
+  "desktopLock": "acquired",
+  "startupDiag": {
+    "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40067304717\\ghrdp-server.ps1 -Port 7331 -Bind 127.0.0.1 -Root C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40067304717 -LimitMinutes 6",
+    "runFile": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40067304717\\ghrdp-server.ps1",
+    "root": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40067304717",
+    "resolvedRunFileExists": true,
+    "liveness": [
+      {
+        "t": 4,
+        "exited": false,
+        "spawnError": "",
+        "stdoutBytes": 0,
+        "stderrBytes": 0,
+        "listener": false
+      }
+    ],
+    "listenerAppeared": true
+  },
+  "_startupStallMs": 719
+}

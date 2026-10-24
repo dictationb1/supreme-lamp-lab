@@ -1,0 +1,22 @@
+# Ordered application patch prefixes, relative to this bundle.
+# Base application revision (all three apply cleanly here):
+#   dictationb1/supreme-lamp @ 832a82eb7c29613b0b101585c56b5011ea008a06
+#   (its parent 4a91c5c2e... is the earlier series base; 832a82eb only changes
+#    docs/status.json, so the 4a91c5c2-based patches still apply unchanged).
+# Replay: apply in this exact order at the application root with
+#   git -C <app> -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn <patch>
+# Each patch is self-contained; see verify-bundle.sh for a clean-download check.
+#
+# 0001 F201: probe honesty (frontend) - a refused/empty backend probe must not
+#            become a confirmed credential/DNS/listener failure.
+# 0002 R1:   server startup readiness - remove the three synchronous pre-accept
+#            Get-WinEvent scans, publish HTTP readiness from inside the accept
+#            loop, and bound periodic inline ticks to one scan per iteration.
+# 0003 R2:   bounded WebSocket worker runspace - move ONLY the long-lived /ws
+#            pump off the single accept thread onto a bounded runspace pool
+#            gated by a non-blocking SemaphoreSlim; ordinary HTTP stays inline so
+#            all script-scope ticket/cache/credential state keeps its single-
+#            threaded semantics. Includes the r2-websocket-worker smoke test.
+app-patches/0001-F201-probe-honesty.patch
+app-patches/0002-R1-server-startup-readiness.patch
+app-patches/0003-R2-websocket-worker-runspace.patch

@@ -1,0 +1,24 @@
+{
+  "schema": "slab-capability-certificate/2",
+  "generatedAt": "2026-10-24T15:50:34.1262367Z",
+  "dnsName": "slab-srv-40108408924-1.tail7cf774.ts.net",
+  "certificateDnsName": "slab-srv-40108408924-1.tail7cf774.ts.net",
+  "thumbprint": "0F30CA3891F960C7377A777601D362F0534337A3",
+  "issuer": "CN=YE2, O=Let's Encrypt, C=US",
+  "subject": "CN=slab-srv-40108408924-1.tail7cf774.ts.net",
+  "notAfterUtc": "2027-01-22T14:51:58.0000000Z",
+  "chainOk": true,
+  "chainStatus": [],
+  "privateKeyAcl": "C:\\ProgramData\\Microsoft\\Crypto\\Keys\\2b2c4d6dab5bbbb3920aa3b0a938175f_689b1c0b-3a2a-4d56-866f-afc614dcd281",
+  "boundThumbprint": "0F30CA3891F960C7377A777601D362F0534337A3",
+  "bindPath": "registry (WMI unavailable: Method \"SetSSLCertificateSHA1Hash\" not found)",
+  "nla": true,
+  "securityLayer": 2,
+  "minEncryptionLevel": 3,
+  "credsspStrict": true,
+  "listener3389": [
+    "::",
+    "0.0.0.0"
+  ],
+  "authenticationLevelBypass": false
+}

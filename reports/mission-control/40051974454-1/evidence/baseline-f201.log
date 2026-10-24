@@ -1,0 +1,128 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /home/user/app-origin-inspect
+
+stdout | src/tests/smoke/f201-probe-honesty.test.tsx
+[F102] Collector rehydrated: 0 actions (empty)
+
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx (8 tests | 8 failed) 13ms
+   × F201 probe transport > keeps the HTTP status and class for a refused read (401 / 403) 6ms
+     → probeJson is not a function
+   × F201 probe transport > separates a transport failure (status 0) from an error status 1ms
+     → probeJson is not a function
+   × F201 probe transport > separates a non-JSON 200 (schema/build mismatch) from a good read 1ms
+     → probeJson is not a function
+   × F201 store > records a probe result without pretending the data arrived 1ms
+     → useSessionStore.getState(...).setProbe is not a function
+   × F201 Overview gate wording > names the refused status read, not credentials/DNS/listener, when nothing was measured 1ms
+     → useSessionStore.getState(...).setProbe is not a function
+   × F201 Overview gate wording > says the transport failed when the dashboard did not answer at all 1ms
+     → useSessionStore.getState(...).setProbe is not a function
+   × F201 Overview gate wording > still names the real credential gate once a trusted answer arrived 1ms
+     → useSessionStore.getState(...).setProbe is not a function
+   × F201 Overview gate wording > keeps the button disabled in every one of those states 1ms
+     → useSessionStore.getState(...).setProbe is not a function
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 probe transport > keeps the HTTP status and class for a refused read (401 / 403)
+TypeError: probeJson is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:80:21
+     78|   it("keeps the HTTP status and class for a refused read (401 / 403)",…
+     79|     respond(401, { error: "unauthorized" });
+     80|     const r = await probeJson("/api/native-status");
+       |                     ^
+     81|     expect(r.ok).toBe(false);
+     82|     expect(r.status).toBe(401);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 probe transport > separates a transport failure (status 0) from an error status
+TypeError: probeJson is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:96:21
+     94|       throw new TypeError("network down");
+     95|     }) as unknown as typeof fetch;
+     96|     const r = await probeJson("/api/native-status");
+       |                     ^
+     97|     expect(r).toMatchObject({ ok: false, status: 0, failure: "transpor…
+     98|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 probe transport > separates a non-JSON 200 (schema/build mismatch) from a good read
+TypeError: probeJson is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:102:23
+    100|   it("separates a non-JSON 200 (schema/build mismatch) from a good rea…
+    101|     respond(200, {}, false);
+    102|     const bad = await probeJson("/api/native-status");
+       |                       ^
+    103|     expect(bad).toMatchObject({ ok: false, status: 200, failure: "sche…
+    104| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 store > records a probe result without pretending the data arrived
+TypeError: useSessionStore.getState(...).setProbe is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:115:32
+    113| describe("F201 store", () => {
+    114|   it("records a probe result without pretending the data arrived", () …
+    115|     useSessionStore.getState().setProbe("native", "unauthorized", 401);
+       |                                ^
+    116|     const pr = useSessionStore.getState().probes.native;
+    117|     expect(pr.state).toBe("unauthorized");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 Overview gate wording > names the refused status read, not credentials/DNS/listener, when nothing was measured
+TypeError: useSessionStore.getState(...).setProbe is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:127:32
+    125| describe("F201 Overview gate wording", () => {
+    126|   it("names the refused status read, not credentials/DNS/listener, whe…
+    127|     useSessionStore.getState().setProbe("native", "unauthorized", 401);
+       |                                ^
+    128|     renderOverview();
+    129|     const note = screen.getByTestId("overview-auto-login-note");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 Overview gate wording > says the transport failed when the dashboard did not answer at all
+TypeError: useSessionStore.getState(...).setProbe is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:142:32
+    140| 
+    141|   it("says the transport failed when the dashboard did not answer at a…
+    142|     useSessionStore.getState().setProbe("native", "transport", 0);
+       |                                ^
+    143|     renderOverview();
+    144|     const text = screen.getByTestId("overview-auto-login-note").textCo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 Overview gate wording > still names the real credential gate once a trusted answer arrived
+TypeError: useSessionStore.getState(...).setProbe is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:158:32
+    156|       user: "",
+    157|     });
+    158|     useSessionStore.getState().setProbe("native", "ok", 200);
+       |                                ^
+    159|     useSessionStore.getState().setProbe("config", "ok", 200);
+    160|     renderOverview();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  src/tests/smoke/f201-probe-honesty.test.tsx > F201 Overview gate wording > keeps the button disabled in every one of those states
+TypeError: useSessionStore.getState(...).setProbe is not a function
+ ❯ src/tests/smoke/f201-probe-honesty.test.tsx:166:32
+    164| 
+    165|   it("keeps the button disabled in every one of those states", () => {
+    166|     useSessionStore.getState().setProbe("native", "unauthorized", 401);
+       |                                ^
+    167|     renderOverview();
+    168|     expect(screen.getByTestId("overview-auto-login")).toBeDisabled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+ Test Files  1 failed (1)
+      Tests  8 failed (8)
+   Start at  02:12:50
+   Duration  2.03s (transform 686ms, setup 222ms, collect 985ms, tests 13ms, environment 407ms, prepare 201ms)
+

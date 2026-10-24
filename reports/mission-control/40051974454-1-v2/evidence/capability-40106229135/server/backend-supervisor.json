@@ -1,0 +1,142 @@
+{
+  "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "port": 7331,
+  "startedAt": "2026-10-24T15:21:58.340Z",
+  "phases": [
+    {
+      "name": "identity",
+      "ok": true,
+      "detail": "pid=7376 createTime=2026-10-24T15:21:58.6991590Z",
+      "evidence": {
+        "pid": 7376,
+        "createTime": "2026-10-24T15:21:58.6991590Z"
+      },
+      "severity": "OK",
+      "at": "2026-10-24T15:22:01.860Z"
+    },
+    {
+      "name": "okfile",
+      "ok": true,
+      "detail": "LISTENING pid=7376 bind=0.0.0.0 port=7331 at=2026-10-24T15:22:00.1087569+00:00",
+      "severity": "OK",
+      "at": "2026-10-24T15:22:01.860Z"
+    },
+    {
+      "name": "listener",
+      "ok": true,
+      "detail": "listener pid(s) 7376 within supervised subtree (12 pid(s))",
+      "severity": "OK",
+      "at": "2026-10-24T15:22:04.119Z"
+    },
+    {
+      "name": "readiness",
+      "ok": true,
+      "code": "READY",
+      "detail": "pid=7376 port=7331 phase=ready",
+      "history": [
+        {
+          "at": "2026-10-24T15:22:05.486Z",
+          "key": "READY|pid=7376 port=7331 phase=ready",
+          "code": "READY",
+          "detail": "pid=7376 port=7331 phase=ready",
+          "transport": "ok",
+          "status": 200
+        }
+      ],
+      "severity": "OK",
+      "at": "2026-10-24T15:22:05.487Z"
+    },
+    {
+      "name": "server-local-checks",
+      "ok": false,
+      "code": "MC_EXIT_1",
+      "detail": "mission-control-check --scope server-local",
+      "severity": "FATAL",
+      "at": "2026-10-24T15:22:11.324Z"
+    },
+    {
+      "name": "hold",
+      "ok": true,
+      "detail": "client job completed (skipped) on null",
+      "severity": "OK",
+      "at": "2026-10-24T15:22:11.563Z"
+    }
+  ],
+  "config": {
+    "readyTimeoutMs": 180000,
+    "startupBudgetMs": 360000,
+    "identityTimeoutMs": 20000,
+    "listenerTimeoutMs": 20000,
+    "hold": true,
+    "holdMaxMs": 1200000
+  },
+  "powershell": {
+    "helperExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "helperExeSource": "PATH:pwsh.exe",
+    "backendExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "sameInterpreter": true,
+    "note": null,
+    "helperVersion": "7.6.7",
+    "helperVersionDiagnostic": null
+  },
+  "guards": [],
+  "helperFailures": [],
+  "backend": {
+    "pid": 7376,
+    "createTime": "2026-10-24T15:21:58.6991590Z"
+  },
+  "backendIdentityState": "VERIFIED",
+  "livenessAtExit": {
+    "at": "2026-10-24T15:22:11.563Z",
+    "pid": 7376,
+    "alive": true,
+    "exit": null,
+    "identityState": "VERIFIED",
+    "stdoutTail": "[F45] fx upload worker start failed: Cannot overwrite variable IsWindows because it is read-only or constant.\nTrue\nTrue\n[LAB-R2] websocket worker pool ready max=16\n",
+    "stderrTail": ""
+  },
+  "stopped": [
+    {
+      "pid": 6096,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 3864,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 6148,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 5012,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 3504,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 8668,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 7052,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 5008,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 7376,
+      "name": "pwsh.exe"
+    }
+  ],
+  "stopMethod": "identity-verified-tree",
+  "stopErrors": [],
+  "exit": null,
+  "finishedAt": "2026-10-24T15:22:12.361Z",
+  "stdoutTail": "[F45] fx upload worker start failed: Cannot overwrite variable IsWindows because it is read-only or constant.\nTrue\nTrue\n[LAB-R2] websocket worker pool ready max=16\n",
+  "stderrTail": ""
+}

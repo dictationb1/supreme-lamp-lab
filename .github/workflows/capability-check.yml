@@ -28,6 +28,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -62,8 +63,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read
+  contents: write
   actions: read
+
+env:
+  BUNDLE_DIR: reports/mission-control/40051974454-1-v2
+  # [CANDIDATE] The complete patched candidate identity. The served UI is built
+  # from the PATCHED tree with VITE_BUILD_SHA=cand-<LAB_REVISION>; the app SHA
+  # stays the SOURCE identity (readiness /api/version, native-status buildSha).
+  # Both jobs derive the same string from the event, so no cross-job plumbing.
+  CANDIDATE_BUILD: cand-${{ github.event.pull_request.head.sha || github.sha }}
+  LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+  HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
 jobs:
   static:
@@ -78,6 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -181,6 +193,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -225,7 +238,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write # sanitized evidence publisher writes only to this lab branch
       actions: read
       id-token: write
     env:
@@ -254,6 +267,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install pinned Node (sha256 verified)
@@ -277,6 +291,95 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Apply the ordered candidate patch series (LF-normalized, in series order)
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # [CANDIDATE] Patch BEFORE building and staging, so the staged bytes are
+          # the repaired bytes. The patches are LF-normalized (the patch file, not
+          # the tree - proven method from real-backend.yml / app-candidate.yml on
+          # hosted Windows). Semantic verification after apply: a marker unique to
+          # the LAST patch must be present, so a fuzzy/empty apply can never pass.
+          $series = Join-Path $env:BUNDLE_DIR 'series.txt'
+          $patchRoot = Join-Path $env:BUNDLE_DIR 'app-patches'
+          $names = Get-Content -LiteralPath $series | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+          if (-not $names) { throw 'PATCH_SERIES_EMPTY' }
+          # [CRLF GUARD] actions/checkout on Windows may materialize CRLF
+          # working files (autocrlf), while the patches are LF-normalized; git
+          # apply then fails with 'patch does not apply' (run 40102291995).
+          # Renormalize every EXISTING patch target to LF (bytes, not text) so
+          # the patch context matches the patch bytes exactly. Targets that the
+          # patches CREATE (absent now) need no renormalization.
+          $targets = @{}
+          foreach ($rel in $names) {
+            $patchText = [System.IO.File]::ReadAllText((Join-Path $env:BUNDLE_DIR ($rel -replace '/', '\')))
+            foreach ($m in [regex]::Matches($patchText, '(?m)^\+\+\+ b/(.+)$')) {
+              $t = $m.Groups[1].Value.Trim()
+              if ($t -ne '/dev/null') { $targets[$t] = $true }
+            }
+          }
+          $renorm = 0; $created = 0
+          foreach ($t in $targets.Keys) {
+            $fp = Join-Path 'app' ($t -replace '/', '\')
+            if (-not (Test-Path -LiteralPath $fp)) { $created++; continue }
+            $bytes = [System.IO.File]::ReadAllBytes($fp)
+            $dirty = $false
+            for ($i = 0; ($i + 1) -lt $bytes.Length; $i++) { if ($bytes[$i] -eq 13 -and $bytes[$i + 1] -eq 10) { $dirty = $true; break } }
+            if ($dirty) {
+              # Latin-1 maps every byte 1:1, so decode->replace->encode is an
+              # exact, encoding-agnostic CR/LF strip (no UTF-8 corruption risk).
+              $l1 = [System.Text.Encoding]::GetEncoding(28591)
+              $text = $l1.GetString($bytes).Replace("`r`n", "`n")
+              [System.IO.File]::WriteAllBytes($fp, $l1.GetBytes($text))
+              $renorm++
+            }
+          }
+          Write-Host "::notice title=candidate patch targets::existing-LF-renormalized=$renorm patch-created=$created (targets=$($targets.Count))"
+          $work = Join-Path $env:RUNNER_TEMP 'cand-patches'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          foreach ($rel in $names) {
+            $src = Join-Path $env:BUNDLE_DIR ($rel -replace '/', '\')
+            if (-not (Test-Path -LiteralPath $src)) { throw "PATCH_MISSING: $rel" }
+            $lf = Join-Path $work ((Split-Path -Leaf $rel) + '.lf')
+            $text = [System.IO.File]::ReadAllText($src) -replace "`r`n", "`n"
+            [System.IO.File]::WriteAllText($lf, $text, (New-Object System.Text.UTF8Encoding($false)))
+            & git -C app -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn $lf
+            if ($LASTEXITCODE -ne 0) { throw "PATCH_APPLY_FAILED: $rel (exit $LASTEXITCODE)" }
+            Write-Host "::notice title=candidate patch::applied $rel"
+          }
+          # Semantic check (not just exit codes): the 0004 repair marker and the
+          # R2 test must exist in the working tree, and HEAD must still be the
+          # pinned base (patches apply to the working tree, nothing is committed).
+          $serverText = [System.IO.File]::ReadAllText((Join-Path 'app' 'payloads\ghrdp-server.ps1'))
+          if ($serverText -notmatch 'GHRDP_WS_POOL_RETRY_SEC') { throw 'PATCH_SEMANTIC_CHECK_FAILED: 0004 marker absent from the patched server' }
+          if (-not (Test-Path (Join-Path 'app' 'src\tests\smoke\r2-websocket-worker.test.ts'))) { throw 'PATCH_SEMANTIC_CHECK_FAILED: r2 regression test absent' }
+          $head = (& git -C app rev-parse HEAD).Trim()
+          if ($head -ne $env:APP_SHA) { throw "PATCHED_HEAD_MOVED: HEAD=$head expected=$env:APP_SHA" }
+          Write-Host "::notice title=candidate patches::$($names.Count) applied; HEAD still $head; semantic markers verified"
+
+      - name: Install app dependencies, run the candidate regressions, build the production UI
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Push-Location app
+          npx --yes pnpm@9.15.9 install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { Write-Host '::error title=app pnpm install::exit $LASTEXITCODE'; Pop-Location; exit 1 }
+          # The three patch-carried regressions are the build gate (the FULL suite
+          # runs in the replay/verify scripts; here we gate the candidate build).
+          npx --yes vitest run src/tests/smoke/f201-probe-honesty.test.tsx src/tests/smoke/r1-server-readiness.test.ts src/tests/smoke/r2-websocket-worker.test.ts --reporter=dot
+          $trc = $LASTEXITCODE
+          Write-Host "::notice title=candidate regressions::exit=$trc"
+          if ($trc -ne 0) { Write-Host '::error title=candidate regressions FAIL::exit $trc'; Pop-Location; exit 1 }
+          $env:VITE_BUILD_SHA = $env:CANDIDATE_BUILD
+          npx --yes pnpm@9.15.9 run build
+          $brc = $LASTEXITCODE
+          $bundle = Join-Path (Get-Location) 'ui\dist\index.html'
+          if ($brc -ne 0 -or -not (Test-Path $bundle)) { Write-Host "::error title=candidate UI build FAIL::exit $brc bundle=$(Test-Path $bundle)"; Pop-Location; exit 1 }
+          $bsha = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+          $bytes = (Get-Item $bundle).Length
+          Write-Host "::notice title=candidate UI bundle::$bytes bytes sha256=$bsha build=$env:CANDIDATE_BUILD"
+          "CANDIDATE_UI=$(Resolve-Path $bundle)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CANDIDATE_UI_SHA=$bsha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Pop-Location
+
       - name: Install lab dependencies + Chromium
         run: |
           npm ci
@@ -284,11 +387,23 @@ jobs:
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
 
-      - name: Stage backend + commit-matched UI bundle (app's own staging functions)
+      - name: Stage backend + CANDIDATE-built UI bundle (app's own staging functions)
         id: stage
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/server/Stage-App.ps1 -LabAppDir app -LabSha $env:APP_SHA -LabOut (Join-Path $env:RUNNER_TEMP 'stage-result.json')
+        run: |
+          # [CANDIDATE] The staged UI is the LOCALLY BUILT patched bundle
+          # (uiBundleSource=local-patched-build), never the upstream release
+          # asset: patched server code must ship with the patched UI build.
+          ./scripts/server/Stage-App.ps1 -LabAppDir app -LabSha $env:APP_SHA -LabOut (Join-Path $env:RUNNER_TEMP 'stage-result.json') -LabLocalUi $env:CANDIDATE_UI -LabUiIdentity "$env:CANDIDATE_BUILD (patched series 0001-0004 on $env:APP_SHA)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Fail-visible: the stage result must record the local patched build.
+          $sr = Get-Content (Join-Path $env:RUNNER_TEMP 'stage-result.json') -Raw | ConvertFrom-Json
+          if ([string]$sr.uiBundleSource -ne 'local-patched-build') { throw "STAGE_NOT_CANDIDATE: uiBundleSource=$($sr.uiBundleSource)" }
+          if ([string]$sr.uiBundleSha256 -ne $env:CANDIDATE_UI_SHA) { throw "STAGE_BUNDLE_MISMATCH: $($sr.uiBundleSha256) != $env:CANDIDATE_UI_SHA" }
+
+      - name: Stage disposable File Explorer fixtures (production RDP-Storage root)
+        run: ./scripts/server/Stage-FxFixtures.ps1 -StageRoot 'C:\ghrdp' -Out (Join-Path $env:RUNNER_TEMP 'fx-fixtures.json')
 
       - name: Prepare ephemeral RDP target (tailnet-only firewall)
         id: rdp
@@ -348,19 +463,40 @@ jobs:
           $ip = (& tailscale ip -4 | Select-Object -First 1)
           Write-Host "::notice title=Server tailnet address::slab-srv-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT} = $ip"
 
+      - name: Configure disposable Mission Control identity and run-bound dashboard token
+        id: config
+        if: always() && steps.tailscale.outcome == 'success' && steps.stage.outcome == 'success'
+        continue-on-error: true
+        env:
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+        run: node scripts/configure-capability.js
+
+      - name: Bind a trusted Tailscale certificate to RDP-Tcp
+        id: cert
+        if: always() && steps.config.outcome == 'success'
+        continue-on-error: true
+        run: ./scripts/server/Bind-RdpCertificate.ps1 -StageRoot 'C:\ghrdp' -AppDir 'app' -Out (Join-Path $env:RUNNER_TEMP 'capability-certificate.json')
+
       - name: Supervise backend (start, server-local checks, hold for client, stop)
         id: supervise
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
           STAGE_OUTCOME: ${{ steps.stage.outcome }}
           STAGE_ERROR: ${{ steps.stage.outputs.stage_error }}
+          CONFIG_OUTCOME: ${{ steps.config.outcome }}
+          CERT_OUTCOME: ${{ steps.cert.outcome }}
         run: |
           if ($env:STAGE_OUTCOME -ne 'success') {
             node scripts/mission-control-check.js --scope server-local --fail-reason "STAGING_FAILED: outcome=$env:STAGE_OUTCOME; $env:STAGE_ERROR"
             exit 1
           }
-          node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
+          if ($env:CONFIG_OUTCOME -ne 'success' -or $env:CERT_OUTCOME -ne 'success') {
+            node scripts/mission-control-check.js --scope server-local --blocked-reason "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=$env:CONFIG_OUTCOME cert=$env:CERT_OUTCOME"
+            exit 1
+          }
+          node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --expect-build $env:CANDIDATE_BUILD --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
           exit $LASTEXITCODE
 
       - name: Collect bounded RDP evidence (server-side ground truth, read-only)
@@ -370,6 +506,37 @@ jobs:
       - name: Postflight owned-process cleanup
         if: always()
         run: node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP 'artifacts\cleanup-postflight.json')
+
+      - name: Publish sanitized server evidence to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-server'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          $art = Join-Path $env:RUNNER_TEMP 'artifacts'
+          if (Test-Path $art) {
+            Get-ChildItem -LiteralPath $art -Recurse -File -Filter '*.json' | ForEach-Object {
+              $target = Join-Path $flat $_.Name
+              if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
+              Copy-Item -LiteralPath $_.FullName -Destination $target
+            }
+          }
+          foreach ($name in @('stage-result.json','rdp-target.json','rdp-diagnostics.json','capability-config.json','capability-certificate.json','fx-fixtures.json')) {
+            $src = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+          }
+          # [cert observability] the raw tailscale cert fetch output per attempt
+          # (already redacted-capable: paths/errors only, never key material -
+          # the key file itself is never read). These are what the 16 invisible
+          # failures never published.
+          foreach ($n in @('capability-cert-1.out','capability-cert-1.err','capability-cert-2.out','capability-cert-2.err')) {
+            $src = Join-Path $env:RUNNER_TEMP $n
+            if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $n) -Force }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/server') --branch $env:HEAD_BRANCH --message "evidence: capability server $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
 
       - name: Upload server evidence
         if: always()
@@ -381,6 +548,11 @@ jobs:
             ${{ runner.temp }}/stage-result.json
             ${{ runner.temp }}/rdp-target.json
             ${{ runner.temp }}/rdp-diagnostics.json
+            ${{ runner.temp }}/capability-config.json
+            ${{ runner.temp }}/capability-certificate.json
+            ${{ runner.temp }}/fx-fixtures.json
+            ${{ runner.temp }}/capability-cert-*.out
+            ${{ runner.temp }}/capability-cert-*.err
           if-no-files-found: warn
 
       - name: Tailnet gate (explicit failure when the server could not join)
@@ -403,7 +575,14 @@ jobs:
     needs: static
     if: >-
       !(github.event_name == 'workflow_dispatch' && (inputs.mode == 'auth-diagnostic' || inputs.mode == 'live-origin')) &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name != 'pull_request' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+         contains(github.event.pull_request.labels.*.name, 'capability-run')))
+    # ONE DESKTOP OWNER AT A TIME. The client VM has a single interactive
+    # session; a pull_request event used to queue this 25-minute client job on
+    # the same desktop every time any branch was pushed, so a live-run
+    # verification (label `live-verify`) queued behind it. A pull request now has
+    # to ask for this job explicitly with the `capability-run` label.
     runs-on: [self-hosted, Windows, X64, rdp-lab-client]
     timeout-minutes: 25
     env:
@@ -427,6 +606,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install pinned Node (sha256 verified)
@@ -480,13 +660,48 @@ jobs:
           CLIENT_TAILNET_IP: ${{ steps.peer.outputs.client_ip }}
           RDP_USER: slabrdp
           RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+          APP_ZIP_SHA256: dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378
         run: |
           if (-not $env:PEER_IP) {
             node scripts/mission-control-check.js --scope remote --blocked-reason 'DEPENDS_ON_TAILNET: server peer not reachable (see tailnet_connectivity)'
           } else {
-            node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-port 7331 --ready-timeout-ms 180000
+            # [8C] The app no longer serves /install.ps1 (deleted route). The
+            # auto-login enrollment fetches the app source zip at the pinned
+            # sha; the zip pin below is the hash of the CONFIG-PINNED base
+            # (4a91c5c2), so it is only asserted when that is the sha in play -
+            # a dispatch-selected source runs unpinned and records that truth.
+            $zipPin = ''
+            if ($env:APP_SHA -eq '4a91c5c2eadc12e5b071bc46bae7683087f56fbd') { $zipPin = $env:APP_ZIP_SHA256 }
+            node scripts/mission-control-check.js --scope remote --target "http://$($env:PEER_IP):7331" --expect-sha $env:APP_SHA --expect-build $env:CANDIDATE_BUILD --expect-port 7331 --ready-timeout-ms 180000 $(if ($zipPin) { "--app-zip-sha256 $zipPin" } else { '' })
           }
           exit $LASTEXITCODE
+
+      - name: Functional sweep (fx/search/core contracts against the live candidate)
+        id: functional
+        if: always() && inputs.mode != 'consent-setup' && steps.remote.outcome == 'success'
+        timeout-minutes: 14
+        env:
+          PEER_IP: ${{ steps.peer.outputs.peer_ip }}
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # The stub-lane sweep leaves these BLOCKED (its stub has no real fx /
+          # search / credential backends). THIS probe drives the REAL staged
+          # candidate: File Explorer list/preview/download-verify (three-way:
+          # pinned bytes, index checksum, served bytes) + op lifecycle +
+          # guardrails + upload-queue contract, search lifecycle + validation,
+          # and the core dashboard contracts. A FAIL here fails the job after
+          # the report is written, so the evidence always survives the verdict.
+          if (-not $env:PEER_IP) {
+            Write-Host '::error title=functional sweep::no live server peer for this attempt'
+            exit 1
+          }
+          $fsOut = Join-Path $env:ARTIFACT_DIR 'functional-sweep'
+          New-Item -ItemType Directory -Force -Path $fsOut | Out-Null
+          node scripts\candidate\functional-sweep.js --target "http://$($env:PEER_IP):7331" --out $fsOut --label "functional-$env:GITHUB_RUN_ID" --expect-build $env:CANDIDATE_BUILD --max-seconds 420
+          $rc = $LASTEXITCODE
+          Write-Host "::notice title=functional sweep::exit=$rc"
+          exit $rc
 
       - name: SETUP ONLY - bounded RDP-file consent window (no verification verdict)
         id: setup
@@ -539,6 +754,34 @@ jobs:
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\run-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
           exit $LASTEXITCODE
 
+      - name: Publish sanitized client evidence to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-client'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          $art = Join-Path $env:RUNNER_TEMP "artifacts\run-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path $art) {
+            Get-ChildItem -LiteralPath $art -Recurse -File -Filter '*.json' | ForEach-Object {
+              $target = Join-Path $flat $_.Name
+              if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
+              Copy-Item -LiteralPath $_.FullName -Destination $target
+            }
+            # Explicitly selected images from disposable dashboards and the
+            # dedicated slabrdp session. Videos, browser profiles, synthetic
+            # client-desktop captures and credential artifacts stay out of Git.
+            foreach ($name in @('browser-synthetic.png','dashboard_client.png','dashboard-production-launch.png','production-rdp-failure.png','native-production-launch.png','native-rdp-during.png','native-rdp-dialog.png','native-rdp-session.png','webdesk-popup-blocked.png','webdesk-before-input.png','web-desktop.png','webdesk-after-cleanup.png')) {
+              $src = Join-Path $art $name
+              if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+            }
+            # The functional sweep coverage CSV (its JSON is picked up above).
+            $fsCsv = Join-Path $art 'functional-sweep\functional-sweep-control-coverage.csv'
+            if (Test-Path $fsCsv) { Copy-Item -LiteralPath $fsCsv -Destination (Join-Path $flat 'functional-sweep-control-coverage.csv') -Force }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/client') --branch $env:HEAD_BRANCH --message "evidence: capability client $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Upload client evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -568,12 +811,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write
       actions: read
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -583,7 +827,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           MODE: ${{ inputs.mode }}
-          LAB_SHA: ${{ github.sha }}
+          LAB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SETUP_STATE: ${{ needs.client.outputs.setup_state }}
           SETUP_DETAIL: ${{ needs.client.outputs.setup_detail }}
           SETUP_SUMMARY_PATH: ${{ runner.temp }}/setup-summary.json
@@ -594,7 +838,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           APP_SHA: ${{ needs.static.outputs.app_sha }}
-          LAB_SHA: ${{ github.sha }}
+          LAB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           EVENT_NAME: ${{ github.event_name }}
@@ -602,6 +846,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPORT_PATH: ${{ runner.temp }}/verification-report.json
         run: node scripts/verification-report.js
+      - name: Publish the sanitized verdict to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-report'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          foreach ($name in @('verification-report.json','setup-summary.json')) {
+            $src = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/report') --branch $env:HEAD_BRANCH --message "evidence: capability verdict $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Upload verification report
         if: always() && inputs.mode != 'consent-setup'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

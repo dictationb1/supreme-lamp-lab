@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-24T15:36:38.522Z",
+  "runId": "40107391217",
+  "runAttempt": "1",
+  "event": "pull_request",
+  "job": "server",
+  "exchangeUrl": "https://api.tailscale.com/api/v2/oauth/token-exchange",
+  "joinOutcome": "success",
+  "config": {
+    "oidcClientIdPresent": true,
+    "audiencePresent": true,
+    "idTokenEndpointPresent": true,
+    "idTokenRequestTokenPresent": true
+  },
+  "oidc": {
+    "subject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "eventName": "pull_request",
+    "ref": "refs/pull/30/merge",
+    "workflowRef": "dictationb1/supreme-lamp-lab/.github/workflows/capability-check.yml@refs/pull/30/merge",
+    "audienceMatchesConfigured": true,
+    "expiresInSeconds": 300
+  },
+  "exchange": {
+    "transport": "ok",
+    "status": 200,
+    "durationMs": 454,
+    "tokenIssued": true,
+    "message": "{\"access_token\":\"[REDACTED_SECRET]\",\"token_type\":\"Bearer\",\"expires_in\":3600,\"scope\":\"auth_keys oauth_keys oauth_apps\",\"tags\":\"tag:ci\"}",
+    "errorChain": null
+  },
+  "category": "JOIN_OK",
+  "detail": "identity token exchanged and tailscale up succeeded",
+  "firstError": null,
+  "failedOperation": null,
+  "resolutionHint": null
+}

@@ -1,0 +1,64 @@
+{
+  "collectedAtUtc": "2026-10-24T15:31:06.3582193Z",
+  "user": "slabrdp",
+  "sinceMinutes": 30,
+  "account": {
+    "exists": false,
+    "error": "User slabrdp was not found."
+  },
+  "auditLogon": "Success and Failure",
+  "termService": "Running",
+  "listener3389": [
+    "::",
+    "0.0.0.0"
+  ],
+  "firewall3389": {
+    "error": "No MSFT_NetFirewallRule objects found with property 'InstanceID' equal to 'slab-rdp-3389'.  Verify the value of the property and retry."
+  },
+  "securityLogState": "readable",
+  "securityCounts": {
+    "total4624": 82,
+    "total4625": 0
+  },
+  "securityEvents": [],
+  "tsLocalSessionManager": [
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 22,
+      "recordId": 122,
+      "timeUtc": "2026-10-24T15:28:33.2097539Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    },
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 21,
+      "recordId": 121,
+      "timeUtc": "2026-10-24T15:28:32.7450138Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    }
+  ],
+  "tsRemoteConnectionManager": [
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "error": "No events were found that match the specified selection criteria."
+    }
+  ],
+  "qwinsta": [
+    "SESSIONNAME               USERNAME                 ID  STATE   TYPE        DEVICE",
+    "services                                            0  Disc",
+    ">console                   runneradmin               2  Active",
+    "31c5ce94259d4006a9e4                            65536  Listen",
+    "rdp-tcp                                         65537  Listen"
+  ],
+  "quser": [
+    "USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME",
+    ">runneradmin           console             2  Active      none   10/24/2026 3:28 PM"
+  ],
+  "webdeskTask": {
+    "error": "No MSFT_ScheduledTask objects found with property 'TaskName' equal to 'GhrdpWebDesk'.  Verify the value of the property and retry."
+  }
+}

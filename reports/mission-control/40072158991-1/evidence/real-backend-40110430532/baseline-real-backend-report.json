@@ -1,0 +1,435 @@
+{
+  "schema": "slab-real-backend/2",
+  "generatedAt": "2026-10-24T16:14:09.867Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "backendKind": "actual_application",
+  "browserWebSocketStubbed": false,
+  "browserMode": "headed",
+  "identity": {
+    "label": "baseline",
+    "appSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "labRevision": "7e6764672850ca92617730bb182df054fd9a3d16",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": false,
+    "account": "User",
+    "userDomain": "WIN-NFU1JG4VESE",
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "pristine-ghrdp-server.ps1",
+    "serverPid": 8624
+  },
+  "r2Thresholds": {
+    "healthDuringWsTimeoutMs": 2000,
+    "healthDuringWsMaxMs": 1500,
+    "appRequestTimeoutMs": 3000,
+    "appRequestMaxMs": 2500,
+    "multiWsCount": 5,
+    "wsCapacityCap": 8,
+    "wsCapacityOverSubscribe": 1,
+    "frameWaitMs": 5000,
+    "echoWaitMs": 5000,
+    "idleExpiryWaitMs": 14000,
+    "reconnectWaitMs": 6000,
+    "malformedWaitMs": 4000,
+    "cycleCount": 10,
+    "maxHandleGrowth": 200
+  },
+  "timings": {
+    "desktopLockMs": 484,
+    "markerAppearedMs": 1531,
+    "markerText": "LISTENING pid=8624 bind=127.0.0.1 port=7331 at=2026-10-24T21:44:11.8786107+05:30",
+    "listenerAppearedMs": 1533,
+    "connectMs": 0,
+    "firstHealthMs": 3703,
+    "stallMs": 3704,
+    "firstHealthStatus": 200,
+    "readyAppearedMs": null,
+    "readyText": null,
+    "healthSampleCount": 43,
+    "healthLatencyP95Ms": 74,
+    "healthLatencyMaxMs": 2192,
+    "healthLatencySamples": [
+      {
+        "t": 47,
+        "ms": 46
+      },
+      {
+        "t": 2218,
+        "ms": 55
+      },
+      {
+        "t": 6793,
+        "ms": 30
+      },
+      {
+        "t": 8934,
+        "ms": 62
+      },
+      {
+        "t": 11178,
+        "ms": 11
+      },
+      {
+        "t": 15503,
+        "ms": 22
+      }
+    ],
+    "concurrent": {
+      "healthMs": 355,
+      "healthStatus": 200,
+      "slowFired": true,
+      "slowEndpoint": "/api/native-status",
+      "slowMs": 349,
+      "slowStatus": 200,
+      "slowBytes": 13937
+    },
+    "wsBlock": {
+      "wsUpgraded": true,
+      "healthDuringWsMs": 5007,
+      "healthOk": false,
+      "blocked": true
+    },
+    "wsRecovery": {
+      "recovered": false,
+      "waitedMs": 14030,
+      "lastProbeMs": 3005
+    },
+    "r2NoWs": {
+      "count": 5,
+      "okCount": 0,
+      "median": null,
+      "p95": null,
+      "max": null,
+      "timeouts": 5
+    },
+    "r2MultiWs": {
+      "socketsHeld": 0,
+      "health": {
+        "count": 6,
+        "okCount": 0,
+        "median": null,
+        "p95": null,
+        "max": null,
+        "timeouts": 6
+      },
+      "configMs": 3015
+    },
+    "r2Capacity": {
+      "cap": 8,
+      "held": 0,
+      "rejected": 9,
+      "healthDuringSaturation": {
+        "ok": false,
+        "ms": 2011
+      },
+      "auditPresent": true
+    },
+    "r2StateChange": {
+      "socketsHeld": 0,
+      "postMs": 4003,
+      "fileWritten": false
+    },
+    "r2CloseReconnect": {
+      "normalCloseCompleted": false,
+      "reconnectUpgraded": false
+    },
+    "r2IdleExpiry": {
+      "expired": false,
+      "waitedMs": null,
+      "configuredIdleSec": 8,
+      "closeCode": null
+    },
+    "r2Malformed": {
+      "result": {
+        "error": "timeout"
+      },
+      "ms": 4005
+    },
+    "r2Cycles": {
+      "cycles": 10,
+      "okCycles": 0,
+      "before": {
+        "handles": 721,
+        "threads": 14,
+        "workingSet": 214937600
+      },
+      "after": {
+        "handles": 721,
+        "threads": 14,
+        "workingSet": 214941696
+      },
+      "handleGrowth": 0,
+      "healthAfter": {
+        "ok": false,
+        "ms": 2002
+      }
+    },
+    "r2AuditLines": [
+      "2026-10-24T16:16:08.9162528Z ws closed status=1001 uptimeSec=90 pings=5 pongs=0",
+      "2026-10-24T16:17:39.0832282Z ws closed status=1001 uptimeSec=90 pings=5 pongs=0"
+    ]
+  },
+  "endpoints": {
+    "/health": {
+      "status": 200,
+      "ok": true,
+      "ms": 54,
+      "bytes": 669,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "app",
+        "pid",
+        "listenerBound",
+        "bind",
+        "port",
+        "serverStartedUtc",
+        "scans"
+      ],
+      "bodyHead": "{\"ok\":true,\"app\":\"ghrdp\",\"pid\":8624,\"listenerBound\":true,\"bind\":\"127.0.0.1\",\"port\":7331,\"serverStartedUtc\":\"10/24/2026 16:14:11\",\"scans\":{\"logon\":{\"scanTs\":\"2026-10-24T16:14:12.2917603Z\",\"probeError\":null},\"connLog\":{\"scanTs\":\"2026-10-24T16:14:12.4680344Z\",\"probeError\":\"conn-logs-unreadable\"},\"telescope\":{\"scanTs\":\"2026-10-24T16:14:33.0730792Z\",\"probeError\":\"telescope red: {\\\"ts\\\":\\\"2026-10-24T16:"
+    },
+    "/api/config": {
+      "status": 200,
+      "ok": true,
+      "ms": 84,
+      "bytes": 811,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"labCandidate\":true,\"labOnly\":true,\"identity\":\"isolated-lab-candidate-not-live-origin\",\"rdpIp\":\"127.0.0.1\",\"ghrdp\":\"lab-candidate\",\"dnsName\":\"lab-candidate.invalid\",\"hostKind\":\"lab-isolated\",\"buildSha\":\"cand-7e6764672850\",\"repo\":\"dictationb1/supreme-lamp-lab\",\"mirror\":false,\"mirrorHosts\":[],\"encryptMode\":\"all\",\"telegraphToken\":\"\",\"telegraphPath\":\"\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\""
+    },
+    "/api/native-status": {
+      "status": 200,
+      "ok": true,
+      "ms": 142,
+      "bytes": 13937,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"fqdn\":\"lab-candidate.invalid\",\"hostKind\":\"ephemeral\",\"buildSha\":\"cand-7e6764672850\",\"rdpListener\":{\"authLast\":{\"result\":\"none\",\"sub\":\"\",\"eventTs\":\"\",\"scanTs\":\"2026-10-24T16:14:12.2917603Z\",\"windowSec\":3600,\"windowStart\":\"2026-10-24T15:14:12.2917603Z\",\"count4624\":0,\"count4625\":0,\"subMeaning\":\"\",\"probeError\":\"\",\"logonType\":\"\",\"logonKind\":\"\"},\"logonCollector\":{\"intervalSec\":30,\"staleSec\":90,\"scans\""
+    },
+    "/api/progress": {
+      "status": 200,
+      "ok": true,
+      "ms": 111,
+      "bytes": 1180,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"ok\":true,\"status\":\"ok\",\"phase\":\"ready\",\"serverTs\":\"2026-10-24T16:14:37Z\",\"mirror\":false,\"encryptMode\":\"all\",\"mirrorPlaintextElection\":false,\"mirrorDiag\":null,\"mirrorProbe\":null,\"ghrdp\":\"lab-candidate\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\",\"startedAt\":\"2026-10-24T16:14:10.486Z\",\"runStartedAt\":\"2026-10-24T16:14:10.486Z\",\"sessionStartedAt\":\"\",\"sessionEnd\":\"\",\"legacyIndexUrl\":\"\",\"rentryNe"
+    },
+    "/api/version": {
+      "status": 200,
+      "ok": true,
+      "ms": 79,
+      "bytes": 288,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "server",
+        "sha",
+        "sha7",
+        "shaSource",
+        "features"
+      ],
+      "bodyHead": "{\"ok\":true,\"server\":\"ghrdp\",\"sha\":\"832a82eb7c29613b0b101585c56b5011ea008a06\",\"sha7\":\"832a82e\",\"shaSource\":\"env.GITHUB_SHA\",\"features\":{\"autoHttps\":true,\"wwwTolerance\":true,\"noFallback\":true,\"downloadToRdp\":true,\"launchTiers\":true,\"selfTest\":true,\"mirrorLauncher\":true,\"streamProxy\":true}}"
+    },
+    "/ping": {
+      "status": 200,
+      "ok": true,
+      "ms": 48,
+      "bytes": 42,
+      "ctype": "application/json",
+      "topLevelKeys": [
+        "ok",
+        "wire",
+        "ts"
+      ],
+      "bodyHead": "{\"ok\":true,\"wire\":null,\"ts\":{\"Length\":33}}"
+    },
+    "/": {
+      "status": 200,
+      "ok": true,
+      "ms": 1275,
+      "bytes": 1273470,
+      "ctype": "text/html; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "\n\n  \n    \n    \n    <meta name="
+    }
+  },
+  "socketOwner": "pid=8624 name=powershell start=2026-10-24T21:44:10.5274224+05:30",
+  "controls": [
+    {
+      "control_id": "backend.ws_accept_loop_block",
+      "area": "health",
+      "pre": "real PowerShell server, authenticated raw WebSocket upgrade",
+      "action": "Open one /ws connection and concurrently GET /health.",
+      "expect_ui": "an unrelated lightweight endpoint stays responsive while a long-lived WS is open",
+      "expect_req": "GET /ws (101) + GET /health in parallel",
+      "actual": "wsUpgraded=true blocked=true healthDuringWsMs=5007 ",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden"
+    },
+    {
+      "control_id": "r2.no_ws_control_health",
+      "area": "health",
+      "pre": "real server, no WebSocket held",
+      "action": "GET /health five times.",
+      "expect_req": "five 200s",
+      "expect_ui": "n/a",
+      "actual": "median=nullms p95=nullms max=nullms timeouts=5",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "control baseline for the during-WS comparisons"
+    },
+    {
+      "control_id": "r2.one_ws_health_responsive",
+      "area": "health",
+      "pre": "authenticated /ws upgrade",
+      "action": "open one /ws then GET /health.",
+      "expect_req": "101 + parallel 200 /health",
+      "expect_ui": "n/a",
+      "actual": "upgrade did not complete: upgrade-timeout body=\"\"",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "cannot measure starvation without an upgrade"
+    },
+    {
+      "control_id": "r2.multi_ws_health_and_config",
+      "area": "health",
+      "pre": "5 concurrent authenticated /ws sockets",
+      "action": "hold all sockets, repeatedly GET /health and one authenticated /api/config.",
+      "expect_req": "all upgrades 101; /health 200 <= 1500ms; /api/config 200 <= 2500ms",
+      "expect_ui": "dashboard polls and button requests are not starved by many sockets",
+      "actual": "upgraded=0/5 healthOk=0/6 healthMax=nullms configStatus=undefined configMs=3015",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "WS workers must not exhaust the capacity that serves HTTP"
+    },
+    {
+      "control_id": "r2.capacity_limit_predictable",
+      "area": "health",
+      "pre": "server cap GHRDP_WS_MAX_CLIENTS=8",
+      "action": "open 9 sockets, then GET /health while saturated.",
+      "expect_req": "exactly 8 upgrades, excess answered 503 (not queued/hung), /health still 200",
+      "expect_ui": "a denied extra socket retries on the ladder instead of freezing the app",
+      "actual": "held=0 rejected=9 rejectStatuses=[,,,,,,,,] firstRejectBody=\"\" healthDuring=undefined/2011ms audit=true",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "bounded admission: excess fails fast and never monopolizes the accept thread"
+    },
+    {
+      "control_id": "r2.state_change_while_ws_open",
+      "area": "connections",
+      "pre": "two authenticated /ws sockets held open",
+      "action": "POST /api/handler-hello (a real local heartbeat-file write), then verify the file and clean up.",
+      "expect_req": "200 {\"ok\":true} and handler-hello-last.json written while both sockets stay open",
+      "expect_ui": "a button/POST operation completes concurrently with live sockets",
+      "actual": "socketsHeld=0 post=undefined/4003 fileWritten=false body=",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "genuine backend mutation, not a 200-only check; test-owned files removed afterward"
+    },
+    {
+      "control_id": "r2.ws_real_frames_and_echo",
+      "area": "telemetry",
+      "pre": "authenticated /ws",
+      "action": "upgrade and read frames, send hello.",
+      "expect_req": "101 then server heartbeat/hello-ack frames",
+      "expect_ui": "the bridge shows genuine protocol traffic",
+      "actual": "upgrade failed: upgrade-timeout body=\"\"",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": ""
+    },
+    {
+      "control_id": "r2.ws_close_abrupt_reconnect",
+      "area": "connections",
+      "pre": "authenticated /ws",
+      "action": "send a CLOSE frame, then abruptly drop a socket and open a fresh one.",
+      "expect_req": "clean teardown and a successful new 101 (worker capacity released)",
+      "expect_ui": "the reconnect ladder restores the bridge",
+      "actual": "normalClose=false abruptReconnect=false",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "the gate/slot must be released so reconnect succeeds"
+    },
+    {
+      "control_id": "r2.ws_idle_expiry",
+      "area": "connections",
+      "pre": "GHRDP_WS_IDLE_TIMEOUT_SEC=8; a socket that sends no frames",
+      "action": "open a silent /ws and wait for the server to close it.",
+      "expect_req": "server-initiated close within 14000ms",
+      "expect_ui": "a half-open peer is reaped, not held forever",
+      "actual": "expired=false waitedMs=null",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "interactive sockets answer pings and are not affected; only a silent peer expires"
+    },
+    {
+      "control_id": "r2.ws_malformed_handshake_bounded",
+      "area": "health",
+      "pre": "GET /ws without Upgrade: websocket",
+      "action": "send a non-upgrade request to the /ws route.",
+      "expect_req": "an HTTP answer (400) within the bound, no hung connection",
+      "expect_ui": "n/a",
+      "actual": "result={\"error\":\"timeout\"} ms=4005",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "the worker preserves the original 400 path for a non-upgrade"
+    },
+    {
+      "control_id": "r2.repeated_cycles_no_leak",
+      "area": "health",
+      "pre": "10 connect/frame/close cycles",
+      "action": "repeatedly open and tear down /ws workers, then sample process handles/threads and /health.",
+      "expect_req": "all 10 cycles upgrade, handle growth <= 200, /health still 200",
+      "expect_ui": "long-lived server does not accumulate runspace handles",
+      "actual": "okCycles=0 handles 721 -> 721 (growth=0) threads 14 -> 14 health=undefined/2002ms",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "reaper disposes PowerShell handles; sockets/streams close in worker finally"
+    },
+    {
+      "control_id": "real.browser_suite_deferred",
+      "area": "browser",
+      "pre": "real server",
+      "action": "drive the real UI",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "skipped: global deadline reached after measurement",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "startup/tick/endpoint/ws-block/ws-recovery evidence already published before this skip"
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "verdicts": {
+    "PASS": 0,
+    "FAIL": 8,
+    "BLOCKED": 4,
+    "PENDING": 0
+  },
+  "fatal": "global harness deadline (240s) reached; later phases skipped",
+  "desktopLock": "acquired",
+  "startupDiag": {
+    "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40110430532\\ghrdp-server.ps1 -Port 7331 -Bind 127.0.0.1 -Root C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40110430532 -LimitMinutes 6",
+    "runFile": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40110430532\\ghrdp-server.ps1",
+    "root": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40110430532",
+    "resolvedRunFileExists": true,
+    "liveness": [
+      {
+        "t": 3,
+        "exited": false,
+        "spawnError": "",
+        "stdoutBytes": 0,
+        "stderrBytes": 0,
+        "listener": false
+      }
+    ],
+    "listenerAppeared": true
+  },
+  "_startupStallMs": 3704
+}

@@ -1,0 +1,73 @@
+{
+  "collectedAtUtc": "2026-10-24T06:02:08.9114564Z",
+  "user": "slabrdp",
+  "sinceMinutes": 30,
+  "account": {
+    "administrators": true,
+    "remoteDesktopUsers": true,
+    "enabled": true,
+    "exists": true
+  },
+  "auditLogon": "Success and Failure",
+  "termService": "Running",
+  "listener3389": [
+    "::",
+    "0.0.0.0"
+  ],
+  "firewall3389": {
+    "profile": "Any",
+    "remoteAddress": [
+      "100.64.0.0/255.192.0.0"
+    ],
+    "enabled": "True"
+  },
+  "securityLogState": "readable",
+  "securityCounts": {
+    "total4624": 82,
+    "total4625": 0
+  },
+  "securityEvents": [],
+  "tsLocalSessionManager": [
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 22,
+      "recordId": 122,
+      "timeUtc": "2026-10-24T05:59:18.0511657Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    },
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 21,
+      "recordId": 121,
+      "timeUtc": "2026-10-24T05:59:17.6121326Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    }
+  ],
+  "tsRemoteConnectionManager": [
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "error": "No events were found that match the specified selection criteria."
+    }
+  ],
+  "qwinsta": [
+    "SESSIONNAME               USERNAME                 ID  STATE   TYPE        DEVICE",
+    "services                                            0  Disc",
+    ">console                   runneradmin               2  Active",
+    "31c5ce94259d4006a9e4                            65536  Listen",
+    "rdp-tcp                                         65537  Listen"
+  ],
+  "quser": [
+    "USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME",
+    ">runneradmin           console             2  Active      none   10/24/2026 5:59 AM"
+  ],
+  "webdeskTask": {
+    "numberOfMissedRuns": 0,
+    "lastRunUtc": "1999-11-30T00:00:00.0000000Z",
+    "state": "Ready",
+    "lastResult": 267011
+  }
+}

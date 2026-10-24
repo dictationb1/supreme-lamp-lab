@@ -223,7 +223,7 @@ function classifyRdpAttempt({ windows, account, sessionId } = {}) {
       status: 'FAIL',
       code: 'RDP_CERT_WARNING_BLOCKING',
       reason: 'RDP_CERT_WARNING_BLOCKING: a server-certificate warning dialog is on screen ("identity of the remote computer cannot be verified"); the attempt did not proceed unattended.',
-      manualAction: 'The lab .rdp pins authentication level 0 for the ephemeral self-signed target only; NLA/TLS are not weakened. If this dialog appears, capture it and treat it as a lab misconfiguration to fix, never as a pass.'
+      manualAction: 'The lab .rdp requires authentication level 2. If a certificate/consent dialog appears, capture it and treat it as a lab misconfiguration to fix; never weaken NLA/TLS or click through for a pass.'
     },
     connection_error: {
       status: 'FAIL',

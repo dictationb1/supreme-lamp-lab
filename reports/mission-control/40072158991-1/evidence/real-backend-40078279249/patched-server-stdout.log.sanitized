@@ -1,0 +1,8 @@
+# sanitized server stdout (secrets redacted)
+[F45] fx upload worker: started=True reason=
+True
+True
+[LAB-R2] websocket worker pool ready max=8
+[F28] logon scan #1 result=success sub=- eventTs=2026-10-24T08:35:41.0159031Z 4624=6 4625=0 scanTs=2026-10-24T08:45:21.0174557Z
+[F30] conn-log scan #1 items=0 reasons=(none) scanTs=2026-10-24T08:45:21.1894317Z probeError=conn-logs-unreadable
+

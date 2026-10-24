@@ -1,0 +1,238 @@
+# Mission Control continuation handoff — run 40072158991 / candidate @ 832a82eb
+
+Audience: the next **application-only** session that can push to
+`dictationb1/supreme-lamp`. This lab (`supreme-lamp-lab`) never pushes to the
+application remote; it produces a replayable, integrity-checked patch series.
+
+- Application revision under repair: `832a82eb7c29613b0b101585c56b5011ea008a06`
+  (parent `4a91c5c2eadc12e5b071bc46bae7683087f56fbd`; the only new commit changes
+  `docs/status.json`, so the earlier 4a91c5c2-based series still applies).
+- Application codeload zip sha256:
+  `c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393`
+  (identical across two independent downloads).
+- Lab continuation branch: `arena/25db7e16-supreme-lamp-lab`, consolidated by
+  fast-forwarding PR #28 head `c7a0bf6…` (all prior reader/harness/signing/
+  authorization/UI repairs are preserved, nothing older was restarted).
+
+## 1. What this bundle adds
+
+Ordered application patches in `app-patches/` (apply in `series.txt` order):
+
+1. `0001-F201-probe-honesty.patch` — preserved unchanged. A refused/empty probe
+   must never render as a confirmed credential/DNS/listener failure.
+2. `0002-R1-server-startup-readiness.patch` — preserved unchanged. Removes the
+   three synchronous pre-accept `Get-WinEvent` scans, publishes HTTP readiness
+   from inside the accept loop, and bounds inline ticks to one scan/iteration.
+3. `0003-R2-websocket-worker-runspace.patch` — **new**. The R2 accept-loop
+   starvation repair plus `src/tests/smoke/r2-websocket-worker.test.ts`.
+
+### R2 repair summary (see defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md)
+
+The single accept thread used to run the long-lived `/ws` pump inline, so one
+WebSocket starved all HTTP for up to 30 minutes. The repair moves **only** the
+`/ws` pump onto a bounded runspace pool behind a non-blocking
+`SemaphoreSlim`; ordinary HTTP stays inline, so every existing
+`$script:` ticket/cache/credential/revocation state keeps single-threaded
+semantics. Over-capacity `/ws` gets an immediate 503; audits serialize on a
+shared `Monitor` lock; sockets/streams/gate/runspaces are disposed on close and
+shutdown; an inline fallback keeps the feature available if a pool cannot be
+created. WebSockets are never disabled and `ws` is never faked.
+
+## 2. How to verify from a clean download
+
+```bash
+# integrity + applicability (no build), safe anywhere with curl/git/python3
+bash reports/mission-control/40072158991-1/verify-bundle.sh
+# full replay including pnpm install, smoke tests and the production build
+REPLAY=1 bash reports/mission-control/40072158991-1/verify-bundle.sh
+# equivalent standalone helper
+bash reports/mission-control/40072158991-1/replay-candidate.sh
+```
+
+Already executed in this lab (Linux, Node v22):
+
+- Patch series applies cleanly on a fresh `832a82eb` download; output is
+  byte-identical to the hand-built candidate.
+- Application smoke tests: **108 files / 1390 tests pass** (1378 historical +
+  12 new R2 structural tests; the R2 test fails on the pristine base and passes
+  on the repaired file, on both LF and CRLF copies of the server script).
+- Production build `pnpm run build` (tsc + vite single-file) succeeds.
+- Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /
+  0 fail / 8 skip** (the skips are optional browser lanes).
+
+## 3. Windows behavioral verification (the authoritative R2 gate)
+
+`.github/workflows/real-backend.yml` runs on the interactive client VM
+(`[self-hosted, Windows, X64, rdp-lab-client]`) for a same-repo PR carrying the
+`real-backend-run` label. It checks out the immutable pinned revision, applies
+the three patches, parses both server files with the real PowerShell 5.1
+parser, builds the UI, and runs `scripts/candidate/real-backend.js` for the
+pristine baseline and the repaired candidate with identical fixtures. The
+browser drives the **ordinary shipped frontend with no WebSocket stub**
+(`backendKind=actual_application`, `browserWebSocketStubbed=false`, headed).
+
+Frozen thresholds live in `R2_THRESHOLDS` in the harness and are never adjusted
+after a failure. The matrix records median/p95/max, timeouts and recovery for:
+no-WS control, one held socket, five sockets, the 503 capacity limit, a real
+state-changing POST while sockets are held, genuine frames/hello-ack,
+normal/abrupt close + reconnect, server-side idle expiry, malformed handshake,
+and ten cycles with a process-handle trend. Results publish to
+`evidence/real-backend-<runId>/` and the workflow's evaluate step hard-fails if
+the patched server still blocks, any `r2.*` control fails, the backend is not
+`actual_application`, or the browser is stubbed.
+
+### CURRENT STATUS: R2 ACCEPTED (run 40091165292, head `5ba3745`)
+
+The evaluate step is green: **33 PASS / 0 FAIL / 5 BLOCKED**, the five BLOCKED
+being pre-declared design-BLOCKED capabilities (real logon rows, staged file
+index, external search backend, native RDP, Web Desktop), none related to R2.
+All eleven `r2.*`/backend raw-socket controls pass (exact `held=8/rejected=1`
+capacity, real frames + hello-ack, normal/abrupt reconnect, idle expiry,
+bounded 400 on a malformed handshake, 10/10 leak-free cycles with flat threads),
+and all three headed `real.browser_ws_*` controls pass on the **shipped
+application's own** real socket via the passive native-subclass recorder
+(app socket readyState 1, 11 frames in / 6 out; concurrent `/health` 200
+`ws=true`; ladder reconnect opens a second real app socket). Identity flags in
+the report: `backendKind=actual_application`, `browserWebSocketStubbed=false`,
+`browserMode=headed`. Four defects were found and fixed on the way (PS 5.1
+`Create` overload; outer-finally socket ownership; pump EOF slot leak via
+`Socket.Poll`; shadowed `/health` advertisement + the Playwright event blind
+spot handled by the recorder). Full narrative:
+`evidence/windows-run-40091165292-r2-accepted.md`; the per-run subsections below
+retain the honest FAIL history that led here.
+
+### Measured outcome (real Windows client, run 40078279249)
+
+The hard gate did its job and caught a real remaining defect — this is **not**
+an R2 PASS yet:
+
+- The starvation mechanism is gone: the pristine server reproduces R2 exactly
+  (one `/ws` holds the accept thread, `/health` blocked 5011 ms, stall 4615 ms),
+  while the patched server never blocks HTTP (stall 826 ms, `/health` median
+  23–54 ms, zero timeouts, real POST file writes succeed).
+- But every `/ws` upgrade is answered **503**, including the first connection on
+  a fresh `GHRDP_WS_MAX_CLIENTS=8` gate (`held=0, rejected=9`), so the worker
+  never runs and WebSockets are currently non-functional. The browser (real,
+  unstubbed, headed) honestly shows "No /ws endpoint".
+- Two inline 503 branches exist: admission `SemaphoreSlim.Wait(0)` vs the
+  `[powershell]::Create(pool).BeginInvoke()` dispatch catch. The earlier harness
+  discarded the response body, so the branch was not attributable.
+- The instrumentation then pinpointed the exact fault on run 40081193119:
+  `System.Management.Automation.MethodException: Cannot find an overload for
+  "Create" and the argument count "1"` from `[powershell]::Create($pool)`. The
+  PS 5.1 `[powershell]` accelerator cannot bind the static
+  `Create(RunspacePool)` 1-arg overload. The fix uses parameterless
+  `[powershell]::Create()` plus the settable `RunspacePool` property (works on
+  PS 5.1 and PS 7); a static test pins the pattern and forbids the 1-arg call.
+- That removed all 503/MethodException lines, and run 40082655039 exposed a
+  second, distinct defect as `ECONNRESET` before any 101:
+  `Invoke-ClientRequest`'s outer `try/finally` disposes the stream and closes
+  the client on every return. The async `/ws` dispatcher returns immediately, so
+  the finally tore the socket down before the worker wrote 101 (the inline
+  baseline never hit this because its pump blocked inside the `try`). The fix
+  is an `$r2Dispatched` ownership flag set on the `/ws` branch, guarding the
+  outer cleanup; the worker `finally` remains the single owner that closes,
+  disposes and releases the gate. The worker's previously-empty `catch` now logs
+  `[LAB-R2] worker EXCEPTION` so a fault can never again appear as a bare reset.
+- Run 40084261133 (head `a1d98f1`) then **confirmed both fixes on the real VM**:
+  genuine HTTP 101 upgrades now occur and `backend.ws_accept_loop_block`,
+  `r2.no_ws_control_health`, `r2.one_ws_health_responsive` and
+  `r2.multi_ws_health_and_config` all PASS (HTTP never blocks, 5/5 concurrent
+  upgrades, health max 88 ms). It also exposed a **third, distinct defect — a
+  worker-slot leak**: with cap 8 the gate drained to `count=0 avail=0` while
+  only 3–5 sockets were actually held (capacity `held=3 rejected=6`, all 503
+  `"websocket capacity exhausted; retry"`; 18 identical saturated audit lines;
+  zero `ws closed` and zero `worker EXCEPTION` lines; cycles 5/10 with handles
+  886 → 913; reconnect/frames/idle/malformed controls FAIL or BLOCKED; the
+  headed browser's three `real.browser_ws_*` controls FAIL because the pool was
+  exhausted before the browser phase).
+- Root cause of the leak: the F99 pump only calls `NetworkStream.Read` when
+  `Available > 0` or `DataAvailable`, so a peer disconnect with no buffered
+  bytes never reaches the EOF (`Read` → 0) branch; the worker sleeps until the
+  idle timeout while still holding its semaphore slot. The fix adds a
+  non-blocking `$Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead)`
+  liveness probe at the top of each pump iteration — Poll-true with zero
+  `Available` means peer FIN/reset, so the loop breaks into the existing worker
+  `finally` (close/dispose/`Release()`, reaper disposes the runspace handle).
+  Idle open sockets keep the old wait behavior; `Socket.Poll` exists on both
+  .NET Framework (PS 5.1) and .NET (PS 7); no capacity or timeout value
+  changed and the `Wait(0)` gate is untouched.
+- Run 40086011776 (head `20df25a`) then **validated the Poll fix on the real
+  VM: all ten `r2.*` behavioral controls plus `backend.ws_accept_loop_block`
+  PASS** (30 PASS / 3 FAIL / 5 BLOCKED overall). Capacity is exact
+  (`held=8`, only the deliberate 9th socket 503s), real frames arrive with
+  hello-ack, normal + abrupt reconnect pass, idle expiry fires at 8191 ms,
+  malformed handshakes get a bounded 400, cycles finish 10/10 with +11 handles
+  and flat threads, and stdout shows one saturated-503 line (the capacity
+  probe) with zero EXCEPTION lines. The accept-loop repair is now fully proven
+  at the raw-socket layer.
+- The three remaining FAILs are headed-browser controls: Playwright recorded
+  `totalObservations=0`, i.e. the shipped page never calls the `WebSocket`
+  constructor even though raw sockets against the same process fully pass — a
+  browser-lane defect, not another accept-loop defect. A shadowed duplicate
+  `/health` route was found and fixed (the first F45-R handler returned without
+  a `ws` field; the F99 handler carrying `ws=F96WsUpgradeSupported` was
+  unreachable, so the UI always showed "No /ws endpoint"). One live route now
+  advertises the flag, the dead duplicate is removed, and static assertion 12
+  pins this. Because the current client does not gate construction on that
+  flag, a **non-gating** `report.browserWsDiagnostic` harness field was added
+  (WebSocket global shape, in-page `/health` body, page-level `/ws`
+  request/failure/response events, a manual in-page socket, context-observer
+  visibility and a 7 s app-starter window) to attribute the zero-construction
+  symptom on the next run.
+- Run 40089578561 (head `abd4361`) kept all eleven r2/backend raw-socket
+  controls green and used the new diagnostic to attribute the browser
+  failure: the native `WebSocket` global is present and unstubbed, an in-page
+  `/health` fetch returns `200 {ws:true}`, and a **manually constructed
+  in-page socket really opened (readyState 1) and received genuine server
+  frames and pings** — yet Playwright 1.49.1's context `websocket` and page
+  request events fired zero times even for that proven-open socket. The
+  failure is therefore a Playwright instrumentation blind spot on this
+  self-hosted headed Windows runner, not an application or transport defect.
+- Observation now uses a **transparent, non-stubbing in-page recorder**
+  installed with `context.addInitScript`: it subclasses the native WebSocket
+  (prototype chain/statics preserved, constructor returns the real native
+  instance) and only adds passive event taps recording source
+  (`app`/`manual`), redacted URL, readyState, frame counts and first frame
+  texts. Every socket really upgrades against the real server and frames
+  cross the real network; `browserWebSocketStubbed` stays `false` and a
+  `browserWsObservationMechanism` field documents the method. The three
+  browser controls now require a real, open, frame-carrying **app** socket
+  (the manual probe is tagged and never counts), concurrent in-page HTTP, and
+  a real reconnect after closing the app's socket via the shipped ladder.
+  Recorder logic is unit-tested on Linux with a mock native WebSocket; the
+  lab suite stays 235 pass / 0 fail / 8 skip.
+- 0003 is now 576 lines with twelve static assertions (all green on LF and
+  CRLF). The next labelled run must keep the r2 matrix green and additionally
+  show the three headed `real.browser_ws_*` controls PASSing on the recorder
+  evidence; the evaluate gate stays red until then. Earlier matrix honesty is
+  preserved in `control-coverage.csv` (including every run's rows) and the
+  `evidence/windows-run-*.md` records; the passing re-run's evidence supersedes
+  those rows. Native RDP/Web Desktop remain separately BLOCKED.
+
+## 4. Remaining work that an application session / operator must own
+
+- **Native RDP and Web Desktop acceptance remain BLOCKED**, not passed. They
+  need a separate lab-owned Windows application server (real test RDP account,
+  listener, network identity, launcher handoff, capture/session prerequisites)
+  and a fresh remote-interactive LogonType 10 correlated to client/user/server.
+  A server self-test or console logon is not client-login proof; an image
+  difference is not Web Desktop proof.
+- The live origin run `40072158991` is observed read-only. The earlier run's
+  first failure was step 28 ("Stage files + write config.json"); the exact
+  internal exception was not retrievable from this sandbox. If staging fails
+  again, capture the first real error before treating later steps as root
+  cause. Do not relax freshness checks or reuse old endpoints/credentials.
+- When promoting 0003 upstream, keep the three patches in order and retain the
+  `r2-websocket-worker.test.ts` regression. Do not replace the runspace design
+  with a global thread-pool rewrite without re-proving every shared-state
+  invariant (tickets, revocation, audit, device tokens, caches).
+
+## 5. Rollback
+
+The repair is confined to `payloads/ghrdp-server.ps1` plus one new test file.
+Rollback is `git revert` of the 0003 commit (or dropping
+`app-patches/0003-*.patch` from `series.txt`); F201/R1 are independent and
+remain valid. No schema, config, credential or wire-protocol change is
+introduced, and the env tunables default to the original 20/90/1800 values when
+unset.

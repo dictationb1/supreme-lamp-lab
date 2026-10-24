@@ -1,0 +1,35 @@
+# Ordered application patch prefixes, relative to this bundle.
+# Base application revision (all four apply cleanly here):
+#   dictationb1/supreme-lamp @ 832a82eb7c29613b0b101585c56b5011ea008a06
+#   Current main da2ada001be3ba989828f5209bd58a1c0744ea16 (verified 2026-10-24)
+#   differs from 832a82eb ONLY in docs/status.json (automated status commits),
+#   so the series applies unchanged to both. No repair has been merged
+#   upstream: all four patches are still required.
+# Replay: apply in this exact order at the application root with
+#   git -C <app> -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn <patch>
+#
+# 0001 F201:  probe honesty (frontend) - preserved byte-identical from bundle
+#             40072158991-1. A refused/empty backend probe must not become a
+#             confirmed credential/DNS/listener failure.
+# 0002 R1:    server startup readiness - preserved byte-identical. Removes the
+#             three synchronous pre-accept Get-WinEvent scans, publishes HTTP
+#             readiness from inside the accept loop, bounds inline ticks.
+# 0003 R2:    bounded WebSocket worker runspace - preserved byte-identical.
+#             The accept-loop starvation repair; accepted on real Windows runs
+#             40091165292 / 40092088400 / 40092300001 (33 PASS / 0 FAIL /
+#             5 BLOCKED each, backendKind=actual_application).
+# 0004 R2b:   NEW this bundle. Bounded, truthful pool-unavailable degradation.
+#             The 0003 fallback ran the long-lived pump INLINE on the accept
+#             thread when the runspace pool could not be created, recreating
+#             the R2 starvation defect (source-identified residual risk).
+#             Now: no inline pump call in the dispatch path; one bounded
+#             pool re-init attempt per clamped retry window
+#             (GHRDP_WS_POOL_RETRY_SEC, 5..300, default 30); an immediate
+#             truthful 503 "websocket worker pool unavailable; retry" while
+#             degraded; /health advertises ws=false + wsReason while the pool
+#             is unavailable and flips back when a re-init succeeds. Ordinary
+#             HTTP is never parked; the pooled path is unchanged.
+app-patches/0001-F201-probe-honesty.patch
+app-patches/0002-R1-server-startup-readiness.patch
+app-patches/0003-R2-websocket-worker-runspace.patch
+app-patches/0004-R2b-pool-fallback-bounded-truth.patch

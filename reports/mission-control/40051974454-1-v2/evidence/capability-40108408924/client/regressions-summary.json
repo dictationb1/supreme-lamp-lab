@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "platform": "win32",
+  "node": "v22.23.3",
+  "requireBrowser": true,
+  "total": 263,
+  "passed": 262,
+  "failed": 1,
+  "skipped": 0,
+  "failures": [
+    {
+      "name": "evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED",
+      "detail": "AssertionError [ERR_ASSERTION]: the server sanitized-evidence publisher needs contents:write |     at C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\test\\workflow-ownership-regressions.js:59:12 |     at test (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\run-regressions.js:108:11) |     at register (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\test\\workflow-ownership-regressions.js:56:9) |     at process.processTicksAndRejections (node:internal/process/task_queues:103:5) |     at async main (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\run-regressions.js:1907:5)"
+    }
+  ],
+  "skips": [],
+  "finishedAt": "2026-10-24T16:00:57.111Z"
+}

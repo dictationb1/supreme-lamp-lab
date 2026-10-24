@@ -1,0 +1,142 @@
+{
+  "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "port": 7331,
+  "startedAt": "2026-10-24T15:50:34.566Z",
+  "phases": [
+    {
+      "name": "identity",
+      "ok": true,
+      "detail": "pid=1320 createTime=2026-10-24T15:50:34.9015060Z",
+      "evidence": {
+        "pid": 1320,
+        "createTime": "2026-10-24T15:50:34.9015060Z"
+      },
+      "severity": "OK",
+      "at": "2026-10-24T15:50:38.012Z"
+    },
+    {
+      "name": "okfile",
+      "ok": true,
+      "detail": "LISTENING pid=1320 bind=0.0.0.0 port=7331 at=2026-10-24T15:50:36.2396633+00:00",
+      "severity": "OK",
+      "at": "2026-10-24T15:50:38.012Z"
+    },
+    {
+      "name": "listener",
+      "ok": true,
+      "detail": "listener pid(s) 1320 within supervised subtree (12 pid(s))",
+      "severity": "OK",
+      "at": "2026-10-24T15:50:40.144Z"
+    },
+    {
+      "name": "readiness",
+      "ok": true,
+      "code": "READY",
+      "detail": "pid=1320 port=7331 phase=ready",
+      "history": [
+        {
+          "at": "2026-10-24T15:50:41.406Z",
+          "key": "READY|pid=1320 port=7331 phase=ready",
+          "code": "READY",
+          "detail": "pid=1320 port=7331 phase=ready",
+          "transport": "ok",
+          "status": 200
+        }
+      ],
+      "severity": "OK",
+      "at": "2026-10-24T15:50:41.406Z"
+    },
+    {
+      "name": "server-local-checks",
+      "ok": true,
+      "code": "OK",
+      "detail": "mission-control-check --scope server-local",
+      "severity": "OK",
+      "at": "2026-10-24T15:50:47.096Z"
+    },
+    {
+      "name": "hold",
+      "ok": true,
+      "detail": "client job completed (failure) on rdp-lab-client",
+      "severity": "OK",
+      "at": "2026-10-24T16:02:14.427Z"
+    }
+  ],
+  "config": {
+    "readyTimeoutMs": 180000,
+    "startupBudgetMs": 360000,
+    "identityTimeoutMs": 20000,
+    "listenerTimeoutMs": 20000,
+    "hold": true,
+    "holdMaxMs": 1200000
+  },
+  "powershell": {
+    "helperExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "helperExeSource": "PATH:pwsh.exe",
+    "backendExe": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "sameInterpreter": true,
+    "note": null,
+    "helperVersion": "7.6.7",
+    "helperVersionDiagnostic": null
+  },
+  "guards": [],
+  "helperFailures": [],
+  "backend": {
+    "pid": 1320,
+    "createTime": "2026-10-24T15:50:34.9015060Z"
+  },
+  "backendIdentityState": "VERIFIED",
+  "livenessAtExit": {
+    "at": "2026-10-24T16:02:14.427Z",
+    "pid": 1320,
+    "alive": true,
+    "exit": null,
+    "identityState": "VERIFIED",
+    "stdoutTail": "[F30] conn-log scan #18 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:59:41.5957814Z\n[F28] logon scan #19 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:00:11.4031212Z\n[F30] conn-log scan #19 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:00:11.6010518Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #20 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:00:41.4121610Z\n[F30] conn-log scan #20 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:00:41.6250182Z\n[F28] logon scan #21 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:01:15.5421549Z\n[F30] conn-log scan #21 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:01:15.6136631Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #22 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:01:45.5507100Z\n[F30] conn-log scan #22 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:01:45.6419166Z\n",
+    "stderrTail": ""
+  },
+  "stopped": [
+    {
+      "pid": 820,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 1996,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 5396,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 5024,
+      "name": "conhost.exe"
+    },
+    {
+      "pid": 7216,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 8724,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 3168,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 600,
+      "name": "powershell.exe"
+    },
+    {
+      "pid": 1320,
+      "name": "pwsh.exe"
+    }
+  ],
+  "stopMethod": "identity-verified-tree",
+  "stopErrors": [],
+  "exit": null,
+  "finishedAt": "2026-10-24T16:02:15.088Z",
+  "stdoutTail": "[F30] conn-log scan #11 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:56:11.3693186Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #12 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:56:41.2231050Z\n[F30] conn-log scan #12 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:56:41.4318414Z\n[F28] logon scan #13 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:57:11.2274318Z\n[F30] conn-log scan #13 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:57:11.4903024Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #14 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:57:41.2324573Z\n[F30] conn-log scan #14 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:57:41.4920892Z\n[F28] logon scan #15 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:58:11.2862817Z\n[F30] conn-log scan #15 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:58:11.4954293Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #16 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:58:41.3146990Z\n[F30] conn-log scan #16 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:58:41.5216249Z\n[F28] logon scan #17 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:59:11.3701179Z\n[F30] conn-log scan #17 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:59:11.5688840Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #18 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T15:59:41.3845901Z\n[F30] conn-log scan #18 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T15:59:41.5957814Z\n[F28] logon scan #19 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:00:11.4031212Z\n[F30] conn-log scan #19 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:00:11.6010518Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #20 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:00:41.4121610Z\n[F30] conn-log scan #20 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:00:41.6250182Z\n[F28] logon scan #21 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:01:15.5421549Z\n[F30] conn-log scan #21 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:01:15.6136631Z\n[F95] watcher supervisor: alive=False heartbeat=-1s action=schtasks-run\n[F28] logon scan #22 result=success sub=- eventTs=2026-10-24T15:45:47.5190411Z 4624=8 4625=0 scanTs=2026-10-24T16:01:45.5507100Z\n[F30] conn-log scan #22 items=12 reasons=[148 event-148] [148 event-148] [148 event-148] scanTs=2026-10-24T16:01:45.6419166Z\n",
+  "stderrTail": ""
+}

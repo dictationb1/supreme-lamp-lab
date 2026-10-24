@@ -1,0 +1,62 @@
+﻿{
+    "schema":  "slab-real-backend-comparison/1",
+    "generatedAt":  "2026-10-24T12:15:15.9442071Z",
+    "labSha":  "aba6fa99d670e6af82e97d123118c15f2ad2c511",
+    "appSha":  "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "bundleSha256":  "6cf565827870f23d3a60905dabfba9ea822be0f25571b413bf33a45510caf0d1",
+    "baseline":  {
+                     "stallMs":  3637,
+                     "firstHealthMs":  3635,
+                     "readyAppearedMs":  null,
+                     "markerText":  "LISTENING pid=7320 bind=127.0.0.1 port=7331 at=2026-10-24T17:39:51.9551529+05:30",
+                     "readyText":  null,
+                     "healthP95Ms":  60,
+                     "healthMaxMs":  2162,
+                     "concurrent":  {
+                                        "healthMs":  348,
+                                        "healthStatus":  200,
+                                        "slowFired":  true,
+                                        "slowEndpoint":  "/api/native-status",
+                                        "slowMs":  341,
+                                        "slowStatus":  200,
+                                        "slowBytes":  13937
+                                    },
+                     "fatal":  "global harness deadline (240s) reached; later phases skipped",
+                     "verdicts":  {
+                                      "PASS":  0,
+                                      "FAIL":  8,
+                                      "BLOCKED":  4,
+                                      "PENDING":  0
+                                  },
+                     "socketOwner":  "pid=7320 name=powershell start=2026-10-24T17:39:50.6379647+05:30"
+                 },
+    "patched":  {
+                    "stallMs":  839,
+                    "firstHealthMs":  838,
+                    "readyAppearedMs":  2369,
+                    "markerText":  "LISTENING pid=4184 bind=127.0.0.1 port=7331 at=2026-10-24T17:44:03.2790594+05:30",
+                    "readyText":  "READY pid=4184 port=7331 at=2026-10-24T17:44:03.6885964+05:30",
+                    "healthP95Ms":  92,
+                    "healthMaxMs":  2305,
+                    "concurrent":  {
+                                       "healthMs":  605,
+                                       "healthStatus":  200,
+                                       "slowFired":  true,
+                                       "slowEndpoint":  "/api/native-status",
+                                       "slowMs":  594,
+                                       "slowStatus":  200,
+                                       "slowBytes":  2609
+                                   },
+                    "fatal":  "",
+                    "verdicts":  {
+                                     "PASS":  33,
+                                     "FAIL":  0,
+                                     "BLOCKED":  5,
+                                     "PENDING":  0
+                                 },
+                    "socketOwner":  "pid=4184 name=powershell start=2026-10-24T17:44:02.0452753+05:30"
+                },
+    "stallDeltaMs":  2798,
+    "patchedReadyPublished":  true,
+    "baselineReadyPublished":  false
+}

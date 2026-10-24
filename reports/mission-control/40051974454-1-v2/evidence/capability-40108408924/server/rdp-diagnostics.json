@@ -1,0 +1,141 @@
+{
+  "collectedAtUtc": "2026-10-24T16:02:15.5683898Z",
+  "user": "slabrdp",
+  "sinceMinutes": 30,
+  "account": {
+    "exists": true,
+    "administrators": true,
+    "remoteDesktopUsers": true,
+    "enabled": true
+  },
+  "auditLogon": "Success and Failure",
+  "termService": "Running",
+  "listener3389": [
+    "::",
+    "0.0.0.0"
+  ],
+  "firewall3389": {
+    "enabled": "True",
+    "remoteAddress": [
+      "100.64.0.0/255.192.0.0"
+    ],
+    "profile": "Any"
+  },
+  "securityLogState": "readable",
+  "securityCounts": {
+    "total4624": 94,
+    "total4625": 0
+  },
+  "securityEvents": [],
+  "tsLocalSessionManager": [
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 22,
+      "recordId": 122,
+      "timeUtc": "2026-10-24T15:45:48.6969431Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    },
+    {
+      "log": "LocalSessionManager/Operational",
+      "id": 21,
+      "recordId": 121,
+      "timeUtc": "2026-10-24T15:45:48.2294620Z",
+      "user": "runnervmdaln5\\runneradmin",
+      "sessionId": "2",
+      "address": "LOCAL"
+    }
+  ],
+  "tsRemoteConnectionManager": [
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 219,
+      "timeUtc": "2026-10-24T16:01:36.6583609Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 218,
+      "timeUtc": "2026-10-24T16:00:36.6206229Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 217,
+      "timeUtc": "2026-10-24T15:59:36.5788237Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 216,
+      "timeUtc": "2026-10-24T15:58:36.5281811Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 215,
+      "timeUtc": "2026-10-24T15:57:36.4940929Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 214,
+      "timeUtc": "2026-10-24T15:56:36.4676306Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 213,
+      "timeUtc": "2026-10-24T15:55:36.4569355Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    },
+    {
+      "log": "RemoteConnectionManager/Operational",
+      "id": 261,
+      "recordId": 212,
+      "timeUtc": "2026-10-24T15:54:36.4413275Z",
+      "user": null,
+      "sessionId": null,
+      "address": null
+    }
+  ],
+  "qwinsta": [
+    "SESSIONNAME               USERNAME                 ID  STATE   TYPE        DEVICE",
+    "services                                            0  Disc",
+    ">console                   runneradmin               2  Active",
+    "31c5ce94259d4006a9e4                            65536  Listen",
+    "rdp-tcp                                         65537  Listen"
+  ],
+  "quser": [
+    "USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME",
+    ">runneradmin           console             2  Active      none   10/24/2026 3:45 PM"
+  ],
+  "webdeskTask": {
+    "lastRunUtc": "1999-11-30T00:00:00.0000000Z",
+    "numberOfMissedRuns": 0,
+    "lastResult": 267011,
+    "state": "Ready"
+  }
+}

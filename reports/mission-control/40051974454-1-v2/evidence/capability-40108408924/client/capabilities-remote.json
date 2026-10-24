@@ -1,0 +1,149 @@
+{
+  "scope": "remote",
+  "job": "client",
+  "runId": "40108408924",
+  "runAttempt": "1",
+  "runner": "rdp-lab-client",
+  "writtenAt": "2026-10-24T16:01:23.560Z",
+  "capabilities": {
+    "backend_readiness_remote": {
+      "status": "PASS",
+      "required": true,
+      "contract": "same readiness+version contract over the tailnet",
+      "reason": "pid=1320 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "evidence": {
+        "readiness": {
+          "ok": true,
+          "status": "ok",
+          "phase": "ready",
+          "liveness": true,
+          "apiReadiness": true,
+          "dependencyHealth": {
+            "explorerFx": true,
+            "mirrorHost": true
+          },
+          "desktopConnectivity": {
+            "rdpListener": true
+          },
+          "ws": true,
+          "port": 7331,
+          "pid": 1320,
+          "serverTs": "2026-10-24T16:01:07Z"
+        },
+        "version": {
+          "ok": true,
+          "server": "ghrdp",
+          "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+          "sha7": "4a91c5c",
+          "shaSource": "config.buildSha",
+          "features": {
+            "autoHttps": true,
+            "wwwTolerance": true,
+            "noFallback": true,
+            "downloadToRdp": true,
+            "launchTiers": true,
+            "selfTest": true,
+            "mirrorLauncher": true,
+            "streamProxy": true
+          }
+        }
+      }
+    },
+    "dashboard_client": {
+      "status": "PASS",
+      "required": true,
+      "contract": "headed client browser renders the exact build; real token dialog clears; AUTO-LOGIN is enabled; valid screenshot",
+      "reason": "v2: title ok, build cand-c85ce8c (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "evidence": {
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\dashboard_client.png",
+        "pageErrors": [],
+        "variant": "v2",
+        "authentication": {
+          "dialogUsed": true,
+          "initiallyVisible": true,
+          "tokenPresent": true
+        },
+        "autoLoginEnabled": true
+      }
+    },
+    "rdp_auto_login": {
+      "status": "FAIL",
+      "required": true,
+      "contract": "MagicDNS bound to this attempt peer; trusted NLA/cert listener; real dashboard click mints a 60 s ticket; staged production ghrdp handler emits a fresh beacon and starts mstsc at that FQDN; fresh source/user-matched LogonType 10; no blocking dialog; live window and native screenshot",
+      "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404",
+      "evidence": {
+        "tcp3389": {
+          "ok": true,
+          "host": "slab-srv-40108408924-1.tail7cf774.ts.net",
+          "port": 3389,
+          "ms": 328,
+          "error": null
+        },
+        "nativePre": {
+          "fqdn": "slab-srv-40108408924-1.tail7cf774.ts.net",
+          "runnerResolvedIP": "100.89.245.36",
+          "user": "",
+          "webdeskUrl": "https://slab-srv-40108408924-1.tail7cf774.ts.net/webdesk",
+          "listener": {
+            "listening": true,
+            "fwRule": true,
+            "certOk": true,
+            "nla": true,
+            "credsspStatus": "ok",
+            "certThumb": "0F30CA3891F960C7377A777601D362F0534337A3"
+          },
+          "handler": null,
+          "authLast": {
+            "result": "success",
+            "logonType": "2",
+            "logonKind": "interactive",
+            "eventTs": "2026-10-24T15:45:47.5190411Z",
+            "scanTs": "2026-10-24T16:01:15.5421549Z",
+            "count4624": 8,
+            "count4625": 0,
+            "probeError": "",
+            "sub": "",
+            "subMeaning": ""
+          },
+          "collector": {
+            "alive": true,
+            "scans": 21,
+            "probeError": "",
+            "lastScanAgeSec": 4
+          },
+          "connLog": []
+        }
+      }
+    },
+    "web_desktop": {
+      "status": "BLOCKED",
+      "required": true,
+      "contract": "fresh frame plus the real dashboard WEB DESKTOP popup at the published safe URL; browser rendering; queued input acknowledged and a substantial decoded-pixel change after keyboard/pointer input; cleanup frame retained",
+      "reason": "DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL",
+      "evidence": {}
+    }
+  },
+  "target": "http://100.89.245.36:7331",
+  "expectSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "aggregate": {
+    "status": "FAIL",
+    "accepted": false,
+    "firstCause": {
+      "capability": "rdp_auto_login",
+      "status": "FAIL",
+      "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404"
+    },
+    "counts": {
+      "PASS": 2,
+      "FAIL": 1,
+      "BLOCKED": 1,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": [
+      "rdp_auto_login",
+      "web_desktop"
+    ]
+  }
+}

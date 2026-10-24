@@ -1,0 +1,218 @@
+From 1ca36da7eef98ef36f1f60be1d53e9bcd3f83c4c Mon Sep 17 00:00:00 2001
+From: lab <lab@local>
+Date: Sat, 24 Oct 2026 14:05:21 +0000
+Subject: [PATCH] R2b: bounded truthful pool-unavailable degradation (no inline
+ pump)
+
+---
+ payloads/ghrdp-server.ps1                   | 99 +++++++++++++++------
+ src/tests/smoke/r2-websocket-worker.test.ts | 44 +++++++--
+ 2 files changed, 111 insertions(+), 32 deletions(-)
+
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index f3c246d..4f8e80d 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -2808,6 +2808,11 @@ function Invoke-ClientRequest {
+             # block lower in the chain was unreachable and omitted the ws flag, so
+             # the browser always concluded "no /ws endpoint" even with the RFC6455
+             # upgrade live (run 40086011776). Advertise the upgrade feature flag here.
++            # [LAB-R2 0004] The flag is truthful about SERVICEABILITY, not just code
++            # support: while the worker pool cannot be created, /ws answers 503, so
++            # advertising ws=true would show a connecting UI forever. Advertise
++            # ws=false with the exact degraded reason; when a bounded re-init
++            # succeeds the flag flips back to true on the next poll.
+             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{
+                 ok               = $true
+                 app              = 'ghrdp'
+@@ -2816,7 +2821,8 @@ function Invoke-ClientRequest {
+                 bind             = [string]$Bind
+                 port             = [int]$Port
+                 serverStartedUtc = [string]$script:ServerStartedUtc
+-                ws               = [bool]$script:F96WsUpgradeSupported
++                ws               = $(if ($script:R2WsPoolAvailable) { [bool]$script:F96WsUpgradeSupported } else { $false })
++                wsReason         = $(if ($script:R2WsPoolAvailable) { $null } else { 'websocket worker pool unavailable' })
+                 scans            = $hScans
+             }))
+             return
+@@ -9847,6 +9853,20 @@ $script:R2WsActive = [System.Collections.ArrayList]::Synchronized((New-Object Sy
+ $script:R2WsSeq = 0
+ $script:R2WsPool = $null
+ $script:R2WsPoolAvailable = $false
++# [LAB-R2 0004] Bounded-degradation state for the pool-unavailable case. The
++# 0001-0003 fallback ran the long-lived pump INLINE on the single accept
++# thread, which is exactly the R2 starvation defect this repair exists to
++# remove: one /ws connection would again block all HTTP until the pump
++# exited (idle timeout / close), and a constrained host would hit that on
++# every connection. Now the degraded state is truthful and bounded instead:
++# /ws answers an immediate 503 "websocket worker pool unavailable; retry",
++# a later /ws arrival may retry the pool initialization at most once per
++# retry window, ordinary HTTP is never parked, and the pooled path (the
++# normal path) is untouched.
++$script:R2WsPoolInitError = ''
++$script:R2WsPoolRetryAtUtc = [datetime]::MinValue
++$script:R2WsPoolRetrySec = 30
++if ($env:GHRDP_WS_POOL_RETRY_SEC -match '^[0-9]+$') { $script:R2WsPoolRetrySec = [Math]::Max(5, [Math]::Min(300, [int]$env:GHRDP_WS_POOL_RETRY_SEC)) }
+ # The worker body, executed inside each pool runspace. A single-quoted
+ # here-string keeps every $-reference literal until it runs in the worker's own
+ # scope; nothing from the accept runspace is visible except what $Ctx carries.
+@@ -9895,25 +9915,39 @@ function Write-ClientAudit {
+     } catch { }
+ }
+ '@
+-try {
+-    $r2Iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+-    # The pump's exact dependency surface - nothing else is copied across, so
+-    # the worker cannot reach mutable ticket/cache/credential state by accident.
+-    foreach ($r2Fn in 'Invoke-F99WebSocketUpgrade', 'Test-TicketBearer', 'Test-IsLoopbackAddr', 'Send-ClientResponse') {
+-        $r2Fi = Get-Item ("Function:" + $r2Fn) -ErrorAction Stop
+-        $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($r2Fn, $r2Fi.Definition)))
++function Initialize-R2WsPool {
++    # [LAB-R2 0004] The init body is a function so the dispatch path can make
++    # ONE bounded re-init attempt per retry window after a transient failure,
++    # instead of pinning the degraded state for the whole process lifetime.
++    # Idempotent: a successful call replaces the pool object; a failed call
++    # keeps R2WsPoolAvailable=$false, records the exact init error and pushes
++    # the next retry deadline out by the clamped retry window. It never runs
++    # the pump inline and never disables /ws silently.
++    try {
++        $r2Iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
++        # The pump's exact dependency surface - nothing else is copied across, so
++        # the worker cannot reach mutable ticket/cache/credential state by accident.
++        foreach ($r2Fn in 'Invoke-F99WebSocketUpgrade', 'Test-TicketBearer', 'Test-IsLoopbackAddr', 'Send-ClientResponse') {
++            $r2Fi = Get-Item ("Function:" + $r2Fn) -ErrorAction Stop
++            $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry($r2Fn, $r2Fi.Definition)))
++        }
++        $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry('Write-ClientAudit', $script:R2WsAuditDef)))
++        $script:R2WsPool = [runspacefactory]::CreateRunspacePool($r2Iss)
++        $script:R2WsPool.SetMinRunspaces(1)
++        $script:R2WsPool.SetMaxRunspaces([int]$script:R2WsMaxClients)
++        $script:R2WsPool.Open()
++        $script:R2WsPoolAvailable = $true
++        $script:R2WsPoolInitError = ''
++        try { Write-Host ('[LAB-R2] websocket worker pool ready max=' + [string]$script:R2WsMaxClients) } catch { }
++    } catch {
++        $script:R2WsPoolAvailable = $false
++        $script:R2WsPoolInitError = ($_.Exception.GetType().FullName + ' ' + $_.Exception.Message)
++        try { $script:R2WsPoolRetryAtUtc = (Get-Date).ToUniversalTime().AddSeconds([int]$script:R2WsPoolRetrySec) } catch { }
++        try { Write-Host ('[LAB-R2] worker pool unavailable; /ws answers 503 until re-init succeeds: ' + $script:R2WsPoolInitError) } catch { }
++        try { Write-ClientAudit ('ws pool init failed: ' + $script:R2WsPoolInitError) } catch { }
+     }
+-    $r2Iss.Commands.Add((New-Object System.Management.Automation.Runspaces.SessionStateFunctionEntry('Write-ClientAudit', $script:R2WsAuditDef)))
+-    $script:R2WsPool = [runspacefactory]::CreateRunspacePool($r2Iss)
+-    $script:R2WsPool.SetMinRunspaces(1)
+-    $script:R2WsPool.SetMaxRunspaces([int]$script:R2WsMaxClients)
+-    $script:R2WsPool.Open()
+-    $script:R2WsPoolAvailable = $true
+-    Write-Host ('[LAB-R2] websocket worker pool ready max=' + [string]$script:R2WsMaxClients)
+-} catch {
+-    $script:R2WsPoolAvailable = $false
+-    try { Write-Host ('[LAB-R2] worker pool unavailable; /ws falls back to inline: ' + $_.Exception.Message) } catch { }
+ }
++Initialize-R2WsPool
+ 
+ function Invoke-R2ReapWebSocketWorkers {
+     # Non-blocking reaper: dispose PowerShell handles whose pump has finished so
+@@ -9934,17 +9968,28 @@ function Invoke-R2ReapWebSocketWorkers {
+ 
+ function Invoke-R2DispatchWebSocket {
+     param($Client, $Stream, $Parts, $Token)
+-    # Fallback when no pool could be created (e.g. a constrained host): keep the
+-    # feature available with the legacy inline pump rather than disabling /ws.
+-    # Availability is audited; this path never silently turns WebSockets off.
++    # [LAB-R2 0004] NO inline pump fallback. Invoke-F99WebSocketUpgrade is the
++    # long-lived pump; calling it inline on the single accept thread recreates
++    # exactly the R2 starvation defect this repair removed (one /ws blocks all
++    # HTTP until the pump exits). A pool-unavailable /ws instead gets ONE
++    # bounded re-init attempt per retry window and, while the pool still
++    # cannot be created, an immediate truthful 503 with the socket closed.
++    # Ordinary HTTP keeps being served on the accept thread the whole time,
++    # and the pooled path below is unchanged.
+     if (-not $script:R2WsPoolAvailable) {
+-        $r2Inline = $false
+-        try { $r2Inline = Invoke-F99WebSocketUpgrade -Client $Client -Stream $Stream -Parts $Parts -Token $Token } catch { $r2Inline = $false }
+-        if (-not $r2Inline) {
+-            try { Send-ClientResponse -Stream $Stream -Code 400 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket upgrade required')) } catch { }
++        $r2RetryDue = $true
++        try { $r2RetryDue = ((Get-Date).ToUniversalTime() -ge $script:R2WsPoolRetryAtUtc) } catch { }
++        if ($r2RetryDue) {
++            try { Initialize-R2WsPool } catch { }
++        }
++        if (-not $script:R2WsPoolAvailable) {
++            try { Write-ClientAudit ('ws 503 pool unavailable: ' + [string]$script:R2WsPoolInitError) } catch { }
++            try { Write-Host ('[LAB-R2] ws 503 pool unavailable: ' + [string]$script:R2WsPoolInitError + ' retryInSec=' + [string]$script:R2WsPoolRetrySec) } catch { }
++            Send-ClientResponse -Stream $Stream -Code 503 -CType 'text/plain' -Body ([System.Text.Encoding]::UTF8.GetBytes('websocket worker pool unavailable; retry'))
++            try { $Stream.Dispose() } catch { }
++            try { $Client.Close() } catch { }
++            return
+         }
+-        try { $Client.Close() } catch { }
+-        return
+     }
+     # Non-blocking bounded admission. Wait(0) never parks the accept thread: a
+     # denied attempt gets an immediate, predictable 503 (the frontend's reconnect
+diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
+index 28df47d..dffecd2 100644
+--- a/src/tests/smoke/r2-websocket-worker.test.ts
++++ b/src/tests/smoke/r2-websocket-worker.test.ts
+@@ -106,10 +106,37 @@ describe("LAB-R2 WebSocket worker pool (accept-loop starvation repair)", () => {
+     expect(server).toMatch(/GHRDP_WS_MAX_LIFETIME_SEC/);
+   });
+ 
+-  it("keeps an inline fallback so WebSockets stay available if a pool cannot be created", () => {
+-    expect(server).toMatch(/if\s*\(-not \$script:R2WsPoolAvailable\)/);
+-    // The fallback still performs the real upgrade rather than disabling /ws.
+-    expect(server).toMatch(/R2WsPoolAvailable[\s\S]{0,400}Invoke-F99WebSocketUpgrade/);
++  it("keeps a bounded, truthful pool-unavailable path (no inline pump, retry window, 503)", () => {
++    // [LAB-R2 0004] The 0001-0003 fallback called Invoke-F99WebSocketUpgrade
++    // INLINE on the accept thread when the pool could not be created, which
++    // recreates exactly the R2 starvation defect (one /ws blocks all HTTP
++    // until the pump exits). The dispatch path must contain NO inline pump
++    // call; a pool-unavailable /ws gets one bounded re-init attempt per
++    // clamped retry window and then an immediate truthful 503, so ordinary
++    // HTTP is never parked and the degraded state is visible, not silent.
++    const dispatchStart = server.indexOf("function Invoke-R2DispatchWebSocket");
++    expect(dispatchStart).toBeGreaterThan(0);
++    const dispatchEnd = server.indexOf("function ", dispatchStart + 10);
++    const dispatchBody = server.slice(dispatchStart, dispatchEnd > 0 ? dispatchEnd : undefined);
++    // No CALL to the pump (the invocation form used everywhere else in this
++    // file is `Invoke-F99WebSocketUpgrade -Client ...`); naming it inside a
++    // comment that documents why it must NOT run inline is fine.
++    expect(dispatchBody).not.toMatch(/Invoke-F99WebSocketUpgrade\s+-Client/);
++    expect(dispatchBody).toMatch(/Initialize-R2WsPool/);
++    expect(dispatchBody).toMatch(/R2WsPoolRetryAtUtc/);
++    expect(dispatchBody).toMatch(/Code 503/);
++    expect(dispatchBody).toContain("websocket worker pool unavailable; retry");
++  });
++
++  it("retries pool initialization on a clamped window and records the init error", () => {
++    // The init is a function so a transient failure can be retried once per
++    // window instead of pinning the degraded state for the process lifetime.
++    expect(server).toMatch(/function Initialize-R2WsPool/);
++    expect(server).toMatch(/GHRDP_WS_POOL_RETRY_SEC/);
++    expect(server).toMatch(/\[Math\]::Max\(5, \[Math\]::Min\(300, \[int\]\$env:GHRDP_WS_POOL_RETRY_SEC\)\)/);
++    expect(server).toMatch(/R2WsPoolInitError/);
++    // A successful init clears the error; a failed one sets the retry deadline.
++    expect(server).toMatch(/R2WsPoolRetryAtUtc = \(Get-Date\)\.ToUniversalTime\(\)\.AddSeconds/);
+   });
+ 
+   it("transfers socket ownership so the request finally does not close a dispatched /ws", () => {
+@@ -141,7 +168,14 @@ describe("LAB-R2 WebSocket worker pool (accept-loop starvation repair)", () => {
+     expect(healthRoutes.length).toBe(1);
+     const healthStart = server.indexOf("if ($path -eq '/health')");
+     const healthBlock = server.slice(healthStart, healthStart + 2400);
+-    expect(healthBlock).toMatch(/ws\s*=\s*\[bool\]\$script:F96WsUpgradeSupported/);
++    // [LAB-R2 0004] The flag is pool-aware: while the worker pool cannot be
++    // created, /ws answers 503, so /health must not advertise ws=true. The
++    // degraded reason is reported alongside so a UI can distinguish "no /ws
++    // support" from "ws degraded: worker pool unavailable".
++    expect(healthBlock).toMatch(
++      /ws\s*=\s*\$\(if \(\$script:R2WsPoolAvailable\) \{ \[bool\]\$script:F96WsUpgradeSupported \} else \{ \$false \}\)/,
++    );
++    expect(healthBlock).toMatch(/wsReason\s*=\s*\$\(if \(\$script:R2WsPoolAvailable\) \{ \$null \} else \{ 'websocket worker pool unavailable' \}\)/);
+   });
+ 
+   it("constructs the worker PowerShell in a PS 5.1-compatible way (no 1-arg Create overload)", () => {
+-- 
+2.39.5
+

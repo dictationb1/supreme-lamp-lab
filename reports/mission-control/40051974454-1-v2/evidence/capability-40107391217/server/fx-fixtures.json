@@ -1,0 +1,39 @@
+{
+  "schema": "slab-fx-fixtures/1",
+  "generatedAt": "2026-10-24T15:36:14.6077214Z",
+  "stageRoot": "C:\\ghrdp",
+  "fixtureDir": "C:\\ghrdp\\storage\\lab-fixture",
+  "indexPath": "C:\\ghrdp\\fx-index.json",
+  "indexSha256": "99bf821b5bda95e62c7ea5354483389c9892161481dfdc9cdc73b76ecb7b65cd",
+  "root": "RDP-Storage",
+  "files": [
+    {
+      "id": "9f2b5826924c20c590d277a61980b6bcba0f4921",
+      "path": "/lab-fixture/lab-readme.txt",
+      "size": 135,
+      "mime": "text/plain",
+      "sha256": "42e97fde487561d71c121d91fd2044fb37e13becc9257f47b89a7ae35de1cc9a"
+    },
+    {
+      "id": "eeef989949db8c4da2785bdba42cd22fe58c49b9",
+      "path": "/lab-fixture/lab-data.json",
+      "size": 141,
+      "mime": "application/json",
+      "sha256": "295956add4cf7ca3b975aa3b3e28fa3f7fb9e62a3c722e6986f08d37ba37b43f"
+    },
+    {
+      "id": "48da5729211ee45b77b0a3e32969e33a2b9b39fa",
+      "path": "/lab-fixture/lab-pixel.png",
+      "size": 69,
+      "mime": "image/png",
+      "sha256": "3220fc7838ccdab0a3a21b5d8498275c7abe6930abbb059e9fdb4939bba8c2fd"
+    },
+    {
+      "id": "37584baf0e6e0425bb96c25c78a2863cf27694be",
+      "path": "/lab-fixture/subdir/lab-nested.txt",
+      "size": 19,
+      "mime": "text/plain",
+      "sha256": "d24f2a37b3b77df27d851c32c132459c609a4d6e860d98142bef16b67c4fb90d"
+    }
+  ]
+}

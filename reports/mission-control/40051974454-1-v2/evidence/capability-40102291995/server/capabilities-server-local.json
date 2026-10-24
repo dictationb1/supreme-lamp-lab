@@ -1,0 +1,47 @@
+{
+  "scope": "server-local",
+  "job": "server",
+  "runId": "40102291995",
+  "runAttempt": "1",
+  "runner": "GitHub Actions 1000004067",
+  "writtenAt": "2026-10-24T14:26:39.362Z",
+  "capabilities": {
+    "backend_readiness_server_local": {
+      "status": "FAIL",
+      "required": true,
+      "contract": "/api/readiness ok&&status=ok&&phase=ready&&apiReadiness, pid==supervised pid, port; /api/version sha==expected",
+      "reason": "STAGING_FAILED: outcome=skipped; ",
+      "evidence": {}
+    },
+    "dashboard_server_local": {
+      "status": "BLOCKED",
+      "required": true,
+      "contract": "GET / 200 html and exact build; v2 also requires the real token dialog to clear, AUTO-LOGIN enabled, and a valid screenshot",
+      "reason": "DEPENDS_ON_BACKEND: STAGING_FAILED: outcome=skipped; ",
+      "evidence": {}
+    }
+  },
+  "target": null,
+  "expectSha": null,
+  "aggregate": {
+    "status": "FAIL",
+    "accepted": false,
+    "firstCause": {
+      "capability": "backend_readiness_server_local",
+      "status": "FAIL",
+      "reason": "STAGING_FAILED: outcome=skipped; "
+    },
+    "counts": {
+      "PASS": 0,
+      "FAIL": 1,
+      "BLOCKED": 1,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": [
+      "backend_readiness_server_local",
+      "dashboard_server_local"
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "scope": "server-local",
+  "job": "server",
+  "runId": "40107391217",
+  "runAttempt": "1",
+  "runner": "GitHub Actions 1000004093",
+  "writtenAt": "2026-10-24T15:37:35.498Z",
+  "capabilities": {
+    "backend_readiness_server_local": {
+      "status": "PASS",
+      "required": true,
+      "contract": "/api/readiness ok&&status=ok&&phase=ready&&apiReadiness, pid==supervised pid, port; /api/version sha==expected",
+      "reason": "pid=5488 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "evidence": {
+        "readiness": {
+          "ok": true,
+          "status": "ok",
+          "phase": "ready",
+          "liveness": true,
+          "apiReadiness": true,
+          "dependencyHealth": {
+            "explorerFx": true,
+            "mirrorHost": true
+          },
+          "desktopConnectivity": {
+            "rdpListener": true
+          },
+          "ws": true,
+          "port": 7331,
+          "pid": 5488,
+          "serverTs": "2026-10-24T15:37:28Z"
+        },
+        "version": {
+          "ok": true,
+          "server": "ghrdp",
+          "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+          "sha7": "4a91c5c",
+          "shaSource": "config.buildSha",
+          "features": {
+            "autoHttps": true,
+            "wwwTolerance": true,
+            "noFallback": true,
+            "downloadToRdp": true,
+            "launchTiers": true,
+            "selfTest": true,
+            "mirrorLauncher": true,
+            "streamProxy": true
+          }
+        }
+      }
+    },
+    "dashboard_server_local": {
+      "status": "PASS",
+      "required": true,
+      "contract": "GET / 200 html and exact build; v2 also requires the real token dialog to clear, AUTO-LOGIN enabled, and a valid screenshot",
+      "reason": "v2: title ok, build cand-85ec70b (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "evidence": {
+        "screenshot": "D:\\a\\_temp\\artifacts\\run-40107391217-1\\dashboard_server_local.png",
+        "pageErrors": [],
+        "variant": "v2",
+        "authentication": {
+          "dialogUsed": true,
+          "initiallyVisible": true,
+          "tokenPresent": true
+        },
+        "autoLoginEnabled": true
+      }
+    }
+  },
+  "target": "http://127.0.0.1:7331",
+  "expectSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "aggregate": {
+    "status": "PASS",
+    "accepted": true,
+    "firstCause": null,
+    "counts": {
+      "PASS": 2,
+      "FAIL": 0,
+      "BLOCKED": 0,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": []
+  }
+}

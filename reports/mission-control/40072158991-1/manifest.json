@@ -1,0 +1,270 @@
+{
+ "schema": "slab-mission-control-repair-bundle/2",
+ "bundleState": "R2_ACCEPTED_REPRODUCED_3_CONSECUTIVE_GREEN_WINDOWS_RUNS",
+ "createdAt": "2026-10-24T07:59:00Z",
+ "updatedAt": "2026-10-24T13:35:00Z",
+ "origin": {
+  "repository": "dictationb1/supreme-lamp",
+  "runId": "40072158991",
+  "attempt": 1,
+  "jobId": "120808083081",
+  "workflow": ".github/workflows/main.yml",
+  "applicationSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+  "applicationPatchBase": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "baseDelta": "832a82eb is one commit on top of 4a91c5c2 changing only docs/status.json; the 4a91c5c2-based patch series still applies cleanly",
+  "runUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991",
+  "jobUrl": "https://github.com/dictationb1/supreme-lamp/actions/runs/40072158991/job/120808083081",
+  "archiveUrl": "https://codeload.github.com/dictationb1/supreme-lamp/zip/832a82eb7c29613b0b101585c56b5011ea008a06",
+  "archiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
+  "archiveSha256Determinism": "identical sha256 across two independent codeload downloads in the lab",
+  "observedRunStatusAtBundle": "in_progress",
+  "readOnlyRemote": true,
+  "note": "the application remote is read-only this session; no push/deploy/setting change is made upstream. The lab candidate is an isolated, separately-identified build."
+ },
+ "lab": {
+  "repository": "dictationb1/supreme-lamp-lab",
+  "continuationBranch": "arena/25db7e16-supreme-lamp-lab",
+  "consolidatedFrom": "PR #28 head c7a0bf647c4e4702c0d77908fb90b2908c2cb670 (fast-forwarded onto this branch; reader, harness, signing, authorization and UI repairs preserved)",
+  "priorBundle": "reports/mission-control/40051974454-1 (immutable historical evidence retained)",
+  "hostedRegressions": {
+   "platform": "linux",
+   "node": "v22.22.3",
+   "runner": "scripts/run-regressions.js",
+   "total": 243,
+   "passed": 235,
+   "failed": 0,
+   "skipped": 8,
+   "skippedReason": "browser-e2e optional lanes"
+  },
+  "applicationSmokeTests": {
+   "tool": "vitest 2.x in the patched application tree",
+   "files": 108,
+   "tests": 1390,
+   "passed": 1390,
+   "failed": 0,
+   "note": "1378 historical + 12 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 12) is 23/23"
+  },
+  "productionBuild": {
+   "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
+   "result": "ok",
+   "bundle": "ui/dist/index.html",
+   "localBuildSha256": "ac47872fb3b7168d892d09e43d307ae830dd75c7d426db824c15b60bb2ad7c2f",
+   "note": "local sandbox build; the CI build on the Windows job records its own provenance and sha"
+  }
+ },
+ "patchSeries": [
+  {
+   "order": 1,
+   "file": "app-patches/0001-F201-probe-honesty.patch",
+   "title": "F201 probe honesty (frontend)",
+   "preservedFrom": "40051974454-1",
+   "appliesTo": "832a82eb clean"
+  },
+  {
+   "order": 2,
+   "file": "app-patches/0002-R1-server-startup-readiness.patch",
+   "title": "R1 server startup readiness",
+   "preservedFrom": "40051974454-1",
+   "appliesTo": "832a82eb clean"
+  },
+  {
+   "order": 3,
+   "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
+   "title": "R2 bounded WebSocket worker runspace (accept-loop starvation repair)",
+   "newThisBundle": true,
+   "appliesTo": "after 0001+0002",
+   "staticRegression": "src/tests/smoke/r2-websocket-worker.test.ts",
+   "labRegression": "scripts/test/ws-frame-regressions.js + scripts/lib/ws-frame.js",
+   "thirdFix": "run 40084261133 exposed a worker-slot leak: the F99 pump only issued a Read when bytes were already available, so a peer FIN with no pending frame was never observed and the gate slot was held until the idle timeout; added a non-blocking Socket.Poll(0, SelectRead) liveness probe that treats Poll-true + Available==0 as EOF/reset and breaks to the worker finally (release/close/dispose). An 11th static assertion pins Poll+SelectRead.",
+   "lineCount": 576,
+   "fourthFix": "run 40086011776 proved the Poll slot-reclaim fix (all 11 r2 raw-socket controls PASS) but the headed browser never constructed a WebSocket; root-cause work found a shadowed duplicate /health route (the first F45-R handler returned without the ws flag, the F99 handler was unreachable), so the UI always advertised \"No /ws endpoint\". The single live /health route now returns ws=F96WsUpgradeSupported, the dead duplicate is removed, and a 12th static assertion pins one /health route carrying the flag"
+  }
+ ],
+ "r2Repair": {
+  "defectRecord": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md",
+  "approach": "offload only the long-lived /ws pump to a bounded runspace pool behind a non-blocking SemaphoreSlim; ordinary HTTP stays inline so all script-scope shared state keeps single-threaded semantics",
+  "admission": "GHRDP_WS_MAX_CLIENTS default 16 clamped 4..64; Wait(0) non-blocking; over-capacity answered 503 and closed",
+  "sharedStateSafety": "worker receives only the pump dependency surface; no RdpTokens/credential-ledger/cache access; per-connection token validated in the pump; audit serialized on a shared Monitor lock; socket/stream/gate released in finally; reaper + shutdown dispose pool and semaphore",
+  "tunables": {
+   "GHRDP_WS_MAX_CLIENTS": "4..64, default 16",
+   "GHRDP_WS_PING_INTERVAL_SEC": "1..120, default 20",
+   "GHRDP_WS_IDLE_TIMEOUT_SEC": "5..300, default 90",
+   "GHRDP_WS_MAX_LIFETIME_SEC": "10..3600, default 1800"
+  },
+  "frozenThresholds": "scripts/candidate/real-backend.js R2_THRESHOLDS (declared before any run; never adjusted post-failure)",
+  "slotReclaimFix": {
+   "defect": "worker-slot leak / zombie workers (run 40084261133): gate drained to count=0/avail=0 while only 3-5 sockets were actually held; 18 audit lines all \"ws 503 saturated count=0 avail=0\", zero worker EXCEPTION and zero close lines",
+   "rootCause": "the F99 pump guarded NetworkStream.Read behind ($Client.Client.Available -gt 0 -or $Stream.DataAvailable); on a peer disconnect with no buffered bytes no Read is ever issued, so Read returning 0 (EOF) is unreachable and the worker sleeps until F99WsIdleTimeoutSec instead of releasing its SemaphoreSlim slot promptly",
+   "fix": "at the top of each pump iteration call $Client.Client.Poll(0, [System.Net.Sockets.SelectMode]::SelectRead); when Poll returns true and Available is 0 (and no buffered stream data) the peer has half-closed/reset, so break with close status 1006 into the existing worker finally, which closes the socket, disposes the stream/runspace handle via the accept-loop reaper and calls SemaphoreSlim.Release()",
+   "compatibility": "System.Net.Sockets.Socket.Poll exists on .NET Framework (PS 5.1) and .NET (PS 7); Poll(0) is non-blocking; an idle open socket returns false and keeps the original wait behavior; no timeout change, no capacity increase, gate control flow untouched",
+   "staticGuard": "11th r2 assertion requires the Poll(0, SelectRead)+Available-eq-0->1006 pattern; passes on LF and CRLF"
+  },
+  "healthAdvertisementFix": {
+   "defect": "two if ($path -eq /health) branches existed in Invoke-ClientRequest; the first (F45-R readiness) returned first and omitted the ws field, making the browsers setWsAvailable(false) (\"No /ws endpoint\") while the RFC6455 upgrade was live; the second branch including ws=F96WsUpgradeSupported was unreachable",
+   "fix": "the single live /health ordered body now includes ws=[bool]$script:F96WsUpgradeSupported; the unreachable duplicate block is removed; static guard 12 pins exactly one /health route containing the flag",
+   "note": "current client source does not gate socket construction on wsAvailable (F94 removed that precondition), so this fixes truthful UI/diagnostics; the zero-construction browser symptom is separately investigated via report.browserWsDiagnostic on the next Windows run"
+  },
+  "browserWsDiagnostic": "scripts/candidate/real-backend.js emits a non-gating report.browserWsDiagnostic field (WebSocket global shape, stored-token length, in-page /health body, page-level /ws request/requestfailed/response events, a manual in-page socket with event/readyState capture, context-observer visibility and a 7s app-starter window) to split app-logic vs Playwright/Chromium vs policy causes",
+  "browserObservation": {
+   "finding": "run 40089578561 showed Playwright 1.49.1 BrowserContext websocket/page-request events are blind on the self-hosted headed Windows runner: a manually constructed in-page WebSocket really opened (readyState 1) and received genuine server frames but produced zero context/request events",
+   "mechanism": "context.addInitScript installs a passive subclass of the native WebSocket (prototype chain and statics preserved, constructor returns the real native instance) with addEventListener taps only; real sockets, real upgrade, real frames, no interception; browserWebSocketStubbed stays false; a browserWsObservationMechanism field documents it",
+   "evidence": "recorder records source app/manual, redacted URL, readyState, frame counts and first frame texts; a manual probe is tagged manual so it can never count as an app socket; unit-checked on Linux with a mock native WebSocket; controls cannot pass without a real open frame-carrying app socket",
+   "healthFix": "the single live /health route now returns ws=true and the in-page diagnostic fetch on the VM returned 200 {ok:true, ws:true}"
+  },
+  "acceptance": {
+   "runId": "40091165292",
+   "headSha": "5ba3745",
+   "result": "ACCEPTED: 33 PASS / 0 FAIL / 5 BLOCKED (the five BLOCKED are pre-declared design-BLOCKED capabilities unrelated to R2)",
+   "identity": {
+    "backendKind": "actual_application",
+    "browserWebSocketStubbed": false,
+    "browserMode": "headed",
+    "runner": "WIN-NFU1JG4VESE\\User",
+    "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS"
+   },
+   "rawSocket": "all 11 r2/backend controls PASS: exact capacity held=8/rejected=1, real frames + hello-ack, normal/abrupt reconnect, idle expiry 8050ms, malformed 400, 10/10 cycles +14 handles, HTTP never blocked",
+   "browser": "the shipped app own socket (source=app) opened readyState=1, framesIn=11 framesOut=6; concurrent in-page /health 200 ws=true with socket still open; ladder reconnect opened a second app socket with a fresh frame; observed through the passive native-subclass recorder because Playwright context events are blind on this runner",
+   "defectsFixed": [
+    "PS5.1 Create(RunspacePool) overload (run 40081193119)",
+    "outer-finally socket ownership ECONNRESET (run 40082655039)",
+    "pump EOF slot leak via Socket.Poll (run 40084261133)",
+    "shadowed /health ws advertisement + Playwright event blind spot via native recorder (runs 40086011776/40089578561)"
+   ],
+   "reproducedOn": [
+    {
+     "runId": "40091165292",
+     "headSha": "5ba3745",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    },
+    {
+     "runId": "40092088400",
+     "headSha": "c76882f",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    },
+    {
+     "runId": "40092300001",
+     "headSha": "aba6fa9",
+     "verdicts": "33 PASS / 0 FAIL / 5 BLOCKED"
+    }
+   ],
+   "reproducibility": "three consecutive real-backend runs on the Windows client are green with identical verdict counts; the last two re-confirm at later lab heads that changed only bundle documentation, proving the result is stable and not a one-off"
+  }
+ },
+ "windowsVerification": {
+  "workflow": ".github/workflows/real-backend.yml",
+  "trigger": "same-repository pull_request with label real-backend-run (synchronize/labeled); workflow_dispatch also defined",
+  "runner": "[self-hosted, Windows, X64, rdp-lab-client]",
+  "historicalIdentity": "WIN-NFU1JG4VESE\\User; interactive session previously 1 (re-read, not assumed, by the runner identity step)",
+  "backendKind": "actual_application",
+  "browserWebSocketStubbed": false,
+  "browserMode": "headed",
+  "attempts": [
+   {
+    "runId": "40076700953",
+    "result": "failed at step 7 (app smoke gate) before any measurement; steps 8-9 skipped",
+    "rootCause": "the new 8th LAB-R2 assertion used a regex Math::Max(5...) missing the [Math] qualifier, so it could never match the correct source line [Math]::Max(5, [Math]::Min(300...)); a test-only defect, no production code changed",
+    "fix": "corrected the regex to \\[Math\\]::Max(5,...); regenerated 0003 (same 423 lines, one in-place test line); clean replay now 19/19 on the exact VM vitest command and 1386/1386 full suite",
+    "evidence": "evidence/windows-run-40076700953-step7-fix.md"
+   },
+   {
+    "runId": "40078279249",
+    "headSha": "015a7ae",
+    "result": "step 7 smoke 19/19 PASS; step 8 PS parse PASS; step 9 measured; evaluate gate FAILed on the R2 matrix",
+    "r2Headline": "accept-loop starvation reproduced on pristine (wsUpgraded=true, /health blocked 5011ms; stall 4615ms) and removed on patched (stall 826ms, HTTP never blocked, median health 23-54ms)",
+    "remainingDefect": "every /ws upgrade is answered 503 even for the first connection on a fresh cap=8 gate (held=0, rejected=9); the worker never runs. Two inline 503 branches exist (admission Wait(0) vs dispatch BeginInvoke catch); the prior harness discarded the body so the branch was not attributable",
+    "matrixCounts": "PASS=20 FAIL=9 BLOCKED=9; r2Matrix PASS=1 FAIL=6 BLOCKED=3",
+    "nextStep": "instrumented 0003 (439 lines) logs gate CurrentCount, pool available runspaces and any exception via [LAB-R2] stdout+audit; harness captures the 503 body and r2AuditLines; the following run attributes the exact branch/.NET fault",
+    "evidence": "evidence/windows-run-40078279249-r2-503-defect.md"
+   },
+   {
+    "runId": "40081193119",
+    "headSha": "747192d",
+    "result": "instrumentation localised the fault; step 9 measured, gate FAILed while the all-503 defect persisted",
+    "rootCause": "System.Management.Automation.MethodException: Cannot find an overload for Create and the argument count 1, from [powershell]::Create($script:R2WsPool). The PS 5.1 [powershell] accelerator cannot bind the static Create(RunspacePool) 1-arg overload. No gate/saturated lines appeared and avail=8, proving the semaphore admission and pool were healthy; only the worker instance construction threw.",
+    "fix": "use [powershell]::Create() then set the settable RunspacePool property (binds on PS 5.1 and PS 7); added a 9th static assertion pinning the pattern and forbidding the 1-arg Create. 0003 is now 457 lines.",
+    "verificationSoFar": "r2 static test 9/9 on LF and CRLF; clean replay 3 files/20 smoke tests; full app suite 108 files/1387 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+    "evidence": "evidence/windows-run-40081193119-root-cause.md"
+   },
+   {
+    "runId": "40082655039",
+    "headSha": "ae4bfad",
+    "result": "Create overload fix confirmed (zero dispatch/gate faults, no 503); step 9 measured, gate FAILed on a second distinct defect",
+    "newSymptom": "every /ws ended in ECONNRESET with an empty body before any 101; held=0, okCycles=0; ordinary HTTP stayed fast (health median 50ms), stall 3818ms->1049ms",
+    "rootCause": "Invoke-ClientRequest outer try/finally disposes the stream and closes the client on every return. The async /ws dispatcher returns immediately, so that finally tore the socket down before the worker wrote 101; the inline baseline never hit this because the pump blocked inside the try for the socket lifetime.",
+    "fix": "added an r2Dispatched ownership flag set true on the /ws branch and guarded the outer finally with if (-not r2Dispatched); the worker finally remains the single owner that closes/disposes/releases. Worker catch now logs [LAB-R2] worker EXCEPTION instead of swallowing it; a 10th static assertion pins the guard. 0003 is now 509 lines.",
+    "verificationSoFar": "r2 static 10/10 on LF and CRLF; clean replay 3 files/21 smoke tests; full app suite 108 files/1388 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+    "evidence": "evidence/windows-run-40082655039-finally-ownership.md"
+   },
+   {
+    "runId": "40084261133",
+    "headSha": "a1d98f1",
+    "result": "defects #1 (Create overload) and #2 (finally ownership) confirmed fixed: real HTTP 101 upgrades now occur (101 observed on ws_accept_loop_block, one_ws and 5/5 multi_ws); step 7 smoke PASS, step 9 measured, step 12 gate honestly FAILed on a third distinct defect",
+    "confirmedGreen": {
+     "backend.ws_accept_loop_block": "PASS (wsUpgraded=true, blocked=false, healthDuringWsMs=55)",
+     "r2.no_ws_control_health": "PASS (median 53ms p95 58, 0 timeouts)",
+     "r2.one_ws_health_responsive": "PASS (upgraded=true, 5/6 health ok, median 30ms)",
+     "r2.multi_ws_health_and_config": "PASS (5/5 upgrades, health 6/6 max 88ms, /api/config 200/39ms)"
+    },
+    "newSymptom": "worker-slot leak: capacity control held only 3 of 8 slots then rejected 6 with 503 \"websocket capacity exhausted; retry\"; 18 stdout/audit lines all \"ws 503 saturated count=0 avail=0\"; zero ws-closed lines and zero worker EXCEPTION lines; repeated_cycles okCycles=5/10 with handle growth 886->913 while threads stayed 34; close/reconnect FAIL, idle expiry BLOCKED, frames/echo BLOCKED (503), malformed handshake FAIL (503), state_change socketsHeld=0; browser real.browser_ws_* all FAIL because the pool was exhausted before the browser phase",
+    "rootCause": "F99 pump only reads when data is already available, so a client disconnect carrying no pending bytes is never seen as EOF; the worker keeps its gate slot until the 8s test idle timeout, draining all 8 slots despite only a few live sockets",
+    "fix": "Socket.Poll(0, SelectRead) liveness probe at the top of each pump iteration; Poll-true with zero Available means peer FIN/reset -> break -> worker finally closes/disposes/releases within one loop tick; 11th static assertion added; 0003 regenerated at 537 lines",
+    "verificationSoFar": "r2 static 11/11 on LF and CRLF; clean replay 3 files/22 smoke tests; full app suite 108 files/1389 tests; production build OK; Windows re-confirm pending on the next real-backend run",
+    "evidence": "evidence/real-backend-40084261133/ (bot-committed sanitized stdout/stderr, patched-real-backend-report.json, control coverage, screenshots) and evidence/windows-run-40084261133-slot-leak.md"
+   },
+   {
+    "runId": "40086011776",
+    "headSha": "20df25a",
+    "result": "Socket.Poll slot-reclaim fix confirmed: all 11 r2.* raw-socket controls plus backend.ws_accept_loop_block PASS on the real Windows VM (30 PASS / 3 FAIL / 5 BLOCKED overall); step 7 smoke 22/22 PASS, step 8 PS parse PASS, step 12 gate FAILed only on the three headed real.browser_ws_* controls",
+    "r2Matrix": "held=8 rejected=1 (503 only on the 9th socket); frames=4 with helloAck; normal close + abrupt reconnect PASS; idle expiry 8191ms; malformed handshake 400; okCycles=10/10 handles 890->901 (+11) threads 35->34; stdout has exactly one saturated-503 line (the deliberate capacity probe) and zero EXCEPTION lines",
+    "remainingDefect": "the shipped frontend never constructs a WebSocket in the headed browser (Playwright totalObservations=0 across the whole session); the raw-socket lane against the same server fully passes, so the server upgrade path is healthy",
+    "rootCauseFound": "shadowed /health route: the first handler returned without a ws field and the F99 handler carrying ws=F96WsUpgradeSupported was unreachable, so wsAvailable was always false; fixed in this revision (single /health route + flag + 12th static assertion). Because the current client does not gate on wsAvailable, a harness-only browserWsDiagnostic was added to identify the remaining construction cause on the next run without weakening any gate",
+    "verificationSoFar": "r2 static 12/12 on LF and CRLF; clean replay 3 files/23 smoke tests; full app suite 108 files/1390 tests; production build OK; 0003 regenerated at 576 lines; Windows re-confirm pending",
+    "evidence": "evidence/real-backend-40086011776/ (bot-committed sanitized stdout/stderr, reports, control coverage, screenshots) and evidence/windows-run-40086011776-r2-matrix-green-browser-ws-open.md"
+   },
+   {
+    "runId": "40089578561",
+    "headSha": "abd4361",
+    "result": "all 11 r2/backend raw-socket controls stay PASS after the /health fix (30 PASS / 3 FAIL / 5 BLOCKED overall); step 7 smoke 23/23 and step 8 PS parse PASS; step 12 FAILed only on the three headed real.browser_ws_* controls",
+    "diagnostic": "browserWsDiagnostic proved: native WebSocket present and unstubbed; /health in-page returns ws=true; a manual in-page socket opened (readyState 1) with real frames and pings; yet Playwright context websocket and page request events fired zero times even for that proven-open socket -> instrumentation blind spot, not an application/transport failure",
+    "fix": "harness now observes via a transparent native-subclass recorder installed with addInitScript (no stub, no interception); the three browser controls read real app-socket state/frames/reconnect from it, keeping context events as secondary; recorder logic unit-tested locally",
+    "verificationSoFar": "lab regressions 235 pass/0 fail/8 skip; harness node --check OK; recorder mock test OK; Windows re-confirm pending",
+    "evidence": "evidence/real-backend-40089578561/ (bot evidence) and evidence/windows-run-40089578561-instrumentation-blind-spot.md"
+   },
+   {
+    "runId": "40091165292",
+    "headSha": "5ba3745",
+    "result": "R2 ACCEPTED - workflow evaluate step passed; 33 PASS / 0 FAIL / 5 BLOCKED; identity actual_application / stub=false / headed",
+    "r2Matrix": "11/11 r2 + backend.ws_accept_loop_block PASS (held=8 rejected=1 503; frames/hello-ack; reconnect; idle 8050ms; malformed 400; cycles 10/10 handles +14 threads flat; HTTP never blocked)",
+    "browserControls": "real.browser_ws_real_frames PASS (app socket readyState=1 framesIn=11 framesOut=6); real.browser_ws_http_concurrent PASS (/health 200 ws=true, force-poll 200, socket still open); real.browser_ws_reconnect PASS (shipped ladder opened a second app socket with a fresh frame); observed via the transparent native-subclass recorder, contextEvents=0 (blind channel)",
+    "blockedByDesign": "real.sessions.list, real.files.browse, real.search.query, real.native_rdp_connect, real.web_desktop_frames (real logon/index/search backend or separate lab RDP/Web Desktop server required; never simulated)",
+    "verificationSoFar": "app suite 108 files/1390 tests; r2 static 12/12 LF+CRLF; lab regressions 235/0/8; recorder mock unit test OK; production build OK; audit has one capacity-503 line and zero exceptions",
+    "evidence": "evidence/real-backend-40091165292/ (bot evidence) and evidence/windows-run-40091165292-r2-accepted.md"
+   }
+  ],
+  "status": "R2 accept-loop starvation repair ACCEPTED on the real Windows client across raw-socket and headed-browser evidence (run 40091165292, evaluate step green). Remaining mission work: native RDP/Web Desktop acceptance (BLOCKED on a separate lab server), control-by-control inventory and the final separated verdict report",
+  "matrixControls": [
+   "r2.no_ws_control_health",
+   "r2.one_ws_health_responsive",
+   "r2.multi_ws_health_and_config",
+   "r2.capacity_limit_predictable",
+   "r2.state_change_while_ws_open",
+   "r2.ws_real_frames_and_echo",
+   "r2.ws_close_abrupt_reconnect",
+   "r2.ws_idle_expiry",
+   "r2.ws_malformed_handshake_bounded",
+   "r2.repeated_cycles_no_leak",
+   "real.browser_ws_real_frames",
+   "real.browser_ws_http_concurrent",
+   "real.browser_ws_reconnect",
+   "backend.ws_accept_loop_block"
+  ]
+ },
+ "verdictScope": {
+  "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
+  "PATCHED_APPLICATION_CANDIDATE": "R2 PASS on real Windows (run 40091165292): static/build/smoke 1390/1390, step-7 gate 23/23, 11/11 raw-socket r2 controls and all three headed unstubbed browser_ws controls PASS with genuine frames, exact capacity, reconnect, idle expiry and no leak; 33 PASS / 0 FAIL / 5 design-BLOCKED",
+  "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
+  "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
+  "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",
+  "NATIVE_RDP_WEB_DESKTOP": "BLOCKED on a separate lab-owned application server (see MAIN-REPOSITORY-HANDOFF.md and the capability verification reports)"
+ }
+}

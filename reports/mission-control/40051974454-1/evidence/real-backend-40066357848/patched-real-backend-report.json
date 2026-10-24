@@ -1,0 +1,510 @@
+{
+  "schema": "slab-real-backend/1",
+  "generatedAt": "2026-10-24T05:34:36.773Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "identity": {
+    "label": "patched",
+    "appSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "labRevision": "4aa2306af6a014f4880273ad55ac56b75e297742",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": true,
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "ghrdp-server.ps1",
+    "serverPid": 8304
+  },
+  "timings": {
+    "desktopLockMs": 439,
+    "markerAppearedMs": 1036,
+    "markerText": "LISTENING pid=8304 bind=127.0.0.1 port=7331 at=2026-10-24T11:04:38.3646143+05:30",
+    "listenerAppearedMs": 1037,
+    "connectMs": 0,
+    "firstHealthMs": 891,
+    "stallMs": 893,
+    "firstHealthStatus": 200,
+    "readyAppearedMs": 1930,
+    "readyText": "READY pid=8304 port=7331 at=2026-10-24T11:04:38.5507570+05:30",
+    "healthSampleCount": 49,
+    "healthLatencyP95Ms": 75,
+    "healthLatencyMaxMs": 2366,
+    "healthLatencySamples": [
+      {
+        "t": 41,
+        "ms": 41
+      },
+      {
+        "t": 2309,
+        "ms": 57
+      },
+      {
+        "t": 4500,
+        "ms": 59
+      },
+      {
+        "t": 6988,
+        "ms": 62
+      },
+      {
+        "t": 11497,
+        "ms": 23
+      },
+      {
+        "t": 13573,
+        "ms": 26
+      },
+      {
+        "t": 15843,
+        "ms": 42
+      }
+    ],
+    "concurrent": {
+      "healthMs": 360,
+      "healthStatus": 200,
+      "slowFired": true,
+      "slowEndpoint": "/api/native-status",
+      "slowMs": 354,
+      "slowStatus": 200,
+      "slowBytes": 2609
+    },
+    "wsBlock": {
+      "wsUpgraded": true,
+      "healthDuringWsMs": 5010,
+      "healthOk": false,
+      "blocked": true
+    }
+  },
+  "endpoints": {
+    "/health": {
+      "status": 200,
+      "ok": true,
+      "ms": 56,
+      "bytes": 599,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "app",
+        "pid",
+        "listenerBound",
+        "bind",
+        "port",
+        "serverStartedUtc",
+        "scans"
+      ],
+      "bodyHead": "{\"ok\":true,\"app\":\"ghrdp\",\"pid\":8304,\"listenerBound\":true,\"bind\":\"127.0.0.1\",\"port\":7331,\"serverStartedUtc\":\"10/24/2026 05:34:37\",\"scans\":{\"logon\":{\"scanTs\":null,\"probeError\":null},\"connLog\":{\"scanTs\":null,\"probeError\":null},\"telescope\":{\"scanTs\":\"2026-10-24T05:34:47.3882642Z\",\"probeError\":\"telescope red: {\\\"ts\\\":\\\"2026-10-24T05:34:49.5104077Z\\\",\\\"trace\\\":\\\"t261024053447-live-fb084588\\\",\\\"src\\\":\\\"l"
+    },
+    "/api/config": {
+      "status": 200,
+      "ok": true,
+      "ms": 79,
+      "bytes": 811,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"labCandidate\":true,\"labOnly\":true,\"identity\":\"isolated-lab-candidate-not-live-origin\",\"rdpIp\":\"127.0.0.1\",\"ghrdp\":\"lab-candidate\",\"dnsName\":\"lab-candidate.invalid\",\"hostKind\":\"lab-isolated\",\"buildSha\":\"cand-4aa2306af6a0\",\"repo\":\"dictationb1/supreme-lamp-lab\",\"mirror\":false,\"mirrorHosts\":[],\"encryptMode\":\"all\",\"telegraphToken\":\"\",\"telegraphPath\":\"\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\""
+    },
+    "/api/native-status": {
+      "status": 200,
+      "ok": true,
+      "ms": 119,
+      "bytes": 12838,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"fqdn\":\"lab-candidate.invalid\",\"hostKind\":\"ephemeral\",\"buildSha\":\"cand-4aa2306af6a0\",\"rdpListener\":{\"authLast\":null,\"logonCollector\":{\"intervalSec\":30,\"staleSec\":90,\"scans\":0,\"alive\":true,\"startedAt\":\"2026-10-24T05:34:37.9426596Z\",\"uptimeSec\":18,\"lastScanAgeSec\":null,\"probeError\":\"\"},\"credsspLive\":\"warn\",\"credsspLiveWhy\":\"cert-not-bound\",\"credsspLiveTs\":\"2026-10-24T05:34:56.2413051Z\",\"connLog\":nu"
+    },
+    "/api/progress": {
+      "status": 200,
+      "ok": true,
+      "ms": 103,
+      "bytes": 1180,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"ok\":true,\"status\":\"ok\",\"phase\":\"ready\",\"serverTs\":\"2026-10-24T05:34:56Z\",\"mirror\":false,\"encryptMode\":\"all\",\"mirrorPlaintextElection\":false,\"mirrorDiag\":null,\"mirrorProbe\":null,\"ghrdp\":\"lab-candidate\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\",\"startedAt\":\"2026-10-24T05:34:37.315Z\",\"runStartedAt\":\"2026-10-24T05:34:37.315Z\",\"sessionStartedAt\":\"\",\"sessionEnd\":\"\",\"legacyIndexUrl\":\"\",\"rentryNe"
+    },
+    "/api/version": {
+      "status": 200,
+      "ok": true,
+      "ms": 85,
+      "bytes": 288,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "server",
+        "sha",
+        "sha7",
+        "shaSource",
+        "features"
+      ],
+      "bodyHead": "{\"ok\":true,\"server\":\"ghrdp\",\"sha\":\"4a91c5c2eadc12e5b071bc46bae7683087f56fbd\",\"sha7\":\"4a91c5c\",\"shaSource\":\"env.GITHUB_SHA\",\"features\":{\"autoHttps\":true,\"wwwTolerance\":true,\"noFallback\":true,\"downloadToRdp\":true,\"launchTiers\":true,\"selfTest\":true,\"mirrorLauncher\":true,\"streamProxy\":true}}"
+    },
+    "/ping": {
+      "status": 200,
+      "ok": true,
+      "ms": 2184,
+      "bytes": 42,
+      "ctype": "application/json",
+      "topLevelKeys": [
+        "ok",
+        "wire",
+        "ts"
+      ],
+      "bodyHead": "{\"ok\":true,\"wire\":null,\"ts\":{\"Length\":33}}"
+    },
+    "/": {
+      "status": 200,
+      "ok": true,
+      "ms": 1458,
+      "bytes": 1273470,
+      "ctype": "text/html; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "\n\n  \n    \n    \n    <meta name="
+    }
+  },
+  "socketOwner": "pid=8304 name=powershell start=2026-10-24T11:04:37.3250066+05:30",
+  "controls": [
+    {
+      "control_id": "backend.ws_accept_loop_block",
+      "area": "health",
+      "pre": "real PowerShell server, authenticated raw WebSocket upgrade",
+      "action": "Open one /ws connection and concurrently GET /health.",
+      "expect_ui": "an unrelated lightweight endpoint stays responsive while a long-lived WS is open",
+      "expect_req": "GET /ws (101) + GET /health in parallel",
+      "actual": "wsUpgraded=true blocked=true healthDuringWsMs=5010 ",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden"
+    },
+    {
+      "control_id": "real.auth_gate",
+      "area": "authentication",
+      "pre": "real PowerShell server, fresh context, no key",
+      "action": "Load /?ui=v2 without a dashboard key.",
+      "expect_ui": "the token gate blocks the dashboard (or an explicit refusal is shown)",
+      "expect_req": "GET / -> 200 real ui-v2.html",
+      "actual": "gateVisible=false",
+      "evidence": "shots\\gate-patched.png",
+      "verdict": "FAIL",
+      "note": "a rendered UI behind a real gate is proof of real bootstrap, not a stub"
+    },
+    {
+      "control_id": "real.authenticated_shell",
+      "area": "overview",
+      "pre": "real server, valid synthetic key",
+      "action": "Load with ?key, wait for the app shell.",
+      "expect_ui": "app-topbar mounts against the real backend; served origin is this server",
+      "expect_req": "GET /api/config, /api/native-status, /api/progress -> real responses",
+      "actual": "shell=true unlocked=true origin=http://127.0.0.1:7331 uiV2MissingBanner=false topStatus=\"Live\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.status_chip_semantics",
+      "area": "overview",
+      "pre": "real backend with lab synthetic data",
+      "action": "Read the topbar status chip and the auto-login gate note.",
+      "expect_ui": "the chip does not assert \"Live\" from an unmeasured state; the note names the actual probe result",
+      "expect_req": "200 /api/native-status consumed truthfully (F201)",
+      "actual": "chip=\"Live\" note=\"WINDOWS AUTO-LOGIN is unavailable because: waiting for the first status answer; nothing has been measured yet\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": "F201: a refused/empty probe must not become confirmed credential/DNS/listener failure"
+    },
+    {
+      "control_id": "real.nav.overview",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/ and assert [overview-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=overview-page visible=true heading=\"Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose fr\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.search",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/search and assert [search-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=search-page visible=true heading=\"Search Ready Federated search across the compiled source roster and your own sto\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.sessions",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/sessions and assert [page-sessions] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-sessions visible=true heading=\"Sessions The current runner session, its logon events and the ticket audit.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.connections",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/connections and assert [page-connections] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-connections visible=true heading=\"Connections fqdn pending Launch, copy and diagnose the RDP connection.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.keys",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/keys and assert [page-keys] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-keys visible=true heading=\"Keys & Secrets Protected access. Values stay masked until you reveal them.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.files",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/files and assert [file-explorer-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=file-explorer-page visible=true heading=\"File Explorer Read / write Live runner index Real operations on the watcher root\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.mirror",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/mirror and assert [page-mirror] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-mirror visible=true heading=\"Mirror Runner-side upload mirroring and its read-only transport matrix.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.telemetry",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/telemetry and assert [page-telemetry] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-telemetry visible=true heading=\"Telemetry Event timelines and the raw log streams behind them.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.health",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/health and assert [health-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=health-page visible=true heading=\"Health Probing… Every self-test check, with the one-cell fix for each failing ro\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.collector",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/collector and assert [collector-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=collector-page visible=true heading=\"Collector No run yet Live feature probes, on demand or on the 1/5 minute schedul\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.settings",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/settings and assert [page-settings] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-settings visible=true heading=\"Settings Appearance, glass quality, sources, storage and developer surfaces.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.settings_theme_toggle",
+      "area": "settings",
+      "pre": "authenticated real server",
+      "action": "Click the theme toggle.",
+      "expect_ui": "document data-theme changes and persists",
+      "expect_req": "browser-local only (no backend)",
+      "actual": "before=dark after=light clicked=true",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "real browser-local setting, not inferred from a unit test"
+    },
+    {
+      "control_id": "real.sessions.list",
+      "area": "sessions",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/sessions on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/sessions",
+      "actual": "status=404 ms=1582 bytes=9 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: real session rows (needs a genuine logon) (endpoint 404)"
+    },
+    {
+      "control_id": "real.keys.reveal",
+      "area": "keys",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/config on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/config",
+      "actual": "status=200 ms=10 bytes=811 keys=[]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; masked creds in the authenticated config (reveal needs the real store) is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.files.browse",
+      "area": "files",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/fx/list on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/fx/list",
+      "actual": "status=404 ms=133 bytes=279 keys=[phase,error,at,index]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: File Explorer index (needs the real staged filesystem index) (endpoint 404)"
+    },
+    {
+      "control_id": "real.mirror.start",
+      "area": "mirror",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/mirror/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/mirror/status",
+      "actual": "status=200 ms=2247 bytes=152 keys=[ok,enabled,mirror,hosts,host,scope,source,at]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; mirror status (real start needs external hosts + opt-in) is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.telemetry.samples",
+      "area": "telemetry",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/progress on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/progress",
+      "actual": "status=200 ms=34 bytes=1180 keys=[]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; real progress samples is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.health.service_checks",
+      "area": "health",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /health on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /health",
+      "actual": "status=200 ms=48 bytes=669 keys=[ok,app,pid,listenerBound,bind,port,serverStartedUtc,scans]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; real service health is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.search.query",
+      "area": "search",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/search/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/search/status",
+      "actual": "status=403 ms=48 bytes=246 keys=[requestId,traceId,code,messageKey,retryable,details]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: search lane status (a real query needs the search backend) (endpoint 403)"
+    },
+    {
+      "control_id": "real.native_rdp_connect",
+      "area": "connections",
+      "pre": "requires a signed production launcher, a real run key and an RDP listener",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: native RDP needs the origin signal chain + signed launcher + a real listener",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "lab server is loopback with synthetic identity; a helper-only connect is NOT counted"
+    },
+    {
+      "control_id": "real.web_desktop_frames",
+      "area": "connections",
+      "pre": "requires a real noVNC/TightVNC session on the tailnet",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: web desktop needs a real captured interactive session",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "no simulated frames are counted as proof"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 404 ()",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "failedRequests": [
+    {
+      "url": "http://127.0.0.1:7331/?ui=v2",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/api/fx/list",
+      "why": "net::ERR_ABORTED"
+    }
+  ],
+  "verdicts": {
+    "PASS": 18,
+    "FAIL": 2,
+    "BLOCKED": 5,
+    "PENDING": 0
+  },
+  "fatal": "initial goto: page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:7331/?ui=v2\", waiting until \"domc",
+  "desktopLock": "acquired",
+  "startupDiag": {
+    "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40066357848\\ghrdp-server.ps1 -Port 7331 -Bind 127.0.0.1 -Root C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40066357848 -LimitMinutes 6",
+    "runFile": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40066357848\\ghrdp-server.ps1",
+    "root": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40066357848",
+    "resolvedRunFileExists": true,
+    "liveness": [
+      {
+        "t": 6,
+        "exited": false,
+        "spawnError": "",
+        "stdoutBytes": 0,
+        "stderrBytes": 0,
+        "listener": false
+      }
+    ],
+    "listenerAppeared": true
+  },
+  "browserWsStubbed": true,
+  "_startupStallMs": 893
+}

@@ -1,0 +1,46 @@
+# sanitized server stdout (secrets redacted)
+[F45] fx upload worker: started=True reason=
+True
+True
+[LAB-R2] websocket worker pool ready max=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[F28] logon scan #1 result=success sub=- eventTs=2026-10-24T08:35:41.0159031Z 4624=6 4625=0 scanTs=2026-10-24T09:22:55.1192378Z
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[F30] conn-log scan #1 items=0 reasons=(none) scanTs=2026-10-24T09:22:55.3240958Z probeError=conn-logs-unreadable
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+[LAB-R2] dispatch FAULT: System.Management.Automation.MethodException Cannot find an overload for "Create" and the argument count: "1". avail=8
+

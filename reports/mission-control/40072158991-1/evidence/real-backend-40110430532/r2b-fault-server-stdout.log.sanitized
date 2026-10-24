@@ -1,0 +1,10 @@
+# sanitized (secrets redacted); tail of the last fault server
+[F45] fx upload worker: started=True reason=
+True
+True
+[LAB-R2] worker pool unavailable; /ws answers 503 until re-init succeeds: System.Management.Automation.RuntimeException LAB-INJECTED transient pool init failure (fault-injection harness)
+[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED transient pool init failure (fault-injection harness) retryInSec=5
+True
+True
+[LAB-R2] websocket worker pool ready max=8
+

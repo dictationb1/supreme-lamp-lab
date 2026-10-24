@@ -1,0 +1,128 @@
+﻿[
+    {
+        "port":  7331,
+        "route":  "/api/ping",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15034,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/health",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15027,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/api/version",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15039,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15028,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/v2",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15041,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/api/native-status",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15032,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7331,
+        "route":  "/api/status",
+        "httpCode":  "000",
+        "bytes":  "0",
+        "curlExit":  28,
+        "wallMs":  15039,
+        "classification":  "ACCEPTED_NO_HTTP"
+    },
+    {
+        "port":  7332,
+        "route":  "/api/ping",
+        "httpCode":  "404",
+        "bytes":  "0",
+        "curlExit":  0,
+        "wallMs":  650,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/health",
+        "httpCode":  "200",
+        "bytes":  "129",
+        "curlExit":  0,
+        "wallMs":  764,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/api/version",
+        "httpCode":  "404",
+        "bytes":  "0",
+        "curlExit":  0,
+        "wallMs":  646,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/",
+        "httpCode":  "200",
+        "bytes":  "323111",
+        "curlExit":  0,
+        "wallMs":  1901,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/v2",
+        "httpCode":  "404",
+        "bytes":  "0",
+        "curlExit":  0,
+        "wallMs":  635,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/api/native-status",
+        "httpCode":  "404",
+        "bytes":  "0",
+        "curlExit":  0,
+        "wallMs":  667,
+        "classification":  "ANSWERING"
+    },
+    {
+        "port":  7332,
+        "route":  "/api/status",
+        "httpCode":  "404",
+        "bytes":  "0",
+        "curlExit":  0,
+        "wallMs":  636,
+        "classification":  "ANSWERING"
+    }
+]

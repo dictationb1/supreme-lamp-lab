@@ -1,0 +1,62 @@
+﻿{
+    "schema":  "slab-real-backend-comparison/1",
+    "generatedAt":  "2026-10-24T05:36:37.3343767Z",
+    "labSha":  "4aa2306af6a014f4880273ad55ac56b75e297742",
+    "appSha":  "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "bundleSha256":  "436b8e24a3d5af6b63999958ab3891dfa8bdc050c3dc5e5dec0cc1530bc15d30",
+    "baseline":  {
+                     "stallMs":  3281,
+                     "firstHealthMs":  3280,
+                     "readyAppearedMs":  null,
+                     "markerText":  "LISTENING pid=1932 bind=127.0.0.1 port=7331 at=2026-10-24T11:02:33.5857780+05:30",
+                     "readyText":  null,
+                     "healthP95Ms":  68,
+                     "healthMaxMs":  2164,
+                     "concurrent":  {
+                                        "healthMs":  329,
+                                        "healthStatus":  200,
+                                        "slowFired":  true,
+                                        "slowEndpoint":  "/api/native-status",
+                                        "slowMs":  323,
+                                        "slowStatus":  200,
+                                        "slowBytes":  13937
+                                    },
+                     "fatal":  "initial goto: page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:7331/?ui=v2\", waiting until \"domc",
+                     "verdicts":  {
+                                      "PASS":  18,
+                                      "FAIL":  2,
+                                      "BLOCKED":  5,
+                                      "PENDING":  0
+                                  },
+                     "socketOwner":  "pid=1932 name=powershell start=2026-10-24T11:02:32.3730689+05:30"
+                 },
+    "patched":  {
+                    "stallMs":  893,
+                    "firstHealthMs":  891,
+                    "readyAppearedMs":  1930,
+                    "markerText":  "LISTENING pid=8304 bind=127.0.0.1 port=7331 at=2026-10-24T11:04:38.3646143+05:30",
+                    "readyText":  "READY pid=8304 port=7331 at=2026-10-24T11:04:38.5507570+05:30",
+                    "healthP95Ms":  75,
+                    "healthMaxMs":  2366,
+                    "concurrent":  {
+                                       "healthMs":  360,
+                                       "healthStatus":  200,
+                                       "slowFired":  true,
+                                       "slowEndpoint":  "/api/native-status",
+                                       "slowMs":  354,
+                                       "slowStatus":  200,
+                                       "slowBytes":  2609
+                                   },
+                    "fatal":  "initial goto: page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:7331/?ui=v2\", waiting until \"domc",
+                    "verdicts":  {
+                                     "PASS":  18,
+                                     "FAIL":  2,
+                                     "BLOCKED":  5,
+                                     "PENDING":  0
+                                 },
+                    "socketOwner":  "pid=8304 name=powershell start=2026-10-24T11:04:37.3250066+05:30"
+                },
+    "stallDeltaMs":  2388,
+    "patchedReadyPublished":  true,
+    "baselineReadyPublished":  false
+}

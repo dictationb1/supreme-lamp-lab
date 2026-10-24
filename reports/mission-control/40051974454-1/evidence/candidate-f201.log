@@ -1,0 +1,36 @@
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 /home/user/mc-candidate
+
+stdout | src/tests/smoke/f201-probe-honesty.test.tsx
+... repeated framework/jsdom diagnostics omitted; counts and final result retained ...
+    at commitPassiveMountEffects_complete (/home/user/mc-candidate/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (/home/user/mc-candidate/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24917:7)
+    at commitPassiveMountEffects (/home/user/mc-candidate/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:24905:3)
+    at flushPassiveEffectsImpl (/home/user/mc-candidate/node_modules/.pnpm/react-dom@18.3.1_react@18.3.1/node_modules/react-dom/cjs/react-dom.development.js:27078:3) undefined
+Warning: An update to MirrorCard inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at MirrorCard (/home/user/mc-candidate/src/components/domain/MirrorCard.tsx:34:39)
+    at div
+    at details
+    at div
+    at Overview (/home/user/mc-candidate/src/pages/Overview.tsx:59:39)
+    at Router (/home/user/mc-candidate/node_modules/.pnpm/react-router@6.30.6_react@18.3.1/node_modules/react-router/dist/umd/react-router.development.js:1203:17)
+    at MemoryRouter (/home/user/mc-candidate/node_modules/.pnpm/react-router@6.30.6_react@18.3.1/node_modules/react-router/dist/umd/react-router.development.js:1097:7)
+
+ ✓ src/tests/smoke/f201-probe-honesty.test.tsx (8 tests) 818ms
+   ✓ F201 Overview gate wording > names the refused status read, not credentials/DNS/listener, when nothing was measured 358ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  02:12:56
+   Duration  2.77s (transform 676ms, setup 174ms, collect 979ms, tests 818ms, environment 428ms, prepare 178ms)
+
