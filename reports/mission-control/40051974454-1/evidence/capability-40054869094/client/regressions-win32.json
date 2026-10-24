@@ -1,0 +1,1170 @@
+{
+  "schema": 1,
+  "platform": "win32",
+  "node": "v22.23.3",
+  "requireBrowser": true,
+  "total": 231,
+  "passed": 231,
+  "failed": 0,
+  "skipped": 0,
+  "failures": [],
+  "skips": [],
+  "finishedAt": "2026-10-24T02:43:29.109Z",
+  "results": [
+    {
+      "name": "status: only all-required-PASS is accepted",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "status: a FAIL is never overwritten by a later PASS",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "readiness: strict contract table",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "version: exact sha, no dev/unknown fallback",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "fixture readiness: ok",
+      "status": "PASS",
+      "ms": 108
+    },
+    {
+      "name": "fixture readiness: slow-ready",
+      "status": "PASS",
+      "ms": 2587
+    },
+    {
+      "name": "fixture readiness: initializing",
+      "status": "PASS",
+      "ms": 4807
+    },
+    {
+      "name": "fixture readiness: contradictory",
+      "status": "PASS",
+      "ms": 4792
+    },
+    {
+      "name": "fixture readiness: missing-fields",
+      "status": "PASS",
+      "ms": 5063
+    },
+    {
+      "name": "fixture readiness: string-booleans",
+      "status": "PASS",
+      "ms": 4791
+    },
+    {
+      "name": "fixture readiness: http-500",
+      "status": "PASS",
+      "ms": 4795
+    },
+    {
+      "name": "fixture readiness: invalid-json",
+      "status": "PASS",
+      "ms": 5079
+    },
+    {
+      "name": "fixture readiness: wrong-listener (pid of another process) is terminal",
+      "status": "PASS",
+      "ms": 140
+    },
+    {
+      "name": "fixture readiness: crash-after-ready becomes unreachable with full cause chain",
+      "status": "PASS",
+      "ms": 2838
+    },
+    {
+      "name": "fixture readiness: exit-early fixture never listens",
+      "status": "PASS",
+      "ms": 387
+    },
+    {
+      "name": "fixture readiness: isAlive=false aborts with BACKEND_EXITED",
+      "status": "PASS",
+      "ms": 17
+    },
+    {
+      "name": "fixture version: ok",
+      "status": "PASS",
+      "ms": 131
+    },
+    {
+      "name": "fixture version: wrong-sha",
+      "status": "PASS",
+      "ms": 110
+    },
+    {
+      "name": "fixture version: dev-sha",
+      "status": "PASS",
+      "ms": 103
+    },
+    {
+      "name": "http: connection refused keeps nested cause (not just \"fetch failed\")",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "redact: tokens, auth headers, URL creds, cmdkey /pass",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "image: PNG validation rejects truncated/tiny, flags uniform",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "image: JPEG validation needs SOI, SOF dims and EOI",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "proc: identity is stable and exact; createTime present",
+      "status": "PASS",
+      "ms": 1043
+    },
+    {
+      "name": "proc: descendants include grandchildren",
+      "status": "PASS",
+      "ms": 539
+    },
+    {
+      "name": "lock: live holder blocks; acquisition fails with holder info",
+      "status": "PASS",
+      "ms": 1773
+    },
+    {
+      "name": "lock: dead owner (process gone) is recovered",
+      "status": "PASS",
+      "ms": 681
+    },
+    {
+      "name": "lock: PID reuse (live pid, different createTime) counts as dead owner",
+      "status": "PASS",
+      "ms": 26
+    },
+    {
+      "name": "lock: owner-less dir is only recovered after the grace period",
+      "status": "PASS",
+      "ms": 598
+    },
+    {
+      "name": "lock: recovery race - a stale verdict never steals a re-acquired live lock",
+      "status": "PASS",
+      "ms": 17
+    },
+    {
+      "name": "lock: release by a non-owner handle is refused",
+      "status": "PASS",
+      "ms": 18
+    },
+    {
+      "name": "lock: 4 concurrent processes x 5 increments = mutual exclusion (no lost update)",
+      "status": "PASS",
+      "ms": 4534
+    },
+    {
+      "name": "lock: a live holder is never stolen, even when the lock looks old",
+      "status": "PASS",
+      "ms": 1376
+    },
+    {
+      "name": "lock: crashed owner is recovered and an unrelated live process is left alone",
+      "status": "PASS",
+      "ms": 717
+    },
+    {
+      "name": "lock: a failed release is retried, relinquished, and the next worker takes over (no self-deadlock)",
+      "status": "PASS",
+      "ms": 971
+    },
+    {
+      "name": "lock: a live holder with a slow identity query is not poll-stormed (bounded identity queries, bounded wall clock)",
+      "status": "PASS",
+      "ms": 1403
+    },
+    {
+      "name": "registry: 5 concurrent registrations, no lost update, no tmp leftovers",
+      "status": "PASS",
+      "ms": 3339
+    },
+    {
+      "name": "registry: corrupt file is refused and preserved, never overwritten",
+      "status": "PASS",
+      "ms": 1398
+    },
+    {
+      "name": "cleanup.decide: identity, protection, session and abandonment rules",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "cleanup: postflight kills only this run+attempt (with descendants); preflight only abandoned",
+      "status": "PASS",
+      "ms": 11843
+    },
+    {
+      "name": "cleanup: PID-reuse record (wrong createTime) is dropped without killing",
+      "status": "PASS",
+      "ms": 1296
+    },
+    {
+      "name": "report: VERIFIED only when every capability PASS and static succeeded",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "oidc: immutable subject cannot match documented name-only pattern",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "peer: exact hostname / -N suffix, no prefix confusion between attempts",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "mc-check CLI: contradictory backend -> FAIL, dashboard BLOCKED, outputs written",
+      "status": "PASS",
+      "ms": 3076
+    },
+    {
+      "name": "mc-check CLI: --blocked-reason records the prerequisite cause on every capability",
+      "status": "PASS",
+      "ms": 488
+    },
+    {
+      "name": "mc-check CLI: --fail-reason is a causal FAIL on backend readiness, dependants BLOCKED",
+      "status": "PASS",
+      "ms": 485
+    },
+    {
+      "name": "mc-check CLI: missing --expect-sha is BLOCKED (never PASS/SKIPPED)",
+      "status": "PASS",
+      "ms": 535
+    },
+    {
+      "name": "mc-check CLI: unreachable backend reports the cause chain",
+      "status": "PASS",
+      "ms": 977
+    },
+    {
+      "name": "session lock held -> browser-check FAILs both capabilities (no warn-and-continue)",
+      "status": "PASS",
+      "ms": 1807
+    },
+    {
+      "name": "supervisor: healthy fixture passes okfile+listener+readiness, then is stopped",
+      "status": "PASS",
+      "ms": 4717
+    },
+    {
+      "name": "supervisor: startup crash -> BACKEND_EXITED_BEFORE_LISTENING with stderr",
+      "status": "PASS",
+      "ms": 1066
+    },
+    {
+      "name": "supervisor: readiness pid of another process -> READINESS_WRONG_PROCESS",
+      "status": "PASS",
+      "ms": 3687
+    },
+    {
+      "name": "supervisor: port owned by a foreign process -> BACKEND_PORT_OWNED_BY_OTHER",
+      "status": "PASS",
+      "ms": 3830
+    },
+    {
+      "name": "supervisor: crash while initializing -> BACKEND_EXITED (liveness monitored)",
+      "status": "PASS",
+      "ms": 14167
+    },
+    {
+      "name": "supervisor hold: keeps backend alive until the client job completes",
+      "status": "PASS",
+      "ms": 4715
+    },
+    {
+      "name": "supervisor hold: backend dying during hold is a failure",
+      "status": "PASS",
+      "ms": 12864
+    },
+    {
+      "name": "browser e2e mc-check server-local: ok",
+      "status": "PASS",
+      "ms": 3310
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-missing",
+      "status": "PASS",
+      "ms": 1708
+    },
+    {
+      "name": "browser e2e mc-check server-local: wrong-sha",
+      "status": "PASS",
+      "ms": 1052
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2",
+      "status": "PASS",
+      "ms": 4118
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-unmounted",
+      "status": "PASS",
+      "ms": 22968
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-stale",
+      "status": "PASS",
+      "ms": 2572
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-missing",
+      "status": "PASS",
+      "ms": 1753
+    },
+    {
+      "name": "ps: hanging helper reaches a bounded timeout, keeps stderr and reports its call site",
+      "status": "PASS",
+      "ms": 1217
+    },
+    {
+      "name": "ps: the enclosing deadline clamps the helper budget (no overrun past the deadline)",
+      "status": "PASS",
+      "ms": 716
+    },
+    {
+      "name": "ps: an exhausted budget never spawns a helper",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "ps: non-zero exit retains stderr, exit code and operation",
+      "status": "PASS",
+      "ms": 71
+    },
+    {
+      "name": "ps: success keeps stdout and resolves the resolved executable",
+      "status": "PASS",
+      "ms": 76
+    },
+    {
+      "name": "proc: a helper failure becomes a structured, sanitized diagnostic (not a bare ETIMEDOUT)",
+      "status": "PASS",
+      "ms": 923
+    },
+    {
+      "name": "supervisor: a helper timeout is an UNVERIFIED guard, never a backend crash",
+      "status": "PASS",
+      "ms": 4124
+    },
+    {
+      "name": "supervisor: a crashed backend is still distinguished from an unverified one",
+      "status": "PASS",
+      "ms": 1874
+    },
+    {
+      "name": "cleanup: a helper timeout performs no kills and fails loudly",
+      "status": "PASS",
+      "ms": 1951
+    },
+    {
+      "name": "tailnet: the true category is retained (rejection is not inferred from a subject)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "lock: foreign live PID reuse (separate live child process, mismatched createTime) is recovered",
+      "status": "PASS",
+      "ms": 574
+    },
+    {
+      "name": "report: a supervisor guard timeout and a tailnet rejection are BOTH preserved",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "report: an unverified diagnostic is never labelled a proven backend crash",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "report: prerequisites (BLOCKED) are listed separately from the causal FAIL",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "report: all nine capabilities PASS is NOT VERIFIED when a regression gate failed",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "report: VERIFIED is still impossible without every capability PASS",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "logon: type 10 is proven directly or by same-instant XML correlation, never inferred from a remote IP",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "logon: stale type-2 / unrelated authLast records are rejected (run 39575343527 shape)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "logon: native-status cross-check confirms, contradicts, or stays unavailable",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "rdp file: utf8/no-BOM, CRLF, carries the target directives (production launcher shape)",
+      "status": "PASS",
+      "ms": 9
+    },
+    {
+      "name": "tcp probe: listening loopback ok, closed port fails bounded",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "report: rdp FAIL is first cause; web_desktop BLOCKED is downstream of it (run 39560693766 shape)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "report: an independent web_desktop FAIL stays a root cause next to an rdp FAIL",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "dialogs: an owned/modal RDP-file consent dialog with no main window is BLOCKED / RDP_FILE_CONSENT_REQUIRED",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "dialogs: publisher review / certificate warning / credentials prompt / connection error are distinguished",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "dialogs: a live session window or the plain mstsc surface is never a blocking dialog",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "eventlog: zero matching events vs channel-missing vs access-denied vs query failure",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "report: RDP_FILE_CONSENT_REQUIRED is a BLOCKED root cause, web_desktop stays downstream, verdict NOT_VERIFIED",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "rdp target: placeholders, loopback, documentation and expired shapes are refused",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "consent bootstrap: unknown flags / placeholder hosts are refused instead of writing a useless .rdp",
+      "status": "PASS",
+      "ms": 201
+    },
+    {
+      "name": "consent setup: the state machine never turns \"dialog closed\" or \"no dialog\" into a consent claim",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "dialogs: the consent manual action names the SETUP procedure, not an unexplained placeholder",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "consent setup CLI: bounded window enforced, placeholder target refused, non-Windows refused",
+      "status": "PASS",
+      "ms": 253
+    },
+    {
+      "name": "SETUP runs can never emit a verification verdict (setup-summary is explicitly verdict-free)",
+      "status": "PASS",
+      "ms": 103
+    },
+    {
+      "name": "logon: intended identity must be proven (empty/foreign user echo) and the attempt window is bounded at both ends",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app defect: -notmatch clobbers $Matches before LogonType is read (real PowerShell)",
+      "status": "PASS",
+      "ms": 298
+    },
+    {
+      "name": "live-run descriptor: a well-formed descriptor validates and round-trips through serialize",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live-run descriptor: protocol version is exact (no silent acceptance of a foreign shape)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live-run descriptor: an expired run and a superseded attempt are both refused",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run descriptor: a TTL outside the ephemeral-server envelope is refused (too short to queue, too long to be real)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run descriptor: unrelated repositories and unsafe endpoints are rejected, never warned",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live-run descriptor: the secret never appears in it — only a sha256 fingerprint",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live-run envelope: it must bind to the descriptor AND to the run that advertised it",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run records: key/path are deterministic per (origin run, attempt) so delivery dedupes",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run records: a contents path with a space/hash is encoded per-segment (not %2F)",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "live-run claim: a terminal claimant state is the ONLY basis for superseding (never wall-clock age)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run queue: a queued request can never be re-attached to a different server",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "live-run envelope transport: a record can never hand the lab a runner-local path or an unknown kind",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run app handoff: the workflow insertion lands, parses, and never carries a secret",
+      "status": "PASS",
+      "ms": 28
+    },
+    {
+      "name": "live-run workflows: every top-level expression and step condition is evaluable",
+      "status": "PASS",
+      "ms": 159
+    },
+    {
+      "name": "trust anchor: verification is per-field and fails closed on every mismatch",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "trust anchor: an in-progress origin is required (the ephemeral server dies with the run)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "artifact extraction: only a tiny, non-traversing, size-honest archive is accepted",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "credential hygiene: a key/ticket in a URL is masked in every log, annotation and artifact",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "hygiene evaluator: it actually reads the evidence files and fails on a leak",
+      "status": "PASS",
+      "ms": 14
+    },
+    {
+      "name": "authorization proof: the live server's own gates decide (401 anonymous, 401 forged, 200 ours)",
+      "status": "PASS",
+      "ms": 29
+    },
+    {
+      "name": "authorization handoff: the browser gets the token via the app's own storage key, never a URL paste",
+      "status": "PASS",
+      "ms": 38
+    },
+    {
+      "name": "production RDP URL: built exactly as the app builds it, and refuses a non-FQDN target",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "protocol dispatch: an unenrolled handler is BLOCKED with the enrollment step, never a silent fallback",
+      "status": "PASS",
+      "ms": 53
+    },
+    {
+      "name": "evaluators: gate proof, negative controls, and BLOCKED vs FAIL discipline",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "evaluators: a frozen web-desktop frame is a FAIL, not a PASS-with-screenshot",
+      "status": "PASS",
+      "ms": 2028
+    },
+    {
+      "name": "evaluators: RDP logon correlation requires type 10 + user + source IP + attempt window",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "inventory: every implemented area is represented and non-applicable needs a reason",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "inventory summary: a mandatory non-PASS vetoes VERIFIED; optional skips do not",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "orchestration: exit codes and stage vocabulary are shared with the consent helper",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "orchestration: the report never carries a secret and always carries the run identity",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "orchestration: runner offline / VM locked / expired each get their own status",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "no circular dependency: the origin waits on its own live server, not on the lab workflow finishing",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live mode keeps standalone provisioning separate and labelled",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "app observer patch: the $Matches clobber fix is delivered as a patch that still applies to the app",
+      "status": "PASS",
+      "ms": 366
+    },
+    {
+      "name": "origin discovery: the parser reads the app's real banner and never returns the key inside evidence",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "origin discovery: a tailnet FQDN banner is refused (the lab may only be steered to a CGNAT endpoint)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "origin discovery: no banner and no readiness marker are distinct, reportable refusals",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "origin discovery: the descriptor is valid, deterministic per run+attempt, and expires with the server",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "origin discovery: a run that has almost exhausted its 6h window is refused instead of queued",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "origin discovery: end to end, it selects the OLDEST attachable live run and refuses a completed one",
+      "status": "PASS",
+      "ms": 13
+    },
+    {
+      "name": "origin discovery: explicit run id wins, a wrong attempt is refused, and a foreign repo is refused",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "origin discovery: it reads PER-JOB logs (the only transport that exists while a run is live)",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "origin discovery: the run archive is still a fallback when the job API is unavailable",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "origin discovery: a stale attempt is refused after GitHub reports a newer attempt",
+      "status": "PASS",
+      "ms": 12
+    },
+    {
+      "name": "origin discovery: an unreadable origin log is a named refusal, not an attach",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "server identity: buildSha + sessionId bind the answering process to the origin run",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "server identity: a different build, a missing session, or a non-tailnet target is refused with its own code",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "server identity: a restart between readiness and the feature pass is detected, not averaged away",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "analyseJobLogText: finds the keepalive banner and masks the one-time key",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "analyseJobLogText: a log that never reached readiness reports banner=false",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live signal: an encrypted envelope round-trips, and every stale identity is refused by name",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "origin discovery: the live check-run signal attaches a run whose logs are NOT readable",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "origin discovery: a signal for the WRONG attempt is refused and the readable log is used instead",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "app publisher (real file) publishes an encrypted signal that the lab reader decrypts",
+      "status": "PASS",
+      "ms": 61
+    },
+    {
+      "name": "live-run workflow: the concurrency block is read identically from LF, CRLF, CR and BOM checkouts",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "live-run workflow: a missing, scalar or unknown-key concurrency block is refused (the assertion still bites)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run workflow: it discovers automatically, is valid YAML, and never accepts an unvalidated payload",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live-run workflow: the Windows verification step receives LAB_SIGNAL_PRIVATE_KEY (and keeps GH_TOKEN + ARTIFACT_DIR)",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "live-run workflow: the private key never becomes an output, an artifact path, an argument or a summary line",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "live-run workflow: a pre-merge candidate path exists and is restricted to same-repository branches",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "live signal: a missing private key is a NAMED refusal, and `signal` transport never downgrades to the plaintext log",
+      "status": "PASS",
+      "ms": 6
+    },
+    {
+      "name": "live signal: with the key present the same run attaches over the encrypted check-run transport",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "live signal: an absent signal is refused under `signal` transport even when the log is perfectly readable",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "rdp signing: thumbprints are normalized and only SHA-1/SHA-256 lengths are accepted",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "rdp signing: the policy entry is prefix + thumbprint, and the trust list is never \"all publishers\"",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "rdp signing: an unconfigured client reports NOT_CONFIGURED (attended), a configured one demands a signature",
+      "status": "PASS",
+      "ms": 15
+    },
+    {
+      "name": "rdp signing: signing a file without an identity is a named refusal on every platform",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "rdp signing: the RDP attempt path signs the final .rdp before mstsc, and refuses an unsigned launch when configured",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "workflow structure gate: the committed gate passes on this tree and refuses a real defect",
+      "status": "PASS",
+      "ms": 10
+    },
+    {
+      "name": "rdp signing: the bootstrap workflow is restricted, opt-in and never weakens transport security",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "signal binding: a genuine envelope for this run/attempt/sha is BOUND (no decryption)",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "signal binding: another attempt is refused by name (never \"the latest attempt\")",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: another sha is refused by name",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "signal binding: another run id is refused by name",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: an expired envelope is refused, not accepted because it parses",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: a ttl beyond the 6 h cap is refused",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "signal binding: a non-tailnet endpoint is refused even when every id matches",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: a closed check run is SIGNAL_NOT_LIVE, not a pass on stale bytes",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: a check run whose own head_sha differs is refused before decoding",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "signal binding: a mismatched publisher external_id is refused",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: no signal check run is SIGNAL_NOT_PUBLISHED (not \"verified\")",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: a truncated ciphertext is refused on shape",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "signal binding: the audit never decrypts and never prints the plaintext it was given",
+      "status": "PASS",
+      "ms": 50
+    },
+    {
+      "name": "app signal: the published mc-signal/v1 envelope parses, validates, binds its AAD and decrypts",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "app signal: another attempt / sha / run is refused by name before any decryption",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app signal: AAD that names a different repository is refused (the credential is sealed to another identity)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app signal: a non-tailnet endpoint is refused even when the identity and AAD match",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app signal: a closed state, an expired envelope and a >6h TTL are refused by name",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "app signal: the wrong private key is a NAMED undecryptable refusal, never a key",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "app signal: a missing private key is SIGNAL_NO_PRIVATE_KEY (not a silent plaintext fallback)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app signal: an x25519-sealed envelope is a named unsupported algorithm for this RSA key",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "app signal: resolveAnySignal reads EITHER format, and reports NOT_FOUND only when neither exists",
+      "status": "PASS",
+      "ms": 5
+    },
+    {
+      "name": "app signal: the public auditor binds the real app format to the run and checks envelope shape without decrypting",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "app signal: a sealed credential whose EMBEDDED identity names another sha is refused",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "app signal: a bare-string credential still works (older publishers)",
+      "status": "PASS",
+      "ms": 2
+    },
+    {
+      "name": "app signal: the auditor refuses an app signal whose AAD names another run",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "workflow yaml: an unquoted colon+space in a step name is reported",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "workflow yaml: quoted values and block scalars are never reported",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "pick-record: the JSON payload is extracted from a stream with a header and trailing notices",
+      "status": "PASS",
+      "ms": 18
+    },
+    {
+      "name": "pick-record: braces inside strings do not end the object early, and a truncated payload is refused",
+      "status": "PASS",
+      "ms": 14
+    },
+    {
+      "name": "pick-record: the store wrapper {json,sha} is unwrapped (regression: clientTailnetIp crash)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "pick-record: an explicitly requested correlation is never substituted",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "pick-record: a claimed, an expired or a disallowed record is skipped with its reason",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "pick-record: a record body that cannot be read is reported, never invented",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "pick-record: an expired DESCRIPTOR is refused even when the row still looks pickable",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "requeue: a FAILED record with a lab write-back and NO report is re-queued once, visibly",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "requeue: a record that DID produce a report is never re-queued automatically",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "requeue: a BLOCKED record from a product/origin cause is not re-queued, and the counter is bounded",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "inconsistent: REPORTED_VERIFIED with no report object is re-queued (gap-fill, never a real pass)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "inconsistent: the same state WITH a report is never re-queued",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "stale claim: a TERMINAL claimant does not block selection (the verify job supersedes it)",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "stale claim: a LIVE claimant still blocks (one desktop owner is never stolen)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "stale claim: with no liveness probe the selector is conservative (treats the claim as live)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "ownership: the capability client job needs the capability-run label",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "ownership: live-run verify is the only job on the self-hosted desk in that file",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "evidence order: publish runs BEFORE the viewer hold in live-run.yml",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "evidence order: the publish step always runs and names the branch",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "evidence order: the viewer hold requires an authenticated viewer (exit 0)",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "evidence paths: each lab run publishes into its own directory",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "candidate: the stub is never labelled as the application server",
+      "status": "PASS",
+      "ms": 18
+    },
+    {
+      "name": "candidate: replay patch paths and browser click preconditions are honest",
+      "status": "PASS",
+      "ms": 36
+    },
+    {
+      "name": "revision: every PR job checks out the exact head, not a merge of candidate and old main",
+      "status": "PASS",
+      "ms": 3
+    },
+    {
+      "name": "preflight: VM evidence is separate from origin readiness and signal prerequisites",
+      "status": "PASS",
+      "ms": 4
+    },
+    {
+      "name": "preflight: wrong origin identity and a failed desktop cannot become PASS",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "ownership: every production desktop path resolves the same lock; test state stays isolated",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "publish: a private key block is refused",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "publish: an authenticated dashboard URL is refused",
+      "status": "PASS",
+      "ms": 1
+    },
+    {
+      "name": "publish: a bearer token, a GitHub token and a sealed envelope are refused",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "publish: an unmasked RDP password is refused, a masked one is not",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "publish: a sanitized report (statuses, codes, timings) passes",
+      "status": "PASS",
+      "ms": 0
+    },
+    {
+      "name": "publish: only evidence file types are eligible (no HAR, no browser profile)",
+      "status": "PASS",
+      "ms": 1
+    }
+  ]
+}
