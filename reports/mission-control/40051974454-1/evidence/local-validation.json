@@ -1,0 +1,98 @@
+{
+  "schema": "slab-local-validation/1",
+  "generatedAt": "2026-10-24T03:19:21.124Z",
+  "command": "npm test",
+  "platform": "linux",
+  "node": "v22.22.3",
+  "result": {
+    "total": 234,
+    "passed": 226,
+    "failed": 0,
+    "skipped": 8
+  },
+  "skips": [
+    {
+      "name": "browser e2e mc-check server-local: ok",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-missing",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: wrong-sha",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-unmounted",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-stale",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "browser e2e mc-check server-local: ui-v2-missing",
+      "reason": "chromium not installed"
+    },
+    {
+      "name": "app defect: -notmatch clobbers $Matches before LogonType is read",
+      "reason": "real PowerShell) (no PowerShell (pwsh) on this host - the real-PowerShell reproduction runs on the Windows client job"
+    }
+  ],
+  "workflowStructureGate": {
+    "command": "node scripts/workflow-structure-check.js",
+    "result": "PASS",
+    "findings": 0
+  },
+  "sourceInventoryComparison": {
+    "schema": "slab-source-inventory-comparison/1",
+    "generatedAt": "2026-10-24T03:06:54.755Z",
+    "baseline": {
+      "repository": "dictationb1/supreme-lamp",
+      "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "variant": "unpatched-baseline"
+    },
+    "candidate": {
+      "repository": "dictationb1/supreme-lamp",
+      "baseSha": "9bfe9946a2ca779085babaedc040e68dff95c233",
+      "variant": "patched-candidate"
+    },
+    "stableActionKeysMatch": true,
+    "surfaceKindsMatch": true,
+    "baselineSummary": {
+      "features": 11,
+      "actionableSurfaces": 326,
+      "requiredBehaviouralSurfaces": 310,
+      "componentCallbackSurfaces": 16,
+      "nativeEventSurfaces": 22,
+      "stableIdSurfaces": 228,
+      "sourceOnlyKeySurfaces": 98,
+      "dynamicTestidSurfaces": 44,
+      "dynamicIdSurfaces": 43,
+      "behaviourallyExecuted": 0
+    },
+    "candidateSummary": {
+      "features": 11,
+      "actionableSurfaces": 326,
+      "requiredBehaviouralSurfaces": 310,
+      "componentCallbackSurfaces": 16,
+      "nativeEventSurfaces": 22,
+      "stableIdSurfaces": 228,
+      "sourceOnlyKeySurfaces": 98,
+      "dynamicTestidSurfaces": 44,
+      "dynamicIdSurfaces": 43,
+      "behaviourallyExecuted": 0
+    },
+    "note": "Source-only keys embed line numbers and are not expected to be byte-identical after a patch; stable testid/id keys and surface-kind counts are compared explicitly. Inventory is not behavioural acceptance."
+  },
+  "acceptance": "LOCAL_HARNESS_ONLY_NOT_WINDOWS_ACCEPTANCE",
+  "log": {
+    "file": "local-regression.log.sanitized",
+    "sha256": "85cd5865f95a8ef949a1134c1fdc76df09a9b439167af9b27798ed6006d17d06"
+  }
+}

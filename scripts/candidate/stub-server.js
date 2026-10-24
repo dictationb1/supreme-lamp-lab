@@ -97,6 +97,11 @@ const server = http.createServer((req, res) => {
   if (p === '/diag') return json(res, 200, { searchEnabled: true, searchInput: '', backend: 'lab-candidate-stub' });
   if (p === '/api/progress') return json(res, 200, { serverTs: new Date().toISOString(), runnerEgressIp: '100.93.94.15', backend: 'lab-candidate-stub' });
   if (p === '/api/version') return json(res, 200, { sha: buildSha, backend: 'lab-candidate-stub' });
+  if (p === '/api/f92-selftest') {
+    if (fault === 'refuse') return json(res, 401, { error: 'unauthorized', backend: 'lab-candidate-stub' });
+    if (fault === 'empty') return json(res, 200, { backend: 'lab-candidate-stub' });
+    return json(res, 200, { releaseId: buildSha, checks: { 'version:match': { status: 'pass' } }, backend: 'lab-candidate-stub' });
+  }
 
   if (p === '/api/config' || p === '/api/native-status') {
     if (fault === 'refuse') return json(res, 401, { error: 'unauthorized', backend: 'lab-candidate-stub' });

@@ -23,10 +23,17 @@ function arg(name, dflt) {
   return i >= 0 && process.argv[i + 1] !== undefined ? process.argv[i + 1] : dflt;
 }
 
+function sanitizeText(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/([?&](?:key|token|dash-token|dash_token|dashtoken|access-token|access_token|password)=)[^&\s"']+/gi, '$1***')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+\/-]+=*/gi, '$1***');
+}
+
 const base = arg('base', 'http://127.0.0.1:7331');
 const out = arg('out', path.resolve('candidate-out'));
 const buildSha = arg('sha', 'candidate');
 const bundlePath = arg('bundle', '');
+const sourceInventoryPath = arg('source-inventory', '');
 const modes = (arg('modes', 'refuse,empty,healthy')).split(',');
 
 const ROUTES = [
@@ -45,21 +52,63 @@ const ROUTES = [
 
 const rows = [];
 const findings = [];
+const coveredDomKeys = new Set();
+const domByKey = new Map();
 const shotsDir = path.join(out, 'shots');
+const CONTROL_DOM_KEYS = {
+  'auth.token_gate_visible': ['testid:dash-token-actions'],
+  'auth.token_forget': ['testid:dash-token-forget'],
+  'auth.token_empty_validation': ['testid:dash-token-input', 'testid:dash-token-save'],
+  'auth.token_short_validation': ['testid:dash-token-input', 'testid:dash-token-save'],
+  'auth.token_cancel': ['testid:dash-token-cancel'],
+  'auth.token_save': ['testid:dash-token-enter', 'testid:dash-token-input', 'testid:dash-token-save'],
+  'overview.auto_login_gate': ['testid:overview-auto-login'],
+  'settings.theme_toggle': ['testid:topbar-theme-toggle'],
+  'settings.language_toggle': ['testid:topbar-lang-toggle'],
+  'global.text_scale': ['testid:topbar-text-scale-toggle'],
+  'search.query_with_backend_absent': ['testid:search-query']
+};
+for (const route of ['overview', 'search', 'sessions', 'connections', 'keys', 'files', 'mirror', 'telemetry', 'health', 'collector', 'settings']) {
+  CONTROL_DOM_KEYS[`nav.${route}`] = [`href:#/${route === 'overview' ? '' : route}`];
+}
+CONTROL_DOM_KEYS['nav.search'].push('id:f56.search.nav');
+CONTROL_DOM_KEYS['nav.files'].push('id:f57.explorer.nav');
+CONTROL_DOM_KEYS['nav.health'].push('id:f92.health.nav');
+CONTROL_DOM_KEYS['nav.collector'].push('id:f99.collector.nav');
 
 function record(r) {
+  const domKeys = [...new Set([...(CONTROL_DOM_KEYS[r.control] || []), ...(r.domKeys || [])])];
+  for (const key of domKeys) coveredDomKeys.add(key);
   rows.push({
     mode: r.mode || '',
     control_id: r.control,
+    dom_keys: domKeys.join(' '),
     area: r.area,
     preconditions: r.pre || 'lab candidate build served on 127.0.0.1 with the stub backend in this mode',
     action: r.action,
     expected_ui: r.expectUi,
     expected_request: r.expectReq || '',
-    actual: String(r.actual === undefined ? '' : r.actual).replace(/\s+/g, ' ').slice(0, 400),
+    actual: sanitizeText(String(r.actual === undefined ? '' : r.actual)).replace(/\s+/g, ' ').slice(0, 400),
     evidence: r.evidence || '',
     verdict: r.verdict,
     note: r.note || ''
+  });
+}
+
+async function behavior(spec) {
+  let actual = '', ok = false;
+  try {
+    const result = await spec.run();
+    ok = result && result.ok === true;
+    actual = result && result.actual !== undefined ? String(result.actual) : '';
+  } catch (e) {
+    actual = 'ACTION_ERROR: ' + String(e && e.message || e).split('\n')[0];
+  }
+  record({
+    mode: spec.mode, control: spec.control, area: spec.area,
+    action: spec.action, expectUi: spec.expectUi, expectReq: spec.expectReq || '',
+    actual, evidence: spec.evidence || '', verdict: ok ? 'PASS' : 'FAIL',
+    note: ok ? '' : 'The control was attempted; this is a behavioural failure, not an unexecuted prerequisite.', domKeys: spec.domKeys || []
   });
 }
 
@@ -74,10 +123,56 @@ async function text(page, testid) {
   return (await el.innerText().catch(() => '')) || '';
 }
 
+async function inventoryDom(page, route, mode, evidence) {
+  const found = await page.locator('button, a[href], input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="switch"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="combobox"], [role="slider"], [draggable="true"]').evaluateAll((els, route) => {
+    const clean = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    const safeHref = raw => {
+      try {
+        const u = new URL(raw, location.href);
+        for (const k of [...u.searchParams.keys()]) if (/key|token|secret|pass|auth/i.test(k)) u.searchParams.set(k, '***');
+        return u.hash && (u.origin === location.origin) ? u.hash : u.href;
+      } catch { return clean(raw); }
+    };
+    return els.map((el, index) => {
+      const testid = el.getAttribute('data-testid') || '';
+      const id = el.id || '';
+      const href = el.getAttribute('href') || '';
+      const aria = el.getAttribute('aria-label') || '';
+      const tag = el.tagName.toLowerCase();
+      const text = clean(el.innerText || el.value || '');
+      const key = testid ? `testid:${testid}` : id ? `id:${id}` : href ? `href:${safeHref(href)}` : `dom:${route}:${tag}:${aria || text || index}`;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return {
+        key, route, stableKind: testid ? 'data-testid' : id ? 'id' : href ? 'href' : 'none',
+        testid: testid || null, id: id || null, tag,
+        type: el.getAttribute('type'), role: el.getAttribute('role'),
+        ariaLabel: aria || null, text, href: href ? safeHref(href) : null,
+        disabled: Boolean(el.disabled) || el.getAttribute('aria-disabled') === 'true',
+        visible: style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0,
+        behaviouralStatus: 'NOT_RUN'
+      };
+    });
+  }, route);
+  for (const control of found) {
+    const prior = domByKey.get(control.key);
+    if (prior) {
+      if (!prior.routes.includes(route)) prior.routes.push(route);
+      prior.visible = prior.visible || control.visible;
+      if (!prior.evidence && evidence) prior.evidence = evidence;
+    } else {
+      domByKey.set(control.key, { ...control, routes: [route], evidence: evidence || '' });
+      delete domByKey.get(control.key).route;
+    }
+  }
+}
+
 async function unlockWithSyntheticToken(page, mode) {
   const gate = page.getByTestId('dash-token-gate');
   const visible = await gate.isVisible().catch(() => false);
   if (mode === 'healthy') {
+    const gateEvidence = await shot(page, 'token-gate-healthy');
+    await inventoryDom(page, 'token-gate', mode, gateEvidence);
     const actions = page.getByTestId('dash-token-actions');
     const href = visible ? await actions.getAttribute('href') : null;
     const target = visible ? await actions.getAttribute('target') : null;
@@ -86,7 +181,7 @@ async function unlockWithSyntheticToken(page, mode) {
       action: 'Open a fresh browser context without a dashboard key.',
       expectUi: 'the modal gate blocks the UI and the Actions escape link is a new-tab GitHub Actions URL',
       actual: `visible=${visible} actionsHref=${href ? 'github-actions' : 'missing'} target=${target}`,
-      evidence: await shot(page, 'token-gate-healthy'),
+      evidence: gateEvidence,
       verdict: visible && /github\.com\/.+\/actions/.test(href || '') && target === '_blank' ? 'PASS' : 'FAIL'
     });
   }
@@ -98,11 +193,14 @@ async function unlockWithSyntheticToken(page, mode) {
   if (mode === 'healthy') {
     await page.getByTestId('dash-token-forget').click();
     const forgetOpened = await page.getByTestId('dash-token-input').isVisible();
+    const formEvidence = await shot(page, 'token-form-healthy');
+    await inventoryDom(page, 'token-entry', mode, formEvidence);
     record({
       mode, control: 'auth.token_forget', area: 'authentication',
       action: 'Choose “Forget a previously saved key” in a fresh context.',
       expectUi: 'the saved-key store is cleared and the manual-entry form opens',
       actual: `inputVisible=${forgetOpened}`,
+      evidence: formEvidence,
       verdict: forgetOpened ? 'PASS' : 'FAIL'
     });
     await page.getByTestId('dash-token-cancel').click();
@@ -153,6 +251,244 @@ async function unlockWithSyntheticToken(page, mode) {
   }
 }
 
+async function exerciseChromeAndSettings(page, mode) {
+  await behavior({
+    mode, control: 'topbar.status_disclosure', area: 'global', domKeys: ['testid:topbar-status-summary'],
+    action: 'Click the status summary twice.', expectUi: 'aria-expanded and the detailed chip panel toggle open then closed',
+    run: async () => {
+      const button = page.getByTestId('topbar-status-summary');
+      await button.click();
+      const opened = await button.getAttribute('aria-expanded') === 'true' && await page.getByTestId('topbar-chips').isVisible();
+      await button.click();
+      const closed = await button.getAttribute('aria-expanded') === 'false' && !(await page.getByTestId('topbar-chips').isVisible());
+      return { ok: opened && closed, actual: `opened=${opened} closed=${closed}` };
+    }
+  });
+  await behavior({
+    mode, control: 'sidebar.collapse', area: 'global', domKeys: ['testid:sidebar-collapse'],
+    action: 'Click the desktop sidebar collapse control twice.', expectUi: 'aria-pressed and the sidebar width state toggle then restore',
+    run: async () => {
+      const button = page.getByTestId('sidebar-collapse');
+      const before = await button.getAttribute('aria-pressed');
+      await button.click();
+      const changed = await button.getAttribute('aria-pressed');
+      const widthChanged = await page.getByTestId('sidebar').evaluate((el, collapsed) => collapsed === 'true' ? el.className.includes('w-16') : el.className.includes('w-60'), changed);
+      await button.click();
+      const restored = await button.getAttribute('aria-pressed');
+      return { ok: before !== changed && changed !== restored && before === restored && widthChanged, actual: `${before} -> ${changed} -> ${restored}; widthChanged=${widthChanged}` };
+    }
+  });
+
+  await page.goto(base + '/v2#/settings', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-testid="page-settings"]', { timeout: 15000 });
+  const evidence = await shot(page, 'settings-controls-healthy');
+  for (const theme of ['dark', 'light']) {
+    await behavior({
+      mode, control: `settings.theme_${theme}`, area: 'settings', evidence, domKeys: [`testid:settings-theme-${theme}`],
+      action: `Click the ${theme} theme button.`, expectUi: `html[data-theme]=${theme} and the button's selected variant is rendered`,
+      run: async () => {
+        const button = page.getByTestId(`settings-theme-${theme}`);
+        await button.click();
+        const actualTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+        return { ok: actualTheme === theme, actual: `theme=${actualTheme}` };
+      }
+    });
+  }
+  for (const scale of ['comfort', 'large', 'a11y']) {
+    await behavior({
+      mode, control: `settings.text_scale_${scale}`, area: 'settings', evidence, domKeys: [`testid:settings-text-scale-${scale}`],
+      action: `Click the ${scale} text-scale button.`, expectUi: `html[data-scale]=${scale} and a real root font-size change`,
+      run: async () => {
+        const before = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
+        const button = page.getByTestId(`settings-text-scale-${scale}`);
+        await button.click();
+        const state = await page.evaluate(() => ({ scale: document.documentElement.getAttribute('data-scale'), font: getComputedStyle(document.documentElement).fontSize }));
+        return { ok: state.scale === scale && state.font !== before, actual: `${before} -> ${state.font}; scale=${state.scale}` };
+      }
+    });
+  }
+  await behavior({
+    mode, control: 'settings.language_switch', area: 'settings', evidence, domKeys: ['testid:settings-language-toggle'],
+    action: 'Click the Settings language switch twice.', expectUi: 'html[lang] and aria-checked change then restore',
+    run: async () => {
+      const button = page.getByTestId('settings-language-toggle');
+      const before = await page.evaluate(() => document.documentElement.lang);
+      await button.click();
+      const changed = await page.evaluate(() => document.documentElement.lang);
+      const checked = await button.getAttribute('aria-checked');
+      await button.click();
+      const restored = await page.evaluate(() => document.documentElement.lang);
+      return { ok: before !== changed && before === restored && ((changed === 'si') === (checked === 'true')), actual: `${before} -> ${changed} -> ${restored}; aria-checked=${checked}` };
+    }
+  });
+  for (const quality of ['opaque', 'frosted', 'clear', 'auto']) {
+    await behavior({
+      mode, control: `settings.glass_quality_${quality}`, area: 'settings', evidence, domKeys: [`testid:glass-quality-${quality}`],
+      action: `Click glass quality ${quality}.`, expectUi: `the requested quality and aria-pressed state become ${quality}`,
+      run: async () => {
+        const button = page.getByTestId(`glass-quality-${quality}`);
+        await button.click();
+        const actualQuality = await page.evaluate(() => document.documentElement.getAttribute('data-glass-quality'));
+        const pressed = await button.getAttribute('aria-pressed');
+        return { ok: actualQuality === quality && pressed === 'true', actual: `quality=${actualQuality} aria-pressed=${pressed}` };
+      }
+    });
+  }
+  for (const variant of ['clear', 'tinted']) {
+    await behavior({
+      mode, control: `settings.glass_variant_${variant}`, area: 'settings', evidence, domKeys: [`testid:glass-variant-${variant}`],
+      action: `Click glass variant ${variant}.`, expectUi: `html[data-glass-variant]=${variant} and aria-pressed=true`,
+      run: async () => {
+        const button = page.getByTestId(`glass-variant-${variant}`);
+        await button.click();
+        const actualVariant = await page.evaluate(() => document.documentElement.getAttribute('data-glass-variant'));
+        const pressed = await button.getAttribute('aria-pressed');
+        return { ok: actualVariant === variant && pressed === 'true', actual: `variant=${actualVariant} aria-pressed=${pressed}` };
+      }
+    });
+  }
+  await behavior({
+    mode, control: 'settings.glass_clarity', area: 'settings', evidence, domKeys: ['testid:glass-clarity'],
+    action: 'Focus the clarity slider and press End then Home.', expectUi: 'the output and html[data-glass-clarity] snap to 1 then 0',
+    run: async () => {
+      const slider = page.getByTestId('glass-clarity');
+      await slider.focus(); await slider.press('End');
+      const max = await page.evaluate(() => ({ root: document.documentElement.getAttribute('data-glass-clarity'), output: document.querySelector('[data-testid="glass-clarity-value"]')?.getAttribute('data-clarity') }));
+      await slider.press('Home');
+      const min = await page.evaluate(() => ({ root: document.documentElement.getAttribute('data-glass-clarity'), output: document.querySelector('[data-testid="glass-clarity-value"]')?.getAttribute('data-clarity') }));
+      return { ok: max.root === '1' && max.output === '1' && min.root === '0' && min.output === '0', actual: `End=${JSON.stringify(max)} Home=${JSON.stringify(min)}` };
+    }
+  });
+  await behavior({
+    mode, control: 'settings.about_recheck', area: 'settings', evidence, domKeys: ['testid:about-recheck'],
+    action: 'Click the build/backend recheck button.', expectUi: 'GET /api/f92-selftest answers 200 with version:match=pass and a fresh match verdict is rendered', expectReq: 'GET /api/f92-selftest?frontendSha=… -> 200',
+    run: async () => {
+      const waiting = page.waitForResponse(r => new URL(r.url()).pathname === '/api/f92-selftest', { timeout: 7000 });
+      await page.getByTestId('about-recheck').click();
+      const response = await waiting;
+      const body = await response.json();
+      await page.waitForFunction(() => document.querySelector('[data-testid="about-backend-match"]')?.textContent?.trim() === 'match', null, { timeout: 7000 });
+      const verdict = (await text(page, 'about-backend-match')) || '';
+      const check = body?.checks?.['version:match'];
+      const row = Array.isArray(check) ? check[0] : check;
+      return { ok: response.status() === 200 && row?.status === 'pass' && verdict === 'match', actual: `HTTP ${response.status()}; version:match=${row?.status}; verdict=${verdict}` };
+    }
+  });
+  await behavior({
+    mode, control: 'settings.trash_empty_disabled_when_empty', area: 'settings', evidence, domKeys: ['testid:settings-trash-empty'],
+    action: 'Inspect the empty-trash action in a fresh context.', expectUi: 'the action is disabled with a zero count; no destructive request occurs',
+    run: async () => {
+      const disabled = await page.getByTestId('settings-trash-empty').isDisabled();
+      const count = (await text(page, 'settings-trash-count')) || '';
+      return { ok: disabled && /0/.test(count), actual: `disabled=${disabled} count=${count}` };
+    }
+  });
+  await behavior({
+    mode, control: 'settings.live_patch_arm', area: 'settings', evidence, domKeys: ['testid:settings-live-patch-arm-toggle'],
+    action: 'Toggle the live-patch arm switch on then off.', expectUi: 'aria-checked and the disarmed/inert explanation change then restore; no patch is applied',
+    run: async () => {
+      const button = page.getByTestId('settings-live-patch-arm-toggle');
+      const before = await button.getAttribute('aria-checked');
+      await button.click();
+      const changed = await button.getAttribute('aria-checked');
+      const inertWhenArmed = await page.getByTestId('settings-live-patch-inert').count();
+      await button.click();
+      const restored = await button.getAttribute('aria-checked');
+      const inertWhenDisarmed = await page.getByTestId('settings-live-patch-inert').count();
+      return { ok: before === 'false' && changed === 'true' && restored === 'false' && inertWhenArmed === 0 && inertWhenDisarmed === 1, actual: `${before} -> ${changed} -> ${restored}; inertNodes=${inertWhenArmed}/${inertWhenDisarmed}` };
+    }
+  });
+  await behavior({
+    mode, control: 'settings.live_patch_rollback_empty', area: 'settings', evidence, domKeys: ['testid:settings-live-patch-rollback'],
+    action: 'Inspect rollback before any patch arrives.', expectUi: 'rollback is disabled and explicitly says there is nothing to roll back',
+    run: async () => {
+      const button = page.getByTestId('settings-live-patch-rollback');
+      const disabled = await button.isDisabled();
+      const label = (await button.innerText()) || '';
+      return { ok: disabled && /nothing to roll back/i.test(label), actual: `disabled=${disabled} label=${label}` };
+    }
+  });
+  await behavior({
+    mode, control: 'settings.debug_hud_enable', area: 'settings', evidence, domKeys: ['testid:settings-debug-hud-toggle'],
+    action: 'Enable Debug HUD and press Shift+F12.', expectUi: 'the enabled flag persists and the real HUD overlay opens',
+    run: async () => {
+      const button = page.getByTestId('settings-debug-hud-toggle');
+      await button.click();
+      const stored = await page.evaluate(() => localStorage.getItem('f109:enabled'));
+      await page.keyboard.press('Shift+F12');
+      const visible = await page.getByTestId('debug-hud').isVisible();
+      return { ok: stored === 'true' && visible && await button.getAttribute('aria-checked') === 'true', actual: `stored=${stored} visible=${visible}` };
+    }
+  });
+  const hudEvidence = await shot(page, 'debug-hud-open-healthy');
+  await inventoryDom(page, 'debug-hud', mode, hudEvidence);
+  await behavior({
+    mode, control: 'debug_hud.close', area: 'developer', evidence: hudEvidence, domKeys: ['testid:debug-hud-close'],
+    action: 'Click the HUD close button.', expectUi: 'the HUD overlay is removed from the visible UI',
+    run: async () => {
+      await page.getByTestId('debug-hud-close').click();
+      const visible = await page.getByTestId('debug-hud').isVisible().catch(() => false);
+      return { ok: !visible, actual: `visibleAfterClose=${visible}` };
+    }
+  });
+  // Restore the default-off developer state after proving the toggle. This is
+  // still a real click, and failure is surfaced by the following assertion.
+  await behavior({
+    mode, control: 'settings.debug_hud_disable', area: 'settings', evidence, domKeys: ['testid:settings-debug-hud-toggle'],
+    action: 'Disable Debug HUD after the overlay test.', expectUi: 'aria-checked=false and the f109 flag is removed',
+    run: async () => {
+      const button = page.getByTestId('settings-debug-hud-toggle');
+      await button.click();
+      const stored = await page.evaluate(() => localStorage.getItem('f109:enabled'));
+      const checked = await button.getAttribute('aria-checked');
+      return { ok: stored === null && checked === 'false', actual: `stored=${stored} aria-checked=${checked}` };
+    }
+  });
+  await inventoryDom(page, 'settings-after-actions', mode, evidence);
+}
+
+async function exerciseMobile(page, mode) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/v2#/', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-testid="app-topbar"]', { timeout: 15000 });
+  const evidence = await shot(page, 'mobile-overview-healthy');
+  await inventoryDom(page, 'mobile-overview', mode, evidence);
+  for (const opener of ['topbar-mobile-menu', 'mobile-nav-more']) {
+    await behavior({
+      mode, control: `mobile.drawer_${opener}`, area: 'mobile', evidence, domKeys: [`testid:${opener}`, 'testid:sidebar-close'],
+      action: `Open the mobile drawer with ${opener}, then close it.`, expectUi: 'the sidebar and its explicit close control become visible, then the drawer closes',
+      run: async () => {
+        await page.getByTestId(opener).click();
+        const opened = await page.getByTestId('sidebar').isVisible() && await page.getByTestId('sidebar-close').isVisible();
+        const drawerEvidence = await shot(page, `mobile-drawer-${opener}-healthy`);
+        await inventoryDom(page, `mobile-drawer-${opener}`, mode, drawerEvidence);
+        await page.getByTestId('sidebar-close').click();
+        const closed = !(await page.getByTestId('sidebar').isVisible());
+        return { ok: opened && closed, actual: `opened=${opened} closed=${closed}` };
+      }
+    });
+  }
+  const links = [
+    ['mobile-nav-f56.search.nav', '#/search'],
+    ['mobile-nav-f57.explorer.nav', '#/files'],
+    ['mobile-nav-mirror', '#/mirror'],
+    ['mobile-nav-home', '#/']
+  ];
+  for (const [id, hash] of links) {
+    await behavior({
+      mode, control: `mobile.navigation.${id}`, area: 'mobile', evidence, domKeys: [`testid:${id}`],
+      action: `Tap ${id}.`, expectUi: `the HashRouter location becomes ${hash}`,
+      run: async () => {
+        await page.getByTestId(id).click();
+        await page.waitForTimeout(150);
+        const actual = await page.evaluate(() => location.hash);
+        return { ok: actual === hash, actual: `hash=${actual}` };
+      }
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
 async function main() {
   fs.mkdirSync(shotsDir, { recursive: true });
   // The interactive VM runs headed (a human can watch); a hosted runner has no
@@ -166,8 +502,8 @@ async function main() {
   for (const mode of modes) {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await ctx.newPage();
-    page.on('console', m => { if (m.type() === 'error') consoleErrors.push({ mode, text: m.text().slice(0, 300) }); });
-    page.on('requestfailed', r => failedRequests.push({ mode, url: r.url().replace(/key=[^&]+/, 'key=***'), why: (r.failure() && r.failure().errorText) || '' }));
+    page.on('console', m => { if (m.type() === 'error') consoleErrors.push({ mode, text: sanitizeText(m.text()).slice(0, 300) }); });
+    page.on('requestfailed', r => failedRequests.push({ mode, url: sanitizeText(r.url()), why: sanitizeText((r.failure() && r.failure().errorText) || '') }));
 
     await page.goto(base + '/v2', { waitUntil: 'domcontentloaded', timeout: 45000 });
     // The polling hooks run on a 15 s config / 15 s status cadence; the first
@@ -186,6 +522,7 @@ async function main() {
     const chip = await text(page, 'topbar-status-summary');
     const shotName = `overview-${mode}`;
     const evidence = await shot(page, shotName);
+    await inventoryDom(page, 'overview', mode, evidence);
 
     if (mode === 'refuse') {
       const honest = /refused this page|no valid run key|HTTP 401/i.test(note || '');
@@ -252,6 +589,7 @@ async function main() {
           detail = 'error: ' + String(e.message || e).slice(0, 120);
         }
         const evidence2 = await shot(page, r.id.replace(/\./g, '-') + '-healthy');
+        await inventoryDom(page, r.hash.replace(/^#\//, '') || 'overview', mode, evidence2);
         record({
           mode, control: r.id, area: 'navigation',
           action: `Navigate to ${r.hash} in the built bundle.`,
@@ -324,6 +662,10 @@ async function main() {
         note: scaleClickError
       });
 
+      // ---- real chrome/settings behaviours, then search -------------------
+      await exerciseChromeAndSettings(page, mode);
+      await exerciseMobile(page, mode);
+
       // ---- C-08: search rejects an empty query visibly ---------------------
       await page.goto(base + '/v2#/search', { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(800);
@@ -334,19 +676,23 @@ async function main() {
         await searchInput.fill('lab-candidate-nonexistent-fixture');
         await searchInput.press('Enter').catch(() => {});
         await page.waitForTimeout(1500);
-        const body3 = (await page.evaluate(() => document.body.innerText || '')).replace(/\s+/g, ' ');
-        searchDetail = body3.slice(0, 200);
-        // The stub answers 404 for /api/search routes: the page must show a
-        // failure/empty state, and must NOT claim a successful search.
-        searchVerdict = /error|failed|unavailable|no result|empty|not found|unable/i.test(body3) ? 'PASS' : 'FAIL';
+        const phase = await page.getByTestId('page-search-phase').getAttribute('data-phase');
+        const errorVisible = await page.getByTestId('results-error').isVisible().catch(() => false);
+        const emptyVisible = await page.getByTestId('results-empty').isVisible().catch(() => false);
+        searchDetail = `phase=${phase} resultsError=${errorVisible} resultsEmpty=${emptyVisible}`;
+        // Language-independent state + request evidence. Earlier wording-only
+        // matching broke after the legitimate Sinhala toggle test.
+        searchVerdict = phase === 'failed' && errorVisible ? 'PASS' : 'FAIL';
       }
+      const searchEvidence = await shot(page, 'search-absent-healthy');
+      await inventoryDom(page, 'search-results', mode, searchEvidence);
       record({
         mode, control: 'search.query_with_backend_absent', area: 'search',
         action: 'Submit a known-absent query while the stub has no search backend.',
         expectUi: 'a visible failure/empty state, never a fabricated result list',
         expectReq: 'search request -> 404 from the stub',
         actual: searchDetail,
-        evidence: await shot(page, 'search-absent-healthy'),
+        evidence: searchEvidence,
         verdict: searchVerdict
       });
 
@@ -379,6 +725,62 @@ async function main() {
 
   await browser.close();
 
+  // Reconcile, never hide, controls discovered outside the hand-written happy
+  // path. These BLOCKED rows are intentionally noisy: a small list of routes
+  // must not be presented as full feature/control acceptance.
+  const domControls = [...domByKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+  for (const control of domControls) {
+    if (coveredDomKeys.has(control.key)) {
+      control.behaviouralStatus = 'COVERED_BY_REPORT_ROW';
+      continue;
+    }
+    control.behaviouralStatus = control.visible ? 'BLOCKED_NOT_EXECUTED' : 'NOT_VISIBLE_NOT_EXECUTED';
+    if (!control.visible) continue;
+    record({
+      mode: modes.join('+'), control: `dom.uncovered.${control.key}`, area: 'dom-inventory',
+      action: 'not behaviourally executed by this sweep',
+      expectUi: 'a control-specific visible assertion and, where applicable, a backend effect',
+      actual: `BLOCKED: DOM_DISCOVERED_NOT_EXECUTED tag=${control.tag} routes=${control.routes.join(',')} disabled=${control.disabled} stableKind=${control.stableKind}`,
+      evidence: control.evidence || '', verdict: 'BLOCKED',
+      note: control.stableKind === 'none' ? 'No stable test ID or href key; add a stable test ID before behavioural acceptance.' : 'Discovered in the real DOM but has no behavioural coverage mapping.'
+    });
+  }
+  const domSummary = {
+    discoveredUnique: domControls.length,
+    visibleUnique: domControls.filter(c => c.visible).length,
+    coveredByReportRow: domControls.filter(c => c.behaviouralStatus === 'COVERED_BY_REPORT_ROW').length,
+    blockedNotExecuted: domControls.filter(c => c.behaviouralStatus === 'BLOCKED_NOT_EXECUTED').length,
+    withoutStableTestIdOrHref: domControls.filter(c => c.stableKind === 'none').length
+  };
+  fs.writeFileSync(path.join(out, 'dom-inventory.json'), JSON.stringify({ schema: 'slab-dom-action-inventory/1', summary: domSummary, controls: domControls }, null, 2) + '\n');
+
+  let sourceSummary = null;
+  if (sourceInventoryPath && fs.existsSync(sourceInventoryPath)) {
+    const source = JSON.parse(fs.readFileSync(sourceInventoryPath, 'utf8'));
+    for (const control of source.controls || []) {
+      if (coveredDomKeys.has(control.key)) control.behaviouralStatus = 'COVERED_BY_REPORT_ROW';
+    }
+    const sourceControls = source.controls || [];
+    sourceSummary = {
+      discovered: sourceControls.length,
+      coveredByReportRow: sourceControls.filter(c => c.behaviouralStatus === 'COVERED_BY_REPORT_ROW').length,
+      unreconciled: sourceControls.filter(c => c.behaviouralStatus === 'NOT_RUN').length,
+      deferredComponentCallbacks: sourceControls.filter(c => c.behaviouralStatus === 'DEFER_TO_RENDERED_DOM').length,
+      withoutLiteralStableId: sourceControls.filter(c => !c.stable).length
+    };
+    fs.writeFileSync(path.join(out, 'source-reconciliation.json'), JSON.stringify({ schema: 'slab-source-action-reconciliation/1', application: source.application, summary: sourceSummary, controls: sourceControls }, null, 2) + '\n');
+    if (sourceSummary.unreconciled > 0) {
+      record({
+        mode: modes.join('+'), control: 'source.controls_reconciliation', area: 'source-inventory',
+        action: 'Compare the TypeScript-AST action inventory with behavioural DOM coverage.',
+        expectUi: 'every source-discovered action surface is reconciled to a behavioural assertion or a separately named external prerequisite',
+        actual: `BLOCKED: SOURCE_CONTROLS_NOT_RECONCILED ${sourceSummary.unreconciled}/${sourceSummary.discovered}; covered=${sourceSummary.coveredByReportRow}; deferredCallbacks=${sourceSummary.deferredComponentCallbacks}; withoutLiteralStableId=${sourceSummary.withoutLiteralStableId}`,
+        evidence: 'source-reconciliation.json', verdict: 'BLOCKED',
+        note: 'This is an explicit completeness gap, not an application failure and not acceptance.'
+      });
+    }
+  }
+
   const bundle = bundlePath && fs.existsSync(bundlePath)
     ? { path: path.basename(bundlePath), bytes: fs.statSync(bundlePath).size, sha256: crypto.createHash('sha256').update(fs.readFileSync(bundlePath)).digest('hex') }
     : null;
@@ -398,13 +800,15 @@ async function main() {
       session: process.env.SESSIONNAME || ''
     },
     counts,
+    domInventory: domSummary,
+    sourceInventory: sourceSummary,
     consoleErrors: consoleErrors.slice(0, 50),
     failedRequests: failedRequests.slice(0, 50),
     controls: rows
   };
   fs.writeFileSync(path.join(out, 'candidate-report.json'), JSON.stringify(report, null, 2));
 
-  const header = ['mode', 'control_id', 'area', 'preconditions', 'action', 'expected_ui', 'expected_request', 'actual', 'evidence', 'verdict', 'note'];
+  const header = ['mode', 'control_id', 'dom_keys', 'area', 'preconditions', 'action', 'expected_ui', 'expected_request', 'actual', 'evidence', 'verdict', 'note'];
   const csv = [header.join(',')].concat(rows.map(r => header.map(h => '"' + String(r[h] === undefined ? '' : r[h]).replace(/"/g, '""') + '"').join(','))).join('\n');
   fs.writeFileSync(path.join(out, 'control-coverage.csv'), csv + '\n');
 

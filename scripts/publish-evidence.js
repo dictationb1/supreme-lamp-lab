@@ -148,6 +148,7 @@ async function main() {
     }
     const r = await putFile(REPO, branch, `${dest}/${f.name}`, buf, `${message}: ${f.name}`);
     results.push({ file: f.name, ...r });
+    if (!r.ok) console.error(`::error title=evidence file publish failed::${f.name} code=${r.code || 'UNKNOWN'} status=${r.status === undefined ? 'none' : r.status}`);
     console.log(`${r.ok ? 'published' : 'FAILED'} ${f.name} -> ${dest}/${f.name}${r.commit ? ' @' + String(r.commit).slice(0, 12) : ''}`);
   }
   const manifest = {

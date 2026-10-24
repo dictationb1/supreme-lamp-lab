@@ -53,10 +53,20 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/evidence\/lab-run-\$env:GITHUB_RUN_ID/.test(wf), 'two runs must never overwrite one report');
   });
 
+  await test('evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED', async () => {
+    const wf = read('.github/workflows/capability-check.yml');
+    const server = wf.slice(wf.indexOf('  server:\n'), wf.indexOf('  client:\n'));
+    assert.ok(/permissions:\s*\n\s*contents: write/.test(server), 'the server sanitized-evidence publisher needs contents:write');
+    assert.ok(server.includes('Publish sanitized server evidence'));
+    const report = read('scripts/verification-report.js');
+    assert.ok(report.includes('requiredJobsOk') && report.includes("capability: `required_job_${j.job}`"), 'job failures must remain visible even when every capability row is PASS');
+  });
+
   await test('candidate: the stub is never labelled as the application server', async () => {
     const stub = read('scripts/candidate/stub-server.js');
     assert.ok(/lab-candidate-stub/.test(stub));
     assert.ok(/NOT the application server/i.test(stub), 'the file must say what it is not');
+    assert.ok(stub.includes("p === '/api/f92-selftest'") && stub.includes("'version:match': { status: 'pass' }"), 'the Settings recheck fixture must implement the production endpoint and response shape');
   });
 
   await test('candidate: replay patch paths and browser click preconditions are honest', async () => {
@@ -69,11 +79,22 @@ module.exports = async function register({ test, assert }) {
     assert.ok(sweep.indexOf('await unlockWithSyntheticToken(page, mode)') < sweep.indexOf("control: 'settings.theme_toggle'"));
     assert.ok(/clickError=\$\{themeClickError\}/.test(sweep));
     assert.ok(!/themeBtn\.click\([^\n]+\)\.catch\(\(\) => \{\}\)/.test(sweep), 'a timed-out click must not be recorded as clicked');
+    assert.ok(sweep.includes("pathname === '/api/f92-selftest'") && sweep.includes("row?.status === 'pass' && verdict === 'match'"), 'the recheck test must wait for the production request and rendered match result');
     const workflow = read('.github/workflows/app-candidate.yml');
     const verdict = workflow.slice(workflow.indexOf('Evaluate the published candidate verdict'));
     assert.ok(verdict.includes('if ($fail -gt 0)'), 'failed controls must fail the candidate run');
     assert.ok(verdict.includes('if ($blocked -gt 0)'), 'BLOCKED controls must not produce a green candidate run');
     assert.ok(workflow.indexOf('Publish sanitized candidate evidence') < workflow.indexOf('Postflight (stop anything') && workflow.indexOf('Postflight (stop anything') < workflow.indexOf('Evaluate the published candidate verdict'), 'publish and cleanup must precede the honest failing verdict');
+    const { literal, globMatch } = require('../candidate/inventory-source');
+    const ts = {
+      isStringLiteral: n => n.kind === 'string', isNoSubstitutionTemplateLiteral: n => n.kind === 'template',
+      isJsxExpression: n => n.kind === 'jsx-expression'
+    };
+    assert.strictEqual(literal({ initializer: { kind: 'string', text: 'stable-id' } }, ts), 'stable-id');
+    assert.strictEqual(literal({ initializer: { kind: 'jsx-expression', expression: { kind: 'template', text: 'template-id' } } }, ts), 'template-id');
+    assert.strictEqual(literal({ initializer: { kind: 'jsx-expression', expression: { kind: 'binary' } } }, ts), null);
+    assert.ok(globMatch('src/pages/search/v2/AdvancedPanel.tsx', 'src/pages/search/**'));
+    assert.ok(!globMatch('src/pages/search2/Other.tsx', 'src/pages/search/**'));
   });
 
   await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {

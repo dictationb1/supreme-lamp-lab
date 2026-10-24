@@ -297,6 +297,9 @@ jobs:
             'no bundle: the build step did not produce ui/dist/index.html' | Out-File -FilePath (Join-Path $out 'NO-BUNDLE.txt') -Encoding utf8
             exit 0
           }
+          $sourceInventory = Join-Path $out 'source-inventory.json'
+          node scripts/candidate/inventory-source.js --app $env:APP_DIR --sha $env:APP_SHA --variant patched-ordered-series --out $sourceInventory
+          if ($LASTEXITCODE -ne 0) { throw 'source action inventory failed' }
           foreach ($mode in @('refuse','empty','healthy')) {
             $modeOut = Join-Path $out $mode
             New-Item -ItemType Directory -Force -Path $modeOut | Out-Null
@@ -304,7 +307,7 @@ jobs:
               -ArgumentList @("scripts\candidate\stub-server.js", "--port", "7331", "--fault", $mode, "--ui", $env:BUNDLE, "--sha", "cand-$($env:LAB_REVISION.Substring(0,12))")
             Start-Sleep -Seconds 2
             try {
-              node scripts\candidate\sweep.js --base http://127.0.0.1:7331 --out $modeOut --sha "cand-$($env:LAB_REVISION.Substring(0,12))" --bundle $env:BUNDLE --modes $mode
+              node scripts\candidate\sweep.js --base http://127.0.0.1:7331 --out $modeOut --sha "cand-$($env:LAB_REVISION.Substring(0,12))" --bundle $env:BUNDLE --source-inventory $sourceInventory --modes $mode
               $rc = $LASTEXITCODE
               Write-Host "::notice title=candidate sweep::$mode exit=$rc"
             } finally {

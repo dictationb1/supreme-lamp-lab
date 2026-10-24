@@ -233,7 +233,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write # sanitized evidence publisher writes only to this lab branch
       actions: read
       id-token: write
     env:
@@ -357,16 +357,37 @@ jobs:
           $ip = (& tailscale ip -4 | Select-Object -First 1)
           Write-Host "::notice title=Server tailnet address::slab-srv-${env:GITHUB_RUN_ID}-${env:GITHUB_RUN_ATTEMPT} = $ip"
 
+      - name: Configure disposable Mission Control identity and run-bound dashboard token
+        id: config
+        if: always() && steps.tailscale.outcome == 'success' && steps.stage.outcome == 'success'
+        continue-on-error: true
+        env:
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+        run: node scripts/configure-capability.js
+
+      - name: Bind a trusted Tailscale certificate to RDP-Tcp
+        id: cert
+        if: always() && steps.config.outcome == 'success'
+        continue-on-error: true
+        run: ./scripts/server/Bind-RdpCertificate.ps1 -StageRoot 'C:\ghrdp' -AppDir 'app' -Out (Join-Path $env:RUNNER_TEMP 'capability-certificate.json')
+
       - name: Supervise backend (start, server-local checks, hold for client, stop)
         id: supervise
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
           STAGE_OUTCOME: ${{ steps.stage.outcome }}
           STAGE_ERROR: ${{ steps.stage.outputs.stage_error }}
+          CONFIG_OUTCOME: ${{ steps.config.outcome }}
+          CERT_OUTCOME: ${{ steps.cert.outcome }}
         run: |
           if ($env:STAGE_OUTCOME -ne 'success') {
             node scripts/mission-control-check.js --scope server-local --fail-reason "STAGING_FAILED: outcome=$env:STAGE_OUTCOME; $env:STAGE_ERROR"
+            exit 1
+          }
+          if ($env:CONFIG_OUTCOME -ne 'success' -or $env:CERT_OUTCOME -ne 'success') {
+            node scripts/mission-control-check.js --scope server-local --blocked-reason "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=$env:CONFIG_OUTCOME cert=$env:CERT_OUTCOME"
             exit 1
           }
           node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
@@ -396,7 +417,7 @@ jobs:
               Copy-Item -LiteralPath $_.FullName -Destination $target
             }
           }
-          foreach ($name in @('stage-result.json','rdp-target.json','rdp-diagnostics.json')) {
+          foreach ($name in @('stage-result.json','rdp-target.json','rdp-diagnostics.json','capability-config.json','capability-certificate.json')) {
             $src = Join-Path $env:RUNNER_TEMP $name
             if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
           }
@@ -413,6 +434,8 @@ jobs:
             ${{ runner.temp }}/stage-result.json
             ${{ runner.temp }}/rdp-target.json
             ${{ runner.temp }}/rdp-diagnostics.json
+            ${{ runner.temp }}/capability-config.json
+            ${{ runner.temp }}/capability-certificate.json
           if-no-files-found: warn
 
       - name: Tailnet gate (explicit failure when the server could not join)
@@ -593,9 +616,10 @@ jobs:
               if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
               Copy-Item -LiteralPath $_.FullName -Destination $target
             }
-            # Browser-viewport images only. Native desktop/RDP captures, videos,
-            # profiles and credential artifacts are deliberately not auto-published.
-            foreach ($name in @('browser-synthetic.png','dashboard_client.png')) {
+            # Explicitly selected images from disposable dashboards and the
+            # dedicated slabrdp session. Videos, browser profiles, synthetic
+            # client-desktop captures and credential artifacts stay out of Git.
+            foreach ($name in @('browser-synthetic.png','dashboard_client.png','dashboard-production-launch.png','production-rdp-failure.png','native-production-launch.png','native-rdp-during.png','native-rdp-dialog.png','native-rdp-session.png','webdesk-popup-blocked.png','webdesk-before-input.png','web-desktop.png','webdesk-after-cleanup.png')) {
               $src = Join-Path $art $name
               if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
             }
