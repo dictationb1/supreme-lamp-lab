@@ -1,0 +1,60 @@
+{
+  "schema": "slab-candidate-report/1",
+  "generatedAt": "2026-10-24T02:22:58.063Z",
+  "candidate": {
+    "buildSha": "cand-8c8edc9f6e20",
+    "bundle": {
+      "path": "index.html",
+      "bytes": 1273477,
+      "sha256": "f0e4b2dc0fabc4fbb288718d01b895f83939b7d6405664f1a2b370d6a10eca88"
+    }
+  },
+  "backend": "lab-candidate-stub (synthetic; NOT the application server)",
+  "modes": [
+    "empty"
+  ],
+  "host": "runnervmdaln5",
+  "execution": {
+    "headless": true,
+    "runner": "GitHub Actions 1000003719",
+    "runnerEnvironment": "github-hosted",
+    "session": ""
+  },
+  "counts": {
+    "PASS": 1
+  },
+  "consoleErrors": [
+    {
+      "mode": "empty",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "mode": "empty",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "mode": "empty",
+      "text": "WebSocket connection to 'ws://127.0.0.1:7331/ws' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    },
+    {
+      "mode": "empty",
+      "text": "Failed to load resource: the server responded with a status of 404 ()"
+    }
+  ],
+  "failedRequests": [],
+  "controls": [
+    {
+      "mode": "empty",
+      "control_id": "overview.auto_login_gate",
+      "area": "overview",
+      "preconditions": "lab candidate build served on 127.0.0.1 with the stub backend in this mode",
+      "action": "Load the dashboard while both status routes answer 200 with an EMPTY object.",
+      "expected_ui": "the gate names the real missing credential fields (a measurement, because the read succeeded)",
+      "expected_request": "GET /api/native-status -> 200 {}",
+      "actual": "note=\"WINDOWS AUTO-LOGIN is unavailable because: the FQDN/user pair failed validation; the runner tailnet IP did not resolve; the RDP LISTENER probe is not all green\" disabled=true",
+      "evidence": "shots/overview-empty.png",
+      "verdict": "PASS",
+      "note": ""
+    }
+  ]
+}

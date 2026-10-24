@@ -1,0 +1,8 @@
+lineage_id,field_or_control,frontend_consumer,request_or_source,backend_handler_or_service,observed_value,source_timestamp,environment,verdict
+L001,origin run/attempt/SHA,N/A,GitHub Actions run API,.github/workflows/main.yml,"40051974454 / 1 / 4a91c5c2eadc12e5b071bc46bae7683087f56fbd",2026-10-24T02:17:04Z,A_live_origin,PASS
+L002,first origin failure,N/A,GitHub Actions jobs API,rdp job step 28,"Stage files + write config.json = failure",2026-10-24T02:17:04Z,A_live_origin,FAIL
+L003,MC-SIGNAL publication,N/A,GitHub check-runs API filtered by exact external_id+SHA,application live-signal publisher,"matching=[]; publication step skipped",2026-10-24T02:17:05Z,A_live_origin,BLOCKED
+L004,F201 launch-gate probe state,Overview + PrimaryActions + AppShell,/api/config and /api/native-status fixtures,sessionStore probe state,"8 regression failures; setProbe absent",2026-10-24T02:12:50Z,B_isolated_baseline,FAIL_REPRODUCED
+L005,F201 launch-gate probe state,Overview + PrimaryActions + AppShell,/api/config and /api/native-status fixtures,sessionStore probe state,"8/8 PASS",2026-10-24T02:12:56Z,C_isolated_candidate,PASS
+L006,production frontend identity,#ghrdpBuild data-build,Vite production build,ui/dist/index.html,"1273547 bytes; SHA-256 b6a5dfc84316c315601a47f1a1aaffe08d2e0336177ee304547952e0401d5bbe",2026-10-24T02:16:09Z,C_isolated_candidate,PASS
+L007,7331 startup/accept ordering,N/A,source inspection,payloads/ghrdp-server.ps1,"LISTENING then three synchronous event-log scans before accept loop; timing unmeasured",static-source-at-pinned-SHA,B_source_hypothesis,NOT_CONFIRMED

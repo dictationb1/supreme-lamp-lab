@@ -1,0 +1,41 @@
+{
+  "schema": "slab-source-inventory-comparison/1",
+  "generatedAt": "2026-10-24T03:06:54.755Z",
+  "baseline": {
+    "repository": "dictationb1/supreme-lamp",
+    "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "variant": "unpatched-baseline"
+  },
+  "candidate": {
+    "repository": "dictationb1/supreme-lamp",
+    "baseSha": "9bfe9946a2ca779085babaedc040e68dff95c233",
+    "variant": "patched-candidate"
+  },
+  "stableActionKeysMatch": true,
+  "surfaceKindsMatch": true,
+  "baselineSummary": {
+    "features": 11,
+    "actionableSurfaces": 326,
+    "requiredBehaviouralSurfaces": 310,
+    "componentCallbackSurfaces": 16,
+    "nativeEventSurfaces": 22,
+    "stableIdSurfaces": 228,
+    "sourceOnlyKeySurfaces": 98,
+    "dynamicTestidSurfaces": 44,
+    "dynamicIdSurfaces": 43,
+    "behaviourallyExecuted": 0
+  },
+  "candidateSummary": {
+    "features": 11,
+    "actionableSurfaces": 326,
+    "requiredBehaviouralSurfaces": 310,
+    "componentCallbackSurfaces": 16,
+    "nativeEventSurfaces": 22,
+    "stableIdSurfaces": 228,
+    "sourceOnlyKeySurfaces": 98,
+    "dynamicTestidSurfaces": 44,
+    "dynamicIdSurfaces": 43,
+    "behaviourallyExecuted": 0
+  },
+  "note": "Source-only keys embed line numbers and are not expected to be byte-identical after a patch; stable testid/id keys and surface-kind counts are compared explicitly. Inventory is not behavioural acceptance."
+}

@@ -1,0 +1,17 @@
+
+> supreme-lamp-ui@1.0.0 build /home/user/mc-candidate
+> tsc -p tsconfig.build.json && vite build
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+vite v5.4.21 building for production...
+transforming...
+
+warn - The utility `from-[var(--surface-sunken,theme(colors.sunken.500))]` contains an invalid theme value and was not generated.
+✓ 1807 modules transformed.
+rendering chunks...
+[plugin vite:singlefile] 
+
+[plugin vite:singlefile] Inlining: index-CRKthPcD.js
+[plugin vite:singlefile] Inlining: style-BSOV60f2.css
+ui/dist/index.html  1,226.44 kB
+✓ built in 14.49s

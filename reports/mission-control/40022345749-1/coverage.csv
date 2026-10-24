@@ -1,0 +1,37 @@
+scope,control,verdict,evidence,limitations
+LIVE_ORIGIN,port_7331_tcp_connect,PASS,prior PR26 Windows-client bundle,Not independently repeated in this session; listener process identity absent
+LIVE_ORIGIN,port_7331_http_response,FAIL,prior PR26 Windows-client bundle: no HTTP within repeated 15-20s windows,Not a fresh live verdict; do not infer app owner
+LIVE_ORIGIN,port_7332_http_response,PASS,prior PR26 Windows-client bundle,Not independently repeated; endpoint kept private
+LIVE_ORIGIN,server_readiness,FAIL,prior PR26 report: timeout at 240s,Run/attempt binding reviewed but timing not freshly replayed
+LIVE_ORIGIN,signal_run_attempt_sha_identity,PASS,exact check-run metadata carries matching run attempt and app SHA,Timestamp discrepancy means identity does not establish freshness
+LIVE_ORIGIN,signal_freshness,BLOCKED,run remains in_progress but published timestamp disagrees with observed clock,No freshness or live VM claim
+CANDIDATE,overview.auto_login_gate,NOT_RUN,hosted candidate report only measured disabled=false under candidate harness,Stub state is not real credential/DNS/listener evidence
+CANDIDATE,nav.overview,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.search,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.sessions,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.connections,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.keys,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.files,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.mirror,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.telemetry,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.health,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.collector,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,nav.settings,NOT_RUN,report called PASS but asserted only non-empty body,No route-specific assertion
+CANDIDATE,settings.theme_toggle,FAIL,prior hosted candidate report before=dark after=dark despite click,Hosted stub/UI only; no production app browser replay
+CANDIDATE,settings.language_toggle,PASS,prior hosted report observed Sinhala text rendered,Does not establish server/backend health
+CANDIDATE,global.text_scale,FAIL,prior hosted candidate report before=16px after=16px,Hosted stub/UI only; no production app browser replay
+CANDIDATE,search.query_with_backend_absent,PASS,prior hosted report observed fallback UI with backend absent,Not real backend/search data-path proof
+CANDIDATE,sessions.list,BLOCKED,prior report explicitly says candidate stub has no sessions backend,Real sessions API/state unavailable
+CANDIDATE,connections.connect,BLOCKED,prior report explicitly says stub has no connections backend,No production ghrdp protocol handler or real server
+CANDIDATE,keys.reveal,BLOCKED,prior report explicitly says stub has only masked fields,No credential-store evidence; no reveal attempted
+CANDIDATE,files.browse,BLOCKED,prior report explicitly says no real backend,No runner filesystem / API behavior
+CANDIDATE,mirror.start,BLOCKED,prior report explicitly says no real backend,No external credentials or mirror service
+CANDIDATE,telemetry.samples,BLOCKED,prior report explicitly says no real progress producer,No telemetry source verified
+CANDIDATE,health.service_checks,BLOCKED,prior report explicitly says service checks absent,No production health rows
+CANDIDATE,collector.run,BLOCKED,prior report explicitly says collector endpoint absent,No POST to real backend
+CANDIDATE,rdp.native_logon,BLOCKED,prior report explicitly says RDP backend absent,No target/NLA/type-10 4624 correlation
+CANDIDATE,web_desktop.real_session,BLOCKED,No real Web Desktop session proof in reviewed evidence,Must not simulate/claim manual entry
+CANDIDATE,production_server_startup,BLOCKED,Candidate workflow served UI using a lab stub,No lab-owned Windows server production startup path
+HARNESS,signal_schema_reader,FAIL,branch reader parses legacy summary token; actual app emitted fenced mc-signal/v1 JSON in output.text,Automatic authenticated attachment cannot be trusted
+HARNESS,interactive_vm_preflight,BLOCKED,lab workflow dispatch returned HTTP 403,No fresh VM identity or assignment verdict
+UPSTREAM,app_deployment,NOT_RUN,read-only constraint,No app write or deploy performed

@@ -1,0 +1,250 @@
+{
+  "schema": 2,
+  "generatedAt": "2026-10-24T02:45:36.274Z",
+  "repository": "dictationb1/supreme-lamp-lab",
+  "runId": "40054869094",
+  "runAttempt": "1",
+  "event": "pull_request",
+  "correlationId": null,
+  "labCommit": "f34c1e28b7bae292cfdcba337f849b5a34a87e60",
+  "prHeadCommit": "f34c1e28b7bae292cfdcba337f849b5a34a87e60",
+  "appRepository": "dictationb1/supreme-lamp",
+  "appCommit": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "verdict": "VERIFIED",
+  "aggregate": "PASS",
+  "counts": {
+    "pass": 9,
+    "fail": 0,
+    "blocked": 0,
+    "blockedDownstream": 0,
+    "notRun": 0,
+    "other": 0
+  },
+  "firstCause": null,
+  "independentCauses": [],
+  "bySubsystem": {},
+  "diagnostics": {
+    "supervisorFirstFailure": "none",
+    "supervisorDegradedGuards": "none",
+    "backendIdentityState": "VERIFIED",
+    "backendFailureClass": "UNKNOWN",
+    "backendHealthProven": true,
+    "tailscaleStepOutcome": "success",
+    "tailnetCategory": "JOIN_OK",
+    "tailnetDetail": "identity token exchanged and tailscale up succeeded",
+    "tailnetFirstError": null,
+    "tailnetFailedOperation": null,
+    "tailnetCliVersion": null,
+    "tailnetServiceState": null,
+    "regressionGates": {
+      "static": {
+        "job": "static",
+        "required": true,
+        "total": 231,
+        "passed": 231,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "linux"
+      },
+      "client": {
+        "job": "client",
+        "required": true,
+        "total": 231,
+        "passed": 231,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "win32"
+      }
+    },
+    "regressionGateFailures": [],
+    "oidcSubject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "audienceMatchesConfigured": "true",
+    "rdpConfigured": "true",
+    "rdpReason": "OK",
+    "prerequisitesMissing": [],
+    "rootCauses": [],
+    "downstreamBlocked": []
+  },
+  "regressions": {
+    "static": {
+      "job": "static",
+      "required": true,
+      "total": 231,
+      "passed": 231,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "linux"
+    },
+    "client": {
+      "job": "client",
+      "required": true,
+      "total": 231,
+      "passed": 231,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "win32"
+    }
+  },
+  "capabilities": {
+    "browser_synthetic": {
+      "status": "PASS",
+      "required": true,
+      "reason": "DOM interaction asserted; screenshot 1280x720; video 40972 bytes",
+      "source": "client.caps_client_local"
+    },
+    "native_screenshot": {
+      "status": "PASS",
+      "required": true,
+      "reason": "CAPTURED 1022x768 session=1 path=C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40054869094-1\\native-desktop.png; 1022x768",
+      "source": "client.caps_client_local"
+    },
+    "backend_readiness_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=8848 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "server.caps_server_local"
+    },
+    "dashboard_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build 4a91c5c2eadc (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, screenshot 1366x820",
+      "source": "server.caps_server_local"
+    },
+    "tailnet_connectivity": {
+      "status": "PASS",
+      "required": true,
+      "reason": "peer slab-srv-40054869094-1.tail7cf774.ts.net. 100.67.76.12 online; tcp 7331 reachable from 100.93.94.15",
+      "source": "client.caps_tailnet"
+    },
+    "backend_readiness_remote": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=8848 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "client.caps_remote"
+    },
+    "dashboard_client": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build 4a91c5c2eadc (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, screenshot 1366x820",
+      "source": "client.caps_remote"
+    },
+    "web_desktop": {
+      "status": "PASS",
+      "required": true,
+      "reason": "frameAge=85ms frame 960x600; browser img#view 960x600",
+      "source": "client.caps_remote"
+    },
+    "rdp_auto_login": {
+      "status": "PASS",
+      "required": true,
+      "reason": "4624 type 10 (reported by the endpoint) slabrdp@2026-10-24T02:43:53.2936901Z from 100.93.94.15; authLast=unavailable mstsc alive; screenshot 1022x768",
+      "source": "client.caps_remote"
+    }
+  },
+  "jobs": {
+    "static": "success",
+    "server": "failure",
+    "client": "success"
+  },
+  "jobsDetail": [
+    {
+      "name": "static",
+      "id": 120755770029,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000003752",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T02:37:37Z",
+      "completedAt": "2026-10-24T02:40:02Z"
+    },
+    {
+      "name": "auth-diagnostic",
+      "id": 120755770826,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T02:37:35Z",
+      "completedAt": "2026-10-24T02:37:34Z"
+    },
+    {
+      "name": "live-origin guard",
+      "id": 120755799944,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T02:37:42Z",
+      "completedAt": "2026-10-24T02:37:34Z"
+    },
+    {
+      "name": "client",
+      "id": 120756300056,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "rdp-lab-client",
+      "labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "rdp-lab-client"
+      ],
+      "startedAt": "2026-10-24T02:40:07Z",
+      "completedAt": "2026-10-24T02:45:04Z"
+    },
+    {
+      "name": "server",
+      "id": 120756300068,
+      "status": "completed",
+      "conclusion": "failure",
+      "runner": "GitHub Actions 1000003754",
+      "labels": [
+        "windows-latest"
+      ],
+      "startedAt": "2026-10-24T02:40:05Z",
+      "completedAt": "2026-10-24T02:45:27Z"
+    },
+    {
+      "name": "report",
+      "id": 120757461619,
+      "status": "in_progress",
+      "conclusion": null,
+      "runner": "GitHub Actions 1000003756",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T02:45:30Z",
+      "completedAt": null
+    }
+  ],
+  "publish": {
+    "published": true,
+    "updated": true,
+    "created": false,
+    "id": 6378684275,
+    "status": 200,
+    "error": null
+  }
+}

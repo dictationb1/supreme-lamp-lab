@@ -135,6 +135,11 @@ permissions:
   contents: write   # publish / claim / ack records on the run-records branch
   actions: read     # read the origin run's metadata and its own log
 
+# A pull_request's github.sha is a merge commit. Every stage must execute and
+# report the exact PR head instead of a mixture of candidate code and old main.
+env:
+  LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   # ---------------------------------------------------------------------------
   # PRE-MERGE CANDIDATE GATE (pull_request only, same-repository branches).
@@ -160,6 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -193,7 +199,7 @@ jobs:
           # No --publish: a PR must never mutate the live queue.
           rc=0
           node scripts/live-run.js discover --origin-repo dictationb1/supreme-lamp \
-            --origin-run 0 --origin-attempt 0 --lab-revision "$GITHUB_SHA" \
+            --origin-run 0 --origin-attempt 0 --lab-revision "$LAB_REVISION" \
             --discover-out discover-candidate.json || rc=$?
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 4 ]; then echo "::error title=candidate discover::exit $rc"; exit "$rc"; fi
           jq -c '{found:(if .ok then "yes" else "no" end), reason, detail, transport:(.evidence.transport // null), signal:(.evidence.signalCode // .evidence.signal // null), rejected:((.evidence.rejected // [])|map({runId,attempt,code})|.[0:5])}' discover-candidate.json | tee -a "$GITHUB_STEP_SUMMARY"
@@ -269,6 +275,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -323,7 +330,7 @@ jobs:
           ORIGIN_REPO: ${{ inputs.origin_repo || 'dictationb1/supreme-lamp' }}
           ORIGIN_RUN: ${{ inputs.origin_run || '0' }}
           ORIGIN_ATTEMPT: ${{ inputs.origin_attempt || '0' }}
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           node scripts/live-run.js discover \
@@ -380,10 +387,11 @@ jobs:
       endpoint: ${{ steps.pick.outputs.endpoint }}
       expires_at: ${{ steps.pick.outputs.expires_at }}
       mode: ${{ steps.pick.outputs.mode }}
-      lab_sha: ${{ github.sha }}
+      lab_sha: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -407,16 +415,16 @@ jobs:
           if [ "${MODE:-live-origin}" = "origin-selftest" ]; then
             # The lab's own server job is the origin for this harness; its
             # record was published by that job, so select it explicitly.
-            node scripts/live-run.js poll-records > records.txt || true
-            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.txt)
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
+            PICK=$(node scripts/pick-record.js --origin "dictationb1/supreme-lamp-lab" --run "${SELFTEST_RUN:-0}" --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" --allow-origins "dictationb1/supreme-lamp-lab,dictationb1/supreme-lamp" --records records.json)
           else
-            node scripts/live-run.js poll-records > records.txt || true
+            node scripts/live-run.js poll-records --json-out records.json > records.txt || true
             PICK=$(node scripts/pick-record.js \
               --correlation "${DISPATCH_CORRELATION:-${INPUT_CORRELATION:-}}" \
               --origin "${DISPATCH_ORIGIN_REPO:-${INPUT_ORIGIN_REPO:-}}" \
               --run "${DISPATCH_ORIGIN_RUN:-${INPUT_ORIGIN_RUN:-}}" \
               --attempt "${DISPATCH_ORIGIN_ATTEMPT:-${INPUT_ORIGIN_ATTEMPT:-1}}" \
-              --records records.txt)
+              --records records.json)
           fi
           echo "$PICK" | tee -a "$GITHUB_STEP_SUMMARY"
           {
@@ -431,7 +439,7 @@ jobs:
             echo "endpoint=$(echo "$PICK" | jq -r '.descriptor.authorizedEndpoint // ""')"
             echo "expires_at=$(echo "$PICK" | jq -r '.descriptor.expiresAt // ""')"
             echo "mode=$(echo "$PICK" | jq -r '.descriptor.mode // "live-origin"')"
-            pending=$(jq -r '.pending // 0' records.txt 2>/dev/null || echo 0)
+            pending=$(jq -r '.pending // 0' records.json 2>/dev/null || echo 0)
             case "$pending" in (*[!0-9]*|'') pending=0;; esac
             echo "pending=$pending"
           } >> "$GITHUB_OUTPUT"
@@ -508,12 +516,22 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Preflight owned-process cleanup
         run: |
           node scripts/cleanup-lab.js --mode preflight
-          exit $LASTEXITCODE
+          $code = $LASTEXITCODE
+          # Safety is the invariant, not "must kill everything": a snapshot that
+          # cannot be taken (4) means the process table is unreadable, and
+          # guessing is forbidden -> fail. A leftover process of ANOTHER run that
+          # this account cannot terminate (2 = survivors, 3 = registry/lock) is a
+          # warning that names itself in an annotation; aborting here would
+          # destroy a verification that never started (measured 2026-10-23).
+          if ($code -eq 4) { throw "preflight cleanup could not read the process table (exit 4) - refusing to guess" }
+          if ($code -ne 0) { Write-Host "::warning title=preflight cleanup::exit $code - continuing; survivors are named in the annotation and will be retried by a later cleanup" }
+          exit 0
 
       - name: Install lab dependencies + Chromium (headed)
         run: |
@@ -521,6 +539,95 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
           npx playwright install chromium
           if ($LASTEXITCODE -ne 0) { throw 'playwright install failed' }
+
+      - name: Network preflight (read-only — can this desk even reach the endpoint?)
+        if: always()
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Read-only. Answers the ONE question a READINESS_TIMEOUT cannot:
+          # is the address unroutable (this desk is not on the tailnet), blocked
+          # (firewall/ACL), or answering-but-unready? No credential is used and
+          # no request carries a token; responses are not printed, only codes.
+          $target = $env:ENDPOINT
+          if (-not $target) { Write-Host "::warning title=net preflight::no ENDPOINT for this claim (idle sweep) - skipped"; exit 0 }
+          try { $u = [uri]$target } catch { Write-Host "::error title=net preflight::unparseable ENDPOINT"; exit 0 }
+          $hostName = $u.Host; $port = if ($u.Port -gt 0) { $u.Port } else { 80 }
+          Write-Host "target host=$hostName port=$port"
+          $mine = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like '100.*' } | ForEach-Object { $_.IPAddress })
+          Write-Host "::notice title=net preflight::desk=$env:RUNNER_NAME tailnetIPv4=$($mine -join ',') (empty = this desk has no tailnet address)"
+          $ts = Get-Command tailscale -ErrorAction SilentlyContinue
+          if ($ts) {
+            $st = & tailscale status --json 2>$null | ConvertFrom-Json
+            $peer = $st.Peer.PSObject.Properties.Value | Where-Object { $_.TailscaleIPs -contains $hostName } | Select-Object -First 1
+            Write-Host "::notice title=net preflight::tailscale backend=$($st.BackendState) selfOnline=$($st.Self.Online) peerFound=$([bool]$peer) peerOnline=$($peer.Online)"
+          } else { Write-Host "::notice title=net preflight::tailscale CLI not installed on this desk" }
+          # TCP reachability, bounded: 5 s per attempt, 3 attempts.
+          $tcp = $false
+          for ($i = 1; $i -le 3; $i++) {
+            $c = Test-NetConnection -ComputerName $hostName -Port $port -InformationLevel Quiet -WarningAction SilentlyContinue
+            if ($c) { $tcp = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host "::notice title=net preflight::tcp $hostName`:$port reachable=$tcp"
+          # HTTP liveness, unauthenticated, 8 s timeout. /api/ping is the F92
+          # endpoint designed to answer without a credential.
+          $code = 'none'; $curlExit = -1
+          try { $code = & curl.exe -s -o NUL -m 20 -w '%{http_code}' ("{0}://{1}:{2}/api/ping" -f $u.Scheme, $hostName, $port) 2>$null } catch { $code = "error:$($_.Exception.Message)" }
+          $curlExit = $LASTEXITCODE
+          Write-Host "::notice title=net preflight::http /api/ping code=$code curlExit=$curlExit"
+          if ($tcp -and ($code -eq '000' -or $code -eq 'none')) {
+            # TCP accepted but no HTTP answer: the port is open and the API is
+            # NOT serving. That is a different fault from 'unreachable', and it
+            # is recorded as such (measured 2026-10-23: reachable=True, code=000).
+            Write-Host "::warning title=net preflight::the port is OPEN but /api/ping did not answer within 20s - the server accepted the connection and then stalled (wedged listener / wrong process on the port), not a network block."
+          } elseif (-not $tcp) {
+            Write-Host "::warning title=net preflight::the endpoint is NOT reachable from this desk; every live check would end in READINESS_TIMEOUT. This is a lab-network/tailnet condition, not a product verdict."
+          }
+          # ------------------------------------------------------------------
+          # BOUNDED LISTENER CLASSIFICATION (both ports, structured).
+          # The application has historically served the dashboard on 7331 (the
+          # PowerShell server: single-file UI + /api/*) and a Rust WebSocket
+          # dashboard on 7332. "TCP accepted, no HTTP answer" cannot tell an
+          # operator which of those is wedged, so each route is measured with a
+          # hard 15 s budget and the result is written as JSON for the bundle.
+          # Nothing here uses a credential and no response body is stored.
+          # ------------------------------------------------------------------
+          $probeDir = Join-Path $env:RUNNER_TEMP 'probe'
+          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+          $probePorts = @()
+          if ($port -gt 0) { $probePorts += $port }
+          foreach ($alt in @(7331, 7332)) { if ($probePorts -notcontains $alt) { $probePorts += $alt } }
+          $rows = @()
+          foreach ($p in $probePorts) {
+            foreach ($route in @('/api/ping', '/health', '/api/version', '/', '/v2', '/api/native-status', '/api/status')) {
+              $sw = [System.Diagnostics.Stopwatch]::StartNew()
+              $c = & curl.exe -s -o NUL -m 15 -w '%{http_code} %{size_download} %{time_total}' ("{0}://{1}:{2}{3}" -f $u.Scheme, $hostName, $p, $route) 2>$null
+              $ce = $LASTEXITCODE
+              $sw.Stop()
+              $parts = ($c -split ' ')
+              $code = if ($parts.Count -ge 1) { $parts[0] } else { 'none' }
+              $rows += [pscustomobject]@{
+                port = $p; route = $route; httpCode = $code; bytes = if ($parts.Count -ge 2) { $parts[1] } else { '' }
+                curlExit = $ce; wallMs = $sw.ElapsedMilliseconds
+                classification = if ($code -eq '200') { 'ANSWERING' } elseif ($code -eq '000') { 'ACCEPTED_NO_HTTP' } elseif ($code -match '^(301|302|401|403|404)$') { 'ANSWERING' } else { 'OTHER' }
+              }
+              $global:LASTEXITCODE = 0
+            }
+          }
+          ($rows | ConvertTo-Json -Depth 4) | Out-File -FilePath (Join-Path $probeDir 'listeners.json') -Encoding utf8
+          $summary = ($rows | Where-Object { $_.route -eq '/api/ping' } | ForEach-Object { "port $($_.port): code=$($_.httpCode) (exit=$($_.curlExit), $($_.wallMs)ms, $($_.classification))" }) -join '; '
+          Write-Host "::notice title=net preflight::listener classification - $summary"
+          $answering = @($rows | Where-Object { $_.httpCode -eq '200' } | ForEach-Object { $_.port } | Select-Object -Unique)
+          if ($answering.Count -gt 0) {
+            Write-Host "::notice title=net preflight::ports answering HTTP: $($answering -join ',')"
+          } else {
+            Write-Host "::warning title=net preflight::NO port answered HTTP within 15s (7331 and 7332 both silent) - the dashboard transport is down even though TCP may accept; every UI/API verdict below is BLOCKED on this, not measured against it"
+          }
+          # A diagnostic is never a gate: never let it fail the job (native exit
+          # codes propagate as the step's exit code when it is the last command).
+          $global:LASTEXITCODE = 0
+          exit 0
 
       - name: LIVE VERIFICATION (discover -> origin verify -> auth -> UI -> features -> report)
         id: live
@@ -569,8 +676,45 @@ jobs:
           if ($code -eq 0 -or $code -eq 4 -or $code -eq 7 -or $code -eq 5 -or $code -eq 9 -or $code -eq 8) { exit 0 }
           exit 1
 
+      - name: Publish sanitized evidence into the repository (artifacts are not retrievable from automation)
+        if: always()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          ORIGIN_RUN_OUT: ${{ needs.claim.outputs.origin_run }}
+          ORIGIN_ATTEMPT_OUT: ${{ needs.claim.outputs.origin_attempt }}
+        run: |
+          # Measured 2026-10-23: the artifact ZIP redirects to
+          # productionresultssa9.blob.core.windows.net and the step log redirects to
+          # results-receiver.actions.githubusercontent.com; both are unreachable from
+          # an automation environment whose egress allowlist is github.com /
+          # api.github.com / codeload / npm / pypi (EOF). Evidence that only exists
+          # as an artifact is therefore UNREADABLE, and its 14-day retention is not
+          # the limiting factor. The report goes into the branch instead.
+          $dir = Join-Path $env:RUNNER_TEMP "artifacts\live-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (-not (Test-Path $dir)) { Write-Host "::notice title=evidence publish::no artifact dir this run"; exit 0 }
+          # the listener classification lives beside the artifact dir, not inside it
+          $probe = Join-Path $env:RUNNER_TEMP 'probe'
+          if (Test-Path (Join-Path $probe 'listeners.json')) { Copy-Item (Join-Path $probe 'listeners.json') (Join-Path $dir 'listeners.json') -Force }
+          $runId = if ($env:ORIGIN_RUN_OUT) { $env:ORIGIN_RUN_OUT } else { 'unknown' }
+          $attempt = if ($env:ORIGIN_ATTEMPT_OUT) { $env:ORIGIN_ATTEMPT_OUT } else { '1' }
+          # ONE DIRECTORY PER LAB RUN. Measured 2026-10-23: two consecutive lab
+          # runs published evidence/live-run-report.json and the second replaced
+          # the first, which silently invalidated the bundle's SHA256SUMS and made
+          # "the evidence for run X" ambiguous.
+          $dest = "reports/mission-control/$runId-$attempt/evidence/lab-run-$env:GITHUB_RUN_ID"
+          node scripts/publish-evidence.js --dir $dir --dest $dest --branch $env:HEAD_BRANCH --message "evidence: $runId/$attempt lab run $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Keep the authorized viewer open (bounded, default useful)
-        if: always() && inputs.keep_viewer_open_minutes != '0'
+        # An authenticated viewer exists only when the live step actually reached
+        # and authenticated the UI (exit 0). Every blocked outcome used to pay the
+        # full hold anyway, which (a) put nothing on the screen, and (b) kept the
+        # single interactive desktop occupied for 15 extra minutes, delaying the
+        # next queued job (measured: lab run 40028824511 held the desk to 22:07Z
+        # after its live step had already ended in READINESS_TIMEOUT).
+        if: always() && inputs.keep_viewer_open_minutes != '0' && steps.live.outputs.exit_code == '0'
         shell: powershell
         run: |
           # The viewer is a managed, bounded process owned by THIS job: it is
@@ -619,6 +763,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

@@ -35,7 +35,7 @@ const IS_WIN = process.platform === 'win32';
 const { STATUS, aggregate, CapabilitySet } = require('./lib/status');
 const { evaluateReadiness, evaluateVersion, waitForReady, checkVersion } = require('./lib/readiness');
 const { request, formatErrorChain } = require('./lib/http');
-const { validatePngBuffer, validateJpegBuffer } = require('./lib/image');
+const { validatePngBuffer, validateJpegBuffer, comparePng } = require('./lib/image');
 const { redact } = require('./lib/redact');
 const proc = require('./lib/proc');
 const annotate = require('./lib/annotate');
@@ -133,6 +133,12 @@ function makePng(w, h, uniform = false) {
   const raw = Buffer.alloc((w * 3 + 1) * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = uniform ? 7 : x % 256; raw[o + 1] = uniform ? 7 : y % 256; raw[o + 2] = uniform ? 7 : (x * y) % 256; }
   if (uniform) for (let y = 0; y < h; y++) raw[y * (w * 3 + 1)] = 7;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+function makeSolidPng(w, h, value) {
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = value; raw[o + 1] = value; raw[o + 2] = value; }
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 function makeJpeg(w, h, withEoi = true) {
@@ -268,6 +274,19 @@ async function main() {
     for (const bad of ['abc.def', 'ghp_x', 'u:p@', 'Secr3t!', 'tskey-auth-abcdef', 'eyJhbGciOiJIUzI1NiJ9.eyJ']) assert.ok(!s.includes(bad), `${bad} leaked: ${s}`);
   });
 
+  await test('capability auth: dashboard token is secret-derived and bound to run and attempt', async () => {
+    const { deriveDashboardToken, tokenFingerprint } = require('./lib/capability-auth');
+    const input = { secret: 'lab-secret-with-at-least-16-chars', runId: '40054869094', runAttempt: '1' };
+    const a = deriveDashboardToken(input), b = deriveDashboardToken(input);
+    assert.strictEqual(a, b);
+    assert.match(a, /^[0-9a-f]{64}$/);
+    assert.notStrictEqual(a, deriveDashboardToken({ ...input, runAttempt: '2' }));
+    assert.notStrictEqual(a, deriveDashboardToken({ ...input, runId: '40054869095' }));
+    assert.ok(!a.includes(input.secret));
+    assert.match(tokenFingerprint(a), /^[0-9a-f]{16}$/);
+    assert.throws(() => deriveDashboardToken({ ...input, runId: 'latest' }), /numeric run id/);
+  });
+
   // ===== image validation =====
   await test('image: PNG validation rejects truncated/tiny, flags uniform', async () => {
     const good = makePng(64, 48);
@@ -278,6 +297,15 @@ async function main() {
     assert.strictEqual(validatePngBuffer(makePng(8, 8), { minWidth: 32, minHeight: 32, minBytes: 10 }).valid, false);
     assert.strictEqual(validatePngBuffer(Buffer.alloc(0)).valid, false);
     assert.strictEqual(validatePngBuffer(makePng(64, 48, true), { minWidth: 32, minHeight: 32, minBytes: 50 }).nearUniform, true);
+  });
+  await test('image: decoded PNG diff requires real pixel change, not a different byte stream', async () => {
+    const a = makeSolidPng(16, 12, 0), b = makeSolidPng(16, 12, 255);
+    assert.strictEqual(comparePng(a, a).changedRatio, 0);
+    const diff = comparePng(a, b);
+    assert.strictEqual(diff.comparable, true);
+    assert.strictEqual(diff.changedRatio, 1);
+    assert.strictEqual(diff.meanChannelDelta, 255);
+    assert.strictEqual(comparePng(a, makeSolidPng(8, 12, 255)).comparable, false);
   });
   await test('image: JPEG validation needs SOI, SOF dims and EOI', async () => {
     assert.strictEqual(validateJpegBuffer(makeJpeg(640, 480)).valid, true);
@@ -681,6 +709,12 @@ async function main() {
     assert.strictEqual(r5.verdict, 'NOT_VERIFIED');
     const n6 = JSON.parse(JSON.stringify(needs)); n6.server.outputs.caps_server_local = JSON.stringify({ backend_readiness_server_local: { s: 'SIMULATED' }, dashboard_server_local: { s: 'PASS' } });
     assert.strictEqual(build(n6).verdict, 'NOT_VERIFIED');
+    const n7 = JSON.parse(JSON.stringify(needs)); n7.server.result = 'failure';
+    const r7 = build(n7);
+    assert.strictEqual(r7.aggregate, 'PASS', 'the observed capability rows remain visible');
+    assert.strictEqual(r7.verdict, 'NOT_VERIFIED', 'a later evidence/publication failure vetoes VERIFIED');
+    assert.strictEqual(r7.firstCause.capability, 'required_job_server');
+    assert.ok(r7.independentCauses.some(c => c.category === 'REQUIRED_JOB_FAILED'));
   });
 
   // ===== OIDC subject analysis =====
@@ -853,7 +887,7 @@ async function main() {
     await test(`browser e2e mc-check server-local: ${mode}`, async () => {
       const dirs = freshDirs(); const f = await startFake(mode);
       try {
-        const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--target', f.url, '--expect-sha', SHA, '--expect-pid', String(f.pid), '--expect-port', String(f.port), '--headless', '--ready-timeout-ms', '5000'], { env: childEnv(dirs), timeoutMs: 120000 });
+        const r = await run(process.execPath, [S('mission-control-check.js'), '--scope', 'server-local', '--target', f.url, '--expect-sha', SHA, '--expect-pid', String(f.pid), '--expect-port', String(f.port), '--headless', '--ready-timeout-ms', '5000'], { env: childEnv(dirs, { GITHUB_RUN_ID: '40000000000', RDP_LAB_PASSWORD: 'disposable-browser-fixture-secret' }), timeoutMs: 120000 });
         const doc = JSON.parse(fs.readFileSync(path.join(dirs.art, 'capabilities-server-local.json'), 'utf8'));
         const c = doc.capabilities;
         assert.strictEqual(c.backend_readiness_server_local.status, want.backend, JSON.stringify(c));
@@ -1211,6 +1245,7 @@ async function main() {
       backend_readiness_remote: { s: 'PASS', r: null }, dashboard_client: { s: 'PASS', r: null }, web_desktop: { s: 'PASS', r: null }, rdp_auto_login: { s: 'PASS', r: null }
     });
     ok.server.outputs.backend_pid = '1000'; ok.client.outputs.backend_pid_remote = '1000';
+    ok.server.result = 'success'; ok.client.result = 'success';
     assert.strictEqual(reportLib.build(ok).verdict, 'VERIFIED');
     ok.client.outputs.caps_remote = JSON.stringify({ ...JSON.parse(ok.client.outputs.caps_remote), rdp_auto_login: { s: 'BLOCKED', r: 'DEPENDS_ON_RDP' } });
     assert.strictEqual(reportLib.build(ok).verdict, 'NOT_VERIFIED');
@@ -1831,6 +1866,45 @@ $obj | ConvertTo-Json -Compress
   {
     const register = require('./test/rdp-signing-regressions');
     await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
+  // ===== public-only MC-SIGNAL identity binding (no private key) =====
+  {
+    const register = require('./test/signal-binding-regressions');
+    await register({ test, assert, fs, path, os, crypto, tmpRoot });
+  }
+
+  // ===== application-format signal (mc-signal/v1, hybrid envelope) =====
+  {
+    const register = require('./test/app-signal-regressions');
+    await register({ test, assert, crypto, tmpRoot });
+  }
+
+  // ===== workflow YAML (GitHub refuses the file, not the step) =====
+  {
+    const register = require('./test/workflow-yaml-regressions');
+    await register({ test, assert });
+  }
+
+  // ===== queue claim path (poll-records -> pick-record) =====
+  {
+    const register = require('./test/pick-record-regressions');
+    await register({ test, assert, fs, path, os, tmpRoot });
+    if (typeof register.requeue === 'function') await register.requeue({ test, assert });
+    if (typeof register.inconsistent === 'function') await register.inconsistent({ test, assert });
+    if (typeof register.staleClaim === 'function') await register.staleClaim({ test, assert });
+  }
+
+  // ===== workflow ownership + evidence order (H-04, H-05) =====
+  {
+    const register = require('./test/workflow-ownership-regressions');
+    await register({ test, assert });
+  }
+
+  // ===== evidence publish gate (the lab is public; refusals are security) =====
+  {
+    const register = require('./test/publish-evidence-regressions');
+    await register({ test, assert });
   }
 
   // ===== summary =====
