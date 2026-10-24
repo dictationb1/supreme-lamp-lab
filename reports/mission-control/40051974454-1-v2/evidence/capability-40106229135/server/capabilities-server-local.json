@@ -1,0 +1,85 @@
+{
+  "scope": "server-local",
+  "job": "server",
+  "runId": "40106229135",
+  "runAttempt": "1",
+  "runner": "GitHub Actions 1000004081",
+  "writtenAt": "2026-10-24T15:22:11.313Z",
+  "capabilities": {
+    "backend_readiness_server_local": {
+      "status": "PASS",
+      "required": true,
+      "contract": "/api/readiness ok&&status=ok&&phase=ready&&apiReadiness, pid==supervised pid, port; /api/version sha==expected",
+      "reason": "pid=7376 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "evidence": {
+        "readiness": {
+          "ok": true,
+          "status": "ok",
+          "phase": "ready",
+          "liveness": true,
+          "apiReadiness": true,
+          "dependencyHealth": {
+            "explorerFx": true,
+            "mirrorHost": true
+          },
+          "desktopConnectivity": {
+            "rdpListener": true
+          },
+          "ws": true,
+          "port": 7331,
+          "pid": 7376,
+          "serverTs": "2026-10-24T15:22:07Z"
+        },
+        "version": {
+          "ok": true,
+          "server": "ghrdp",
+          "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+          "sha7": "4a91c5c",
+          "shaSource": "config.buildSha",
+          "features": {
+            "autoHttps": true,
+            "wwwTolerance": true,
+            "noFallback": true,
+            "downloadToRdp": true,
+            "launchTiers": true,
+            "selfTest": true,
+            "mirrorLauncher": true,
+            "streamProxy": true
+          }
+        }
+      }
+    },
+    "dashboard_server_local": {
+      "status": "FAIL",
+      "required": true,
+      "contract": "GET / 200 html and exact build; v2 also requires the real token dialog to clear, AUTO-LOGIN enabled, and a valid screenshot",
+      "reason": "DASHBOARD_BUILD_MISMATCH: v2 meta[name=ghrdp-build]=\"cand-63ad280289171da60578f3922205853cc5c639b9\" expected 4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "evidence": {
+        "screenshot": "D:\\a\\_temp\\artifacts\\run-40106229135-1\\dashboard_server_local.png",
+        "pageErrors": []
+      }
+    }
+  },
+  "target": "http://127.0.0.1:7331",
+  "expectSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "aggregate": {
+    "status": "FAIL",
+    "accepted": false,
+    "firstCause": {
+      "capability": "dashboard_server_local",
+      "status": "FAIL",
+      "reason": "DASHBOARD_BUILD_MISMATCH: v2 meta[name=ghrdp-build]=\"cand-63ad280289171da60578f3922205853cc5c639b9\" expected 4a91c5c2eadc12e5b071bc46bae7683087f56fbd"
+    },
+    "counts": {
+      "PASS": 1,
+      "FAIL": 1,
+      "BLOCKED": 0,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": [
+      "dashboard_server_local"
+    ]
+  }
+}
