@@ -53,8 +53,8 @@ Already executed in this lab (Linux, Node v22):
 
 - Patch series applies cleanly on a fresh `832a82eb` download; output is
   byte-identical to the hand-built candidate.
-- Application smoke tests: **108 files / 1385 tests pass** (1378 historical +
-  7 new R2 structural tests; the R2 test fails on the pristine base and passes
+- Application smoke tests: **108 files / 1386 tests pass** (1378 historical +
+  8 new R2 structural tests; the R2 test fails on the pristine base and passes
   on the repaired file).
 - Production build `pnpm run build` (tsc + vite single-file) succeeds.
 - Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /

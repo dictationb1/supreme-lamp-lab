@@ -1,4 +1,4 @@
-From c026e8e0bf0c8b9175c73d7f9097b2aaa0b5bd0e Mon Sep 17 00:00:00 2001
+From caa9a4a958923f37cab61fb4eadf2686d526e76c Mon Sep 17 00:00:00 2001
 From: RDP Mission Control Lab <lab@dictationb1.local>
 Date: Sat, 24 Oct 2026 07:26:44 +0000
 Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
@@ -300,7 +300,7 @@ index e74b4b03b..41b1d7bb3 100644
 +try { Stop-R2WebSocketPool } catch { }
 diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
 new file mode 100644
-index 000000000..d8c0e6091
+index 000000000..bbffb4efb
 --- /dev/null
 +++ b/src/tests/smoke/r2-websocket-worker.test.ts
 @@ -0,0 +1,114 @@
@@ -408,7 +408,7 @@ index 000000000..d8c0e6091
 +    expect(server).toMatch(/\$script:F99WsIdleTimeoutSec = 90/);
 +    expect(server).toMatch(/\$script:F99WsMaxLifetimeSec = 1800/);
 +    expect(server).toMatch(/GHRDP_WS_IDLE_TIMEOUT_SEC/);
-+    expect(server).toMatch(/Math::Max\(5,\s*\[Math\]::Min\(300/);
++    expect(server).toMatch(/\[Math\]::Max\(5,\s*\[Math\]::Min\(300/);
 +    expect(server).toMatch(/GHRDP_WS_MAX_LIFETIME_SEC/);
 +  });
 +

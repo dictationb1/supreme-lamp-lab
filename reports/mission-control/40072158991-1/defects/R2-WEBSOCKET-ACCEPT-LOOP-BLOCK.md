@@ -102,7 +102,7 @@ button request continue beside the live socket, and that the app's reconnect
 ladder re-establishes the bridge after a controlled interruption.
 
 - Static structure (no Windows): `src/tests/smoke/r2-websocket-worker.test.ts`
-  (vitest, 7 tests; fails on the pristine base, passes on the repaired file) and
+  (vitest, 8 tests; fails on the pristine base, passes on the repaired file) and
   `scripts/test/ws-frame-regressions.js` (framing + patch invariants).
 - Behavioral timing (Windows client VM): the `real-backend-run` labelled
   workflow, baseline vs repaired with identical fixtures. Thresholds are frozen

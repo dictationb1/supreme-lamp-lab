@@ -61,13 +61,13 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | static/build PASS; Windows R2 ධාවනය බලාපොරොත්තුවෙන් | smoke 1385/1385 PASS; production build සාර්ථක; සත්‍ය සොකට් හැසිරීම `real-backend-run` label ධාවනයෙන් |
+| PATCHED_APPLICATION_CANDIDATE | static/build PASS; Windows R2 ධාවනය බලාපොරොත්තුවෙන් | smoke 1386/1386 PASS; production build සාර්ථක; සත්‍ය සොකට් හැසිරීම `real-backend-run` label ධාවනයෙන් |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | BLOCKED | MC-SIGNAL ප්‍රකාශනය සත්‍යාපනයට නව healthy origin අවශ්‍යයි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
-සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1385 පරීක්ෂණ (1378 පෙර + 7 නව R2);
+සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1386 පරීක්ෂණ (1378 පෙර + 8 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)

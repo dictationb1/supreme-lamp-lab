@@ -2,7 +2,7 @@
   "schema": "slab-mission-control-repair-bundle/2",
   "bundleState": "R2_REPAIRED_CANDIDATE_HOSTED_GREEN_WINDOWS_RUN_PENDING",
   "createdAt": "2026-10-24T07:59:00Z",
-  "updatedAt": "2026-10-24T07:59:00Z",
+  "updatedAt": "2026-10-24T08:28:00Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40072158991",
@@ -39,10 +39,10 @@
     "applicationSmokeTests": {
       "tool": "vitest 2.x in the patched application tree",
       "files": 108,
-      "tests": 1385,
-      "passed": 1385,
+      "tests": 1386,
+      "passed": 1386,
       "failed": 0,
-      "note": "1378 historical + 7 new LAB-R2 structural tests; F201/R1/R2 all green"
+      "note": "1378 historical + 8 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201+r1+r2) is 19/19"
     },
     "productionBuild": {
       "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
@@ -98,7 +98,16 @@
     "backendKind": "actual_application",
     "browserWebSocketStubbed": false,
     "browserMode": "headed",
-    "status": "PENDING - results land in evidence/real-backend-<runId> via the publish step and are folded into this manifest",
+    "attempts": [
+      {
+        "runId": "40076700953",
+        "result": "failed at step 7 (app smoke gate) before any measurement; steps 8-9 skipped",
+        "rootCause": "the new 8th LAB-R2 assertion used a regex Math::Max(5...) missing the [Math] qualifier, so it could never match the correct source line [Math]::Max(5, [Math]::Min(300...)); a test-only defect, no production code changed",
+        "fix": "corrected the regex to \\[Math\\]::Max(5,...); regenerated 0003 (same 423 lines, one in-place test line); clean replay now 19/19 on the exact VM vitest command and 1386/1386 full suite",
+        "evidence": "evidence/windows-run-40076700953-step7-fix.md"
+      }
+    ],
+    "status": "PENDING re-run after the test-only fix; results land in evidence/real-backend-<runId> via the publish step and are folded into this manifest",
     "matrixControls": [
       "r2.no_ws_control_health",
       "r2.one_ws_health_responsive",
