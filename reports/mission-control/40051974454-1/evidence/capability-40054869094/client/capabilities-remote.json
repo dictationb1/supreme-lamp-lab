@@ -1,0 +1,623 @@
+{
+  "scope": "remote",
+  "job": "client",
+  "runId": "40054869094",
+  "runAttempt": "1",
+  "runner": "rdp-lab-client",
+  "writtenAt": "2026-10-24T02:44:30.726Z",
+  "capabilities": {
+    "backend_readiness_remote": {
+      "status": "PASS",
+      "required": true,
+      "contract": "same readiness+version contract over the tailnet",
+      "reason": "pid=8848 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "evidence": {
+        "readiness": {
+          "ok": true,
+          "status": "ok",
+          "phase": "ready",
+          "liveness": true,
+          "apiReadiness": true,
+          "dependencyHealth": {
+            "explorerFx": true,
+            "mirrorHost": true
+          },
+          "desktopConnectivity": {
+            "rdpListener": true
+          },
+          "ws": true,
+          "port": 7331,
+          "pid": 8848,
+          "serverTs": "2026-10-24T02:43:36Z"
+        },
+        "version": {
+          "ok": true,
+          "server": "ghrdp",
+          "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+          "sha7": "4a91c5c",
+          "shaSource": "env.GHRDP_BUILD_SHA",
+          "features": {
+            "autoHttps": true,
+            "wwwTolerance": true,
+            "noFallback": true,
+            "downloadToRdp": true,
+            "launchTiers": true,
+            "selfTest": true,
+            "mirrorLauncher": true,
+            "streamProxy": true
+          }
+        }
+      }
+    },
+    "dashboard_client": {
+      "status": "PASS",
+      "required": true,
+      "contract": "headed browser on client renders the real dashboard (title, build meta, #topbar), valid screenshot",
+      "reason": "v2: title ok, build 4a91c5c2eadc (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, screenshot 1366x820",
+      "evidence": {
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40054869094-1\\dashboard_client.png",
+        "pageErrors": [],
+        "variant": "v2"
+      }
+    },
+    "rdp_auto_login": {
+      "status": "PASS",
+      "required": true,
+      "contract": "TCP 3389 reachable; mstsc with stored TERMSRV credential; server 4624 for the intended user newer than baseline with sourceIp==client tailnet IP and LogonType 10 proven DIRECTLY (reported by the endpoint) or CORRELATED at the same event instant from the XML-parsing collector - never inferred from a remote IP, never from a stale/type-2/unrelated record; no blocking dialog (RDP-file consent => BLOCKED RDP_FILE_CONSENT_REQUIRED); mstsc alive; valid native screenshot",
+      "reason": "4624 type 10 (reported by the endpoint) slabrdp@2026-10-24T02:43:53.2936901Z from 100.93.94.15; authLast=unavailable mstsc alive; screenshot 1022x768",
+      "evidence": {
+        "logon": {
+          "connected": true,
+          "ts": "2026-10-24T02:43:53.2936901Z",
+          "ageSeconds": 1,
+          "sourceIp": "100.93.94.15",
+          "user": "slabrdp",
+          "since": "2026-10-24T02:43:34.0000000Z",
+          "checked": 1,
+          "logonType": "10",
+          "logonKind": "remote-interactive",
+          "inboundRdp": true,
+          "proofClass": "remote-interactive",
+          "note": "Runner-side Security 4624 LogonType 2/10/11 (F95: was type-10 only). logonType is the ACTUAL captured type (F200: fixed the automatic-match clobber); inboundRdp is derived from the TYPE, never from sourceIp. Requires SeSecurityPrivilege on server process"
+        },
+        "logonPolls": 2,
+        "proof": "direct",
+        "proofDetail": "logonType 10 for slabrdp from 100.93.94.15 at 2026-10-24T02:43:53.2936901Z",
+        "crossCheck": {
+          "state": "unavailable",
+          "detail": "collector scanTs 2026-10-24T02:43:45.082591Z predates candidate"
+        },
+        "baselineIso": "2026-10-24T02:43:34.000Z",
+        "tcp3389": {
+          "ok": true,
+          "host": "100.67.76.12",
+          "port": 3389,
+          "ms": 314,
+          "error": null
+        },
+        "credential": "CREDENTIAL_SET TERMSRV/100.67.76.12 user=slabrdp types=DomainPassword,Generic identity=WIN-NFU1JG4VESE\\User session=1",
+        "rdpFile": {
+          "bytes": 412,
+          "directives": 17
+        },
+        "windowSamples": [
+          {
+            "poll": 1,
+            "alive": true,
+            "pid": 7536,
+            "title": "Remote Desktop Connection",
+            "responding": true,
+            "sessionId": 1,
+            "hasWindow": true,
+            "probe": "main-window-heuristic",
+            "connectionProgress": "not-inferred"
+          }
+        ],
+        "dialogSamples": [
+          {
+            "poll": 1,
+            "kind": "unknown",
+            "status": null,
+            "code": "RDP_UNCLASSIFIED_DIALOG_VISIBLE",
+            "evidenceDigest": "mstsc(7536 owner=0 sess=1):\"Remote Desktop Connection\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"Remote Desktop Connection\" | mstsc(7536 owner=7536 sess=1):\"MSCTFIME UI\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\"",
+            "windows": [
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Remote Desktop Connection",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Remote Desktop Connection",
+                "ownerPid": 0,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "MSCTFIME UI",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Default IME",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Default IME",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Default IME",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Default IME",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              },
+              {
+                "kind": "unknown",
+                "dialogLike": true,
+                "pid": 7536,
+                "process": "mstsc",
+                "sessionId": 1,
+                "title": "Default IME",
+                "ownerPid": 7536,
+                "matchedText": "",
+                "controlStates": []
+              }
+            ],
+            "parseError": null
+          }
+        ],
+        "dialog": {
+          "kind": "unknown",
+          "code": "RDP_UNCLASSIFIED_DIALOG_VISIBLE",
+          "evidenceDigest": "mstsc(7536 owner=0 sess=1):\"Remote Desktop Connection\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"\" | mstsc(7536 owner=0 sess=1):\"Remote Desktop Connection\" | mstsc(7536 owner=7536 sess=1):\"MSCTFIME UI\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\" | mstsc(7536 owner=7536 sess=1):\"Default IME\""
+        },
+        "nativePre": {
+          "authLast": {
+            "result": "success",
+            "logonType": "2",
+            "logonKind": "interactive",
+            "eventTs": "2026-10-24T02:38:42.0656031Z",
+            "scanTs": "2026-10-24T02:43:45.082591Z",
+            "count4624": 8,
+            "count4625": 0,
+            "probeError": "",
+            "sub": "",
+            "subMeaning": ""
+          },
+          "collector": {
+            "alive": true,
+            "scans": 6,
+            "probeError": "",
+            "lastScanAgeSec": 1
+          },
+          "connLog": []
+        },
+        "nativePost": null,
+        "clientDiagnostics": {
+          "pid": 7536,
+          "sinceUtc": "2026-10-24T02:43:41.976Z",
+          "rdpClientLog": {
+            "listed": true,
+            "listLogError": "",
+            "listLogErrorId": "",
+            "listLogExceptionType": "",
+            "queryError": "",
+            "queryErrorId": "",
+            "queryExceptionType": "",
+            "eventsMatched": 9,
+            "events": [
+              {
+                "id": 1103,
+                "recordId": 431,
+                "timeUtc": "2026-10-24T02:43:53.9183754Z",
+                "level": "Information",
+                "message": "The client has established a multi-transport connection to the server."
+              },
+              {
+                "id": 1401,
+                "recordId": 430,
+                "timeUtc": "2026-10-24T02:43:52.9889702Z",
+                "level": "Information",
+                "message": "The server is using version 0xA0600 of the RDP graphics protocol (client mode: 0, AVC available: 1)."
+              },
+              {
+                "id": 1402,
+                "recordId": 429,
+                "timeUtc": "2026-10-24T02:43:52.9694114Z",
+                "level": "Information",
+                "message": "The client is using hardware memory for the frame buffer."
+              },
+              {
+                "id": 1025,
+                "recordId": 428,
+                "timeUtc": "2026-10-24T02:43:52.5934132Z",
+                "level": "Information",
+                "message": "RDP ClientActiveX has connected to the server"
+              },
+              {
+                "id": 1102,
+                "recordId": 427,
+                "timeUtc": "2026-10-24T02:43:52.1569389Z",
+                "level": "Information",
+                "message": "The client has initiated a multi-transport connection to the server 100.67.76.12."
+              },
+              {
+                "id": 1029,
+                "recordId": 426,
+                "timeUtc": "2026-10-24T02:43:47.9158360Z",
+                "level": "Information",
+                "message": "Base64(SHA256(UserName)) is = JPzC/O9CdF6kEaagb9+xWpfk/bJkQ52bXq6uYCPMRhM=-"
+              },
+              {
+                "id": 1028,
+                "recordId": 425,
+                "timeUtc": "2026-10-24T02:43:47.9120834Z",
+                "level": "Information",
+                "message": "Server supports SSL = supported"
+              },
+              {
+                "id": 1024,
+                "recordId": 424,
+                "timeUtc": "2026-10-24T02:43:47.2007682Z",
+                "level": "Information",
+                "message": "RDP ClientActiveX is trying to connect to the server (100.67.76.12)"
+              },
+              {
+                "id": 1504,
+                "recordId": 423,
+                "timeUtc": "2026-10-24T02:43:47.0035954Z",
+                "level": "Warning",
+                "message": "A SHA-1 certificate thumbprint was used to evaluate whether an RDP file is trusted. Support for SHA-1 thumbprints will be removed in the future. Take action now and edit the \"Specify thumbprints of certificates representing trusted .rdp pub"
+              }
+            ]
+          },
+          "windows": [
+            {
+              "hwnd": "0x190052",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": false,
+              "className": "00007FF816F2069C-PAL_SYS_WIN32_TIMER_WNDCLASS",
+              "title": "",
+              "controls": []
+            },
+            {
+              "hwnd": "0x13700AA",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": true,
+              "className": "TscShellContainerClass",
+              "title": "slab-lab - 100.67.76.12 - Remote Desktop Connection",
+              "controls": [
+                {
+                  "class": "UIMainClass",
+                  "text": "slab-lab - 100.67.76.12 - Remote Desktop Connection",
+                  "state": ""
+                },
+                {
+                  "class": "IHWindowClass",
+                  "text": "Input Capture Window",
+                  "state": ""
+                },
+                {
+                  "class": "OPContainerClass",
+                  "text": "Output Painter Window",
+                  "state": ""
+                },
+                {
+                  "class": "OPWindowClass",
+                  "text": "Output Painter Child Window",
+                  "state": ""
+                },
+                {
+                  "class": "OPWindowClass",
+                  "text": "Output Painter DX Child Window",
+                  "state": ""
+                }
+              ]
+            },
+            {
+              "hwnd": "0x1002C0",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": false,
+              "className": "RDPSoundDVCWnd",
+              "title": "",
+              "controls": []
+            },
+            {
+              "hwnd": "0x13034A",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": false,
+              "className": "RDPSoundDVCWnd",
+              "title": "",
+              "controls": []
+            },
+            {
+              "hwnd": "0xF02D8",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": false,
+              "className": "RdpClipRdrWindowClass",
+              "title": "",
+              "controls": []
+            },
+            {
+              "hwnd": "0x230058",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 0,
+              "ownerHwnd": "0x0",
+              "visible": false,
+              "className": "00007FF816F2069C-PAL_SYS_WIN32_TIMER_WNDCLASS",
+              "title": "",
+              "controls": []
+            },
+            {
+              "hwnd": "0x420352",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x190052",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            },
+            {
+              "hwnd": "0x140288",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x190342",
+              "visible": false,
+              "className": "MSCTFIME UI",
+              "title": "MSCTFIME UI",
+              "controls": []
+            },
+            {
+              "hwnd": "0x190342",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x13700AA",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            },
+            {
+              "hwnd": "0x2F02F4",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x140204",
+              "visible": false,
+              "className": "MSCTFIME UI",
+              "title": "MSCTFIME UI",
+              "controls": []
+            },
+            {
+              "hwnd": "0x140204",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x13700AA",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            },
+            {
+              "hwnd": "0x460354",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x13034A",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            },
+            {
+              "hwnd": "0x12033C",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0xF02D8",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            },
+            {
+              "hwnd": "0x11F0174",
+              "pid": 7536,
+              "process": "mstsc",
+              "sessionId": 1,
+              "ownerPid": 7536,
+              "ownerHwnd": "0x230058",
+              "visible": false,
+              "className": "IME",
+              "title": "Default IME",
+              "controls": []
+            }
+          ],
+          "tcpConnections": [
+            {
+              "remote": "0.0.0.0:0",
+              "state": "Bound"
+            },
+            {
+              "remote": "100.67.76.12:3389",
+              "state": "Established"
+            }
+          ],
+          "policy": {
+            "disablePasswordSavingUser": null,
+            "allowSavedCredentialsNtlm": {
+              "entries": 0,
+              "termsrvWildcard": false,
+              "present": false
+            },
+            "allowSavedCredentials": {
+              "entries": 0,
+              "termsrvWildcard": false,
+              "present": false
+            },
+            "disablePasswordSavingMachine": null,
+            "promptForPasswordMachine": null
+          }
+        },
+        "mstscPid": 7536,
+        "mstscAlive": true,
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40054869094-1\\native-rdp-session.png",
+        "capture": "CAPTURED 1022x768 session=1 path=C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40054869094-1\\native-rdp-session.png"
+      }
+    },
+    "web_desktop": {
+      "status": "PASS",
+      "required": true,
+      "contract": "/webdesk-status ok&&0<=frameAgeMs<15000; /webdesk-frame valid JPEG; /webdesk renders img#view with naturalWidth>0",
+      "reason": "frameAge=85ms frame 960x600; browser img#view 960x600",
+      "evidence": {
+        "webdeskStatus": {
+          "ok": true,
+          "frameAgeMs": 85
+        },
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40054869094-1\\web-desktop.png"
+      }
+    }
+  },
+  "target": "http://100.67.76.12:7331",
+  "expectSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "aggregate": {
+    "status": "PASS",
+    "accepted": true,
+    "firstCause": null,
+    "counts": {
+      "PASS": 4,
+      "FAIL": 0,
+      "BLOCKED": 0,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": []
+  }
+}
