@@ -117,9 +117,14 @@ replay + full 1386-test frontend suite + production build).
 Measured on the real Windows client (run 40078279249): the starvation itself is
 fixed — pristine blocks `/health` 5011 ms under one `/ws` (stall 4615 ms), the
 patched server keeps HTTP responsive (stall 826 ms, median health 23–54 ms).
-However every `/ws` upgrade currently returns 503 even for the first connection
-on a fresh cap=8 gate, so the WebSocket feature is not yet functional. This is a
-distinct runspace-admission/dispatch defect under PowerShell 5.1, tracked in
-`evidence/windows-run-40078279249-r2-503-defect.md`; instrumented 0003 logs the
-exact gate/pool/exception state on the next run. Do not claim R2 acceptance until
-a real `/ws` upgrade returns 101 and the r2 matrix passes.
+However every `/ws` upgrade returned 503 even for the first connection on a
+fresh cap=8 gate. Instrumented run 40081193119 root-caused that to a PowerShell
+5.1 accelerator binding fault —
+`System.Management.Automation.MethodException: Cannot find an overload for
+"Create" and the argument count "1"` from `[powershell]::Create($pool)` — while
+the admission semaphore and runspace pool were healthy (`avail=8`, no gate
+fault). The fix uses parameterless `[powershell]::Create()` plus the settable
+`RunspacePool` property and adds a 9th static test pinning it; clean replay is
+9/9 r2, 1387/1387 full suite, build OK. Do not claim R2 acceptance until the next
+Windows run shows real `/ws` 101 upgrades and a passing r2 matrix; see
+`evidence/windows-run-40081193119-root-cause.md`.

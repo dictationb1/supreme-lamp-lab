@@ -1,8 +1,8 @@
 {
   "schema": "slab-mission-control-repair-bundle/2",
-  "bundleState": "R2_REPAIRED_CANDIDATE_HOSTED_GREEN_WINDOWS_RUN_PENDING",
+  "bundleState": "R2_ALL_503_ROOT_CAUSED_AND_FIXED_PS51_CREATE_OVERLOAD_WINDOWS_RECONFIRM_PENDING",
   "createdAt": "2026-10-24T07:59:00Z",
-  "updatedAt": "2026-10-24T08:28:00Z",
+  "updatedAt": "2026-10-24T09:35:00Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40072158991",
@@ -39,10 +39,10 @@
     "applicationSmokeTests": {
       "tool": "vitest 2.x in the patched application tree",
       "files": 108,
-      "tests": 1386,
-      "passed": 1386,
+      "tests": 1387,
+      "passed": 1387,
       "failed": 0,
-      "note": "1378 historical + 8 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201+r1+r2) is 19/19"
+      "note": "1378 historical + 9 new LAB-R2 structural tests; F201/R1/R2 all green in a clean replay; the 3-file VM gate (f201 8 + r1 3 + r2 9) is 20/20"
     },
     "productionBuild": {
       "command": "pnpm run build (tsc -p tsconfig.build.json && vite build, single-file)",
@@ -115,9 +115,18 @@
         "matrixCounts": "PASS=20 FAIL=9 BLOCKED=9; r2Matrix PASS=1 FAIL=6 BLOCKED=3",
         "nextStep": "instrumented 0003 (439 lines) logs gate CurrentCount, pool available runspaces and any exception via [LAB-R2] stdout+audit; harness captures the 503 body and r2AuditLines; the following run attributes the exact branch/.NET fault",
         "evidence": "evidence/windows-run-40078279249-r2-503-defect.md"
+      },
+      {
+        "runId": "40081193119",
+        "headSha": "747192d",
+        "result": "instrumentation localised the fault; step 9 measured, gate FAILed while the all-503 defect persisted",
+        "rootCause": "System.Management.Automation.MethodException: Cannot find an overload for Create and the argument count 1, from [powershell]::Create($script:R2WsPool). The PS 5.1 [powershell] accelerator cannot bind the static Create(RunspacePool) 1-arg overload. No gate/saturated lines appeared and avail=8, proving the semaphore admission and pool were healthy; only the worker instance construction threw.",
+        "fix": "use [powershell]::Create() then set the settable RunspacePool property (binds on PS 5.1 and PS 7); added a 9th static assertion pinning the pattern and forbidding the 1-arg Create. 0003 is now 457 lines.",
+        "verificationSoFar": "r2 static test 9/9 on LF and CRLF; clean replay 3 files/20 smoke tests; full app suite 108 files/1387 tests; production build OK; lab suite 235 pass/0 fail/8 skip",
+        "evidence": "evidence/windows-run-40081193119-root-cause.md"
       }
     ],
-    "status": "R2 starvation structurally fixed and measured (4615ms->826ms) but the WebSocket feature is non-functional on Windows due to an all-503 defect; instrumented re-run pending to localize the exact fault",
+    "status": "exact all-503 root cause found and fixed (PS 5.1 Create overload); re-confirm on the next Windows run which must show real 101 upgrades and a passing r2 matrix",
     "matrixControls": [
       "r2.no_ws_control_health",
       "r2.one_ws_health_responsive",
@@ -137,7 +146,7 @@
   },
   "verdictScope": {
     "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1386/1386; Windows 19/19). On real Windows the accept-loop starvation is fixed (stall 4615ms->826ms, HTTP never blocked) BUT every /ws upgrade returns 503 so WebSockets are non-functional; r2 matrix FAIL/BLOCKED and the gate correctly hard-fails. Instrumented re-run pending to localize the fault.",
+    "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1387/1387; Windows step-7 20/20). On real Windows the accept-loop starvation is fixed (stall 4615ms->826ms, HTTP never blocked). The all-503 WebSocket defect was root-caused to a PS 5.1 [powershell]::Create(runspacePool) overload binding MethodException and fixed via parameterless Create() + RunspacePool property; re-confirmation on the Windows VM (real 101 upgrades + r2 matrix) is pending.",
     "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
     "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",

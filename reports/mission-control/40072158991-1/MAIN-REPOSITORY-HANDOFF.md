@@ -53,8 +53,8 @@ Already executed in this lab (Linux, Node v22):
 
 - Patch series applies cleanly on a fresh `832a82eb` download; output is
   byte-identical to the hand-built candidate.
-- Application smoke tests: **108 files / 1386 tests pass** (1378 historical +
-  8 new R2 structural tests; the R2 test fails on the pristine base and passes
+- Application smoke tests: **108 files / 1387 tests pass** (1378 historical +
+  9 new R2 structural tests; the R2 test fails on the pristine base and passes
   on the repaired file).
 - Production build `pnpm run build` (tsc + vite single-file) succeeds.
 - Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /
@@ -97,14 +97,21 @@ an R2 PASS yet:
 - Two inline 503 branches exist: admission `SemaphoreSlim.Wait(0)` vs the
   `[powershell]::Create(pool).BeginInvoke()` dispatch catch. The earlier harness
   discarded the response body, so the branch was not attributable.
-- 0003 was extended (439 lines, no control-flow change, static test still 8/8 on
-  LF+CRLF) to log gate `CurrentCount`, pool available runspaces and any exception
-  via `[LAB-R2]` stdout/audit, and the harness now captures the 503 body and
-  `timings.r2AuditLines`. The next labelled run pinpoints the exact .NET fault;
-  the fix must keep ordinary HTTP inline and the bounded admission contract.
-- Matrix honesty: 7 PASS / 9 FAIL / 6 BLOCKED (see `control-coverage.csv` and
-  `evidence/windows-run-40078279249-r2-503-defect.md`). Native RDP/Web Desktop
-  remain separately BLOCKED.
+- The instrumentation then pinpointed the exact fault on run 40081193119:
+  `System.Management.Automation.MethodException: Cannot find an overload for
+  "Create" and the argument count "1"` from `[powershell]::Create($pool)`. The
+  PS 5.1 `[powershell]` accelerator cannot bind the static
+  `Create(RunspacePool)` 1-arg overload. 0003 (now 457 lines) fixes it with
+  parameterless `[powershell]::Create()` plus the settable `RunspacePool`
+  property (works on PS 5.1 and PS 7), and a 9th static test pins the pattern
+  and forbids the 1-arg call. The admission semaphore and pool were proven
+  healthy (`avail=8`, no gate fault), and the worker dependency surface is
+  complete, so the next run should produce real 101 upgrades.
+- The earlier matrix honesty stands for the unfixed build: 7 PASS / 9 FAIL /
+  6 BLOCKED (see `control-coverage.csv` and
+  `evidence/windows-run-40078279249-r2-503-defect.md`). After the Create fix the
+  re-run's evidence supersedes those rows. Native RDP/Web Desktop remain
+  separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 

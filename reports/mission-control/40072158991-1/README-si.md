@@ -61,13 +61,13 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | අර්ධ PASS — Windows හි තව දෝෂයක් | smoke 1386/1386 + Windows 19/19 PASS; build OK. **සත්‍ය Windows මැනුම (ධාවනය 40078279249): accept-loop starvation සැබවින්ම මැකී ඇත — stall 4615ms→826ms, HTTP කිසිදා නොනවතී. නමුත් සෑම /ws උත්ශ්‍රේණියකටම 503 ලැබේ (නැවුම් cap=8 gate එකක පළමු සම්බන්ධතාවය පවා), එනම් WebSocket විශේෂාංගය දැන් ක්‍රියා නොකරයි. හේතුව හඳුනා ගැනීමට රෝග-විනිශ්චය (diagnostics) එක් කළ නැවත-ධාවනයක් බලාපොරොත්තුවෙන්.** |
+| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1387/1387 + Windows step-7 20/20 PASS; build OK. **සත්‍ය Windows මැනුම: accept-loop starvation මැකී ඇත (stall 4615ms→826ms, HTTP කිසිදා නොනවතී). සියලු /ws 503 දෝෂය PS 5.1 `[powershell]::Create(runspacePool)` overload බැඳීමේ MethodException එකක් බව ධාවනය 40081193119 හිදී නිශ්චිතව හමුවී, `Create()` + `.RunspacePool=` ගැළපෙන ආකාරයට නිවැරදි කරන ලදී. ඊළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි + r2 matrix සනාථ කළ යුතුය.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
-සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1386 පරීක්ෂණ (1378 පෙර + 8 නව R2);
+සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1387 පරීක්ෂණ (1378 පෙර + 9 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
 
 ### 3.1 සත්‍ය Windows මැනුමෙන් හමුවූ දෝෂය (ධාවනය 40078279249) — වංචනික PASS නැත
@@ -81,12 +81,19 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   නොහැක. අන්තර්ගත 503 මාර්ග දෙකක් තිබේ: (අ) ප්‍රවේශ gate `Wait(0)` අසමත් වීම, හෝ (ආ) worker
   dispatch (`BeginInvoke`) විසි කිරීම. පෙර harness එක පිළිතුරු-සිරුර (body) ඉවත දැමූ බැවින්
   නිවැරදි මාර්ගය වෙන්කර හඳුනා ගැනීමට නොහැකි විය.
-- එබැවින් 0003 පැචයට රෝග-විනිශ්චය එක් කරන ලදී (පාලන-ප්‍රවාහ වෙනසක් නැත): සෑම ප්‍රතික්ෂේපයකදීම
-  gate `CurrentCount`, runspace pool `GetAvailableRunspaces()`, සහ ඕනෑම ව්‍යතිරේකයක්
-  `[LAB-R2]` සලකුණු සහිතව stdout + audit වෙත ලොග වේ. Harness එක දැන් 503 සිරුර සහ audit
-  පේළි වාර්තාවට එකතු කරයි. මීළඟ ධාවනය මගින් නිශ්චිත .NET දෝෂය හෙළි වේ.
-- evaluate gate එක මෙය නිවැරදිව FAIL ලෙස සලකුණු කරයි; R2 acceptance PASS ලෙස කිසි විටෙක
-  උඩඟු ලෙස ප්‍රකාශ නොවේ. WebSocket නැවත ක්‍රියා කරන තුරු matrix පේළි FAIL/BLOCKED ලෙස
+- රෝග-විනිශ්චය එක් කළ ධාවනය (40081193119) මගින් නිශ්චිත හේතුව හමුවිය:
+  `System.Management.Automation.MethodException — Cannot find an overload for "Create"
+  and the argument count "1"`. PS 5.1 `[powershell]` ත්වරකය (accelerator) ස්ථිතික
+  `Create(RunspacePool)` එක- argument overload එක බැඳින්නේ නැත. `gate FAULT`/`saturated`
+  රේඛා කිසිවක් නොතිබීම සහ `avail=8` වීමෙන් semaphore ප්‍රවේශය සහ pool නිරෝගී බව සනාථ වේ;
+  බිඳෙන්නේ worker PowerShell සෑදීමේ පේළිය පමණි.
+- නිවැරදි කිරීම (0003, දැන් 457 පේළි): පරාමිති-රහිත `[powershell]::Create()` භාවිතා කර,
+  සැකසිය හැකි `RunspacePool` ගුණාංගය හරහා pool එක පවරනු ලැබේ (PS 5.1 සහ PS 7 දෙකටම ගැළපේ).
+  නවවන ස්ථිතික පරීක්ෂණය මෙම රටාව අගුලු දමයි සහ එක-argument Create තහනම් කරයි. පිරිසිදු
+  replay: r2 9/9, smoke 20/20, සම්පූර්ණ suite 1387/1387, build OK.
+- evaluate gate එක පෙර දෝෂය නිවැරදිව FAIL ලෙස සලකුණු කළේය; R2 acceptance PASS ලෙස කිසි විටෙක
+  උඩඟු ලෙස ප්‍රකාශ නොවේ. **මීළඟ VM ධාවනය සත්‍ය 101 උත්ශ්‍රේණි සහ සමත් r2 matrix එකක්
+  පෙන්වන තුරු R2 සම්පූර්ණ PASS නොවේ.** WebSocket නැවත ක්‍රියා කරන තුරු මුල් matrix පේළි FAIL/BLOCKED ලෙස
   අවංකව පවතී (`control-coverage.csv`: 7 PASS / 9 FAIL / 6 BLOCKED).
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)

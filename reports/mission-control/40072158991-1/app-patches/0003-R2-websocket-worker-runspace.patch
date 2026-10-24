@@ -1,4 +1,4 @@
-From 947f299982cdfba48607d297fb7a94dab53d335c Mon Sep 17 00:00:00 2001
+From 114849122e47a523f26c0de3c0e3b51b8d96535e Mon Sep 17 00:00:00 2001
 From: RDP Mission Control Lab <lab@dictationb1.local>
 Date: Sat, 24 Oct 2026 07:26:44 +0000
 Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
@@ -13,13 +13,13 @@ dependency surface, serialize audits on a shared Monitor lock, and release
 the gate and close the socket in finally. Pool and semaphore are disposed
 at shutdown. Includes the static r2-websocket-worker smoke regression.
 ---
- payloads/ghrdp-server.ps1                   | 246 +++++++++++++++++++-
- src/tests/smoke/r2-websocket-worker.test.ts | 114 +++++++++
- 2 files changed, 355 insertions(+), 5 deletions(-)
+ payloads/ghrdp-server.ps1                   | 253 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 125 ++++++++++
+ 2 files changed, 373 insertions(+), 5 deletions(-)
  create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
 
 diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
-index e74b4b03b..6028d06dc 100644
+index e74b4b03b..927412134 100644
 --- a/payloads/ghrdp-server.ps1
 +++ b/payloads/ghrdp-server.ps1
 @@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
@@ -83,7 +83,7 @@ index e74b4b03b..6028d06dc 100644
              return
          }
          # [F10-2 §3] per-request creds authorization (strict subset of access).
-@@ -9753,6 +9776,213 @@ function Invoke-F99WatcherDiagnose {
+@@ -9753,6 +9776,220 @@ function Invoke-F99WatcherDiagnose {
      }
      return $out
  }
@@ -259,7 +259,14 @@ index e74b4b03b..6028d06dc 100644
 +        Record            = $r2Record
 +    }
 +    try {
-+        $r2Ps = [powershell]::Create($script:R2WsPool)
++        # PS 5.1 compatibility: the [powershell] type accelerator cannot bind the
++        # static Create(RunspacePool) 1-arg overload (MethodException "Cannot find
++        # an overload for Create and the argument count 1", measured on the client
++        # VM run 40081193119). Use the parameterless Create() and assign the pool
++        # through the settable RunspacePool property instead, which is supported on
++        # both Windows PowerShell 5.1 and PowerShell 7.
++        $r2Ps = [powershell]::Create()
++        $r2Ps.RunspacePool = $script:R2WsPool
 +        [void]$r2Ps.AddScript($script:R2WsWorker).AddArgument($r2Ctx)
 +        $r2Ar = $r2Ps.BeginInvoke()
 +        $r2Record.Ps = $r2Ps
@@ -297,7 +304,7 @@ index e74b4b03b..6028d06dc 100644
  $start = Get-Date
  $limit = New-TimeSpan -Minutes $LimitMinutes
  $lastHeal = Get-Date
-@@ -9776,6 +10006,9 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9776,6 +10013,9 @@ while (((Get-Date) - $start) -lt $limit) {
          try { $client = $listener.AcceptTcpClient() } catch { }
          if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
      }
@@ -307,7 +314,7 @@ index e74b4b03b..6028d06dc 100644
      # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
      # last-run timer and remains the sole writer of its state file; the guard
      # only spreads coincident ticks across adjacent 50ms iterations so their
-@@ -9806,3 +10039,6 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9806,3 +10046,6 @@ while (((Get-Date) - $start) -lt $limit) {
      Start-Sleep -Milliseconds $script:ScanDelayMs
  }
  try { $listener.Stop() } catch { }
@@ -316,10 +323,10 @@ index e74b4b03b..6028d06dc 100644
 +try { Stop-R2WebSocketPool } catch { }
 diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
 new file mode 100644
-index 000000000..bbffb4efb
+index 000000000..667ffc8c8
 --- /dev/null
 +++ b/src/tests/smoke/r2-websocket-worker.test.ts
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,125 @@
 +// [LAB-R2] WebSocket accept-loop starvation invariants - EXECUTED against the
 +// shipped payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base a
 +// single GET /ws runs Invoke-F99WebSocketUpgrade INLINE on the one accept
@@ -432,6 +439,17 @@ index 000000000..bbffb4efb
 +    expect(server).toMatch(/if\s*\(-not \$script:R2WsPoolAvailable\)/);
 +    // The fallback still performs the real upgrade rather than disabling /ws.
 +    expect(server).toMatch(/R2WsPoolAvailable[\s\S]{0,400}Invoke-F99WebSocketUpgrade/);
++  });
++
++  it("constructs the worker PowerShell in a PS 5.1-compatible way (no 1-arg Create overload)", () => {
++    // Measured on the Windows client VM (run 40081193119): the [powershell] type
++    // accelerator in Windows PowerShell 5.1 throws MethodException
++    // "Cannot find an overload for Create and the argument count 1" for
++    // [powershell]::Create($pool). The supported form is parameterless Create()
++    // plus the settable RunspacePool property, which binds on PS 5.1 and PS 7.
++    expect(server).toMatch(/\$r2Ps\s*=\s*\[powershell\]::Create\(\)/);
++    expect(server).toMatch(/\$r2Ps\.RunspacePool\s*=\s*\$script:R2WsPool/);
++    expect(server).not.toMatch(/\[powershell\]::Create\(\s*\$script:R2WsPool\s*\)/);
 +  });
 +});
 -- 
