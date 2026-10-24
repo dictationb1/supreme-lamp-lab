@@ -34,8 +34,8 @@
     "hostedRegressions": {
       "platform": "linux",
       "node": "v22.22.3",
-      "total": 229,
-      "passed": 221,
+      "total": 230,
+      "passed": 222,
       "failed": 0,
       "skipped": 8
     }
@@ -53,9 +53,20 @@
       "buildStamp": "candidate-4a91c5c2eadc-f201"
     },
     "hostedChecks": {
-      "baselineF201": { "passed": 0, "failed": 8, "expectedFailureReproduced": true },
-      "candidateF201": { "passed": 8, "failed": 0 },
-      "candidateFullSmoke": { "files": 106, "passed": 1375, "failed": 0 },
+      "baselineF201": {
+        "passed": 0,
+        "failed": 8,
+        "expectedFailureReproduced": true
+      },
+      "candidateF201": {
+        "passed": 8,
+        "failed": 0
+      },
+      "candidateFullSmoke": {
+        "files": 106,
+        "passed": 1375,
+        "failed": 0
+      },
       "productionBuild": "PASS"
     }
   },
@@ -64,17 +75,19 @@
       "order": 1,
       "id": "F201",
       "file": "app-patches/0001-F201-probe-honesty.patch",
-      "sha256": "6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f",
+      "sha256": "692246ffe3642a355fd72f3e95e5f84f333cbab1ab658199c8273a3ef0657398",
       "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
       "appliesToBase": true,
-      "includesRegressionTests": true
+      "includesRegressionTests": true,
+      "previousPackagingSha256": "6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f",
+      "packagingCorrection": "Regenerated from the exact local-only candidate tree so the regression is at src/tests/smoke, not candidate/src/tests; runtime repair hunks are unchanged."
     }
   ],
   "environments": {
     "A_live_origin": "Actual application workflow metadata; no served UI was reached",
     "B_isolated_baseline": "Unmodified complete clone at the pinned application SHA",
     "C_isolated_candidate": "Separate detached worktree with the ordered patch series; local commits only",
-    "client_vm": "NOT_RUN_AT_CHECKPOINT"
+    "client_vm": "PREFLIGHT_PASS_ONLY: run 40053842579, interactive session 1, headed synthetic browser click; no application/RDP acceptance"
   },
   "verdicts": {
     "LAB_HARNESS": "IN_PROGRESS",
@@ -85,7 +98,7 @@
   },
   "blockingPrerequisites": [
     "The exact origin did not publish a live MC-SIGNAL because staging failed before readiness.",
-    "No real client-VM result has been recorded in this checkpoint.",
+    "Real client preflight passed, but no real application UI, native RDP, or Web Desktop acceptance has passed.",
     "Full production backend, native RDP, Web Desktop, and every actionable control remain to be exercised."
   ],
   "evidenceRetention": {

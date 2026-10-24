@@ -14,8 +14,8 @@ The candidate workflow pointed at the previous application base and previous run
 
 ## H-NEW-04 — no short independent client preflight
 
-A bounded preflight now measures the real client VM and performs a sanitized headed-browser interaction under the same `rdp-lab-desktop` lock used by live verification. Its VM verdict is independent of origin readiness/signal prerequisites. It does not claim automatic discovery, application authentication, RDP, or Web Desktop proof.
+A bounded preflight now measures the real client VM and performs a sanitized headed-browser interaction under the same `rdp-lab-desktop` lock used by live verification. Run `40053842579` passed that VM-only preflight. The capability server/client now resolve that same production lock; test-owned `LAB_STATE_DIR` remains isolated. Its VM verdict is independent of origin readiness/signal prerequisites. It does not claim automatic discovery, application authentication, RDP, or Web Desktop proof.
 
 ## Validation
 
-The consolidated hosted harness suite passed 221 tests with 8 environment-dependent skips. Workflow structure validation passed. Local actionlint download was blocked by its non-allowlisted release-asset redirect; the trusted PR candidate gate remains the authoritative actionlint execution.
+The consolidated hosted harness suite passed 222 tests with 8 environment-dependent skips (230 total). Workflow structure validation passed. Local actionlint download was blocked by its non-allowlisted release-asset redirect; the trusted PR candidate gate remains the authoritative actionlint execution.

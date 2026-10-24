@@ -49,6 +49,18 @@ for relative in "${PATCHES[@]}"; do
   git -c core.autocrlf=false -c core.eol=lf apply "$HERE/$relative"
 done
 
+# Prove that the ordered bundle reconstructs the reviewed local-only candidate,
+# including the regression at its real test path. Ignored dependencies/build
+# output do not enter the tree.
+git add -A
+REPLAY_TREE="$(git write-tree)"
+EXPECTED_TREE=06dce4388261f272ef2e45644bfb13f9b619a34b
+if [[ "$REPLAY_TREE" != "$EXPECTED_TREE" ]]; then
+  echo "ERROR: replay tree $REPLAY_TREE does not match reviewed candidate $EXPECTED_TREE" >&2
+  exit 1
+fi
+printf 'Candidate tree verified: %s\n' "$REPLAY_TREE"
+
 npx --yes pnpm@9.15.9 exec vitest run src/tests/smoke/f201-probe-honesty.test.tsx --reporter=dot
 npx --yes pnpm@9.15.9 test:smoke
 VITE_BUILD_SHA="candidate-${APP_SHA:0:12}-40051974454-1" npx --yes pnpm@9.15.9 build

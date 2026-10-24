@@ -74,6 +74,85 @@ async function text(page, testid) {
   return (await el.innerText().catch(() => '')) || '';
 }
 
+async function unlockWithSyntheticToken(page, mode) {
+  const gate = page.getByTestId('dash-token-gate');
+  const visible = await gate.isVisible().catch(() => false);
+  if (mode === 'healthy') {
+    const actions = page.getByTestId('dash-token-actions');
+    const href = visible ? await actions.getAttribute('href') : null;
+    const target = visible ? await actions.getAttribute('target') : null;
+    record({
+      mode, control: 'auth.token_gate_visible', area: 'authentication',
+      action: 'Open a fresh browser context without a dashboard key.',
+      expectUi: 'the modal gate blocks the UI and the Actions escape link is a new-tab GitHub Actions URL',
+      actual: `visible=${visible} actionsHref=${href ? 'github-actions' : 'missing'} target=${target}`,
+      evidence: await shot(page, 'token-gate-healthy'),
+      verdict: visible && /github\.com\/.+\/actions/.test(href || '') && target === '_blank' ? 'PASS' : 'FAIL'
+    });
+  }
+  if (!visible) {
+    if (mode === 'healthy') throw new Error('expected the synthetic token gate before control interactions');
+    return;
+  }
+
+  if (mode === 'healthy') {
+    await page.getByTestId('dash-token-forget').click();
+    const forgetOpened = await page.getByTestId('dash-token-input').isVisible();
+    record({
+      mode, control: 'auth.token_forget', area: 'authentication',
+      action: 'Choose “Forget a previously saved key” in a fresh context.',
+      expectUi: 'the saved-key store is cleared and the manual-entry form opens',
+      actual: `inputVisible=${forgetOpened}`,
+      verdict: forgetOpened ? 'PASS' : 'FAIL'
+    });
+    await page.getByTestId('dash-token-cancel').click();
+    await page.getByTestId('dash-token-enter').click();
+    await page.getByTestId('dash-token-save').click();
+    const emptyError = (await text(page, 'dash-token-error')) || '';
+    record({
+      mode, control: 'auth.token_empty_validation', area: 'authentication',
+      action: 'Submit the manual token form with an empty value.',
+      expectUi: 'a visible validation error; the gate remains locked',
+      actual: emptyError ? 'visible validation error' : 'no validation error',
+      verdict: emptyError.length > 0 && await gate.isVisible() ? 'PASS' : 'FAIL'
+    });
+    await page.getByTestId('dash-token-input').fill('short');
+    await page.getByTestId('dash-token-save').click();
+    const shortError = (await text(page, 'dash-token-error')) || '';
+    record({
+      mode, control: 'auth.token_short_validation', area: 'authentication',
+      action: 'Submit a synthetic value shorter than eight characters.',
+      expectUi: 'a visible length validation error; the gate remains locked',
+      actual: shortError ? 'visible length validation error' : 'no validation error',
+      verdict: shortError.length > 0 && await gate.isVisible() ? 'PASS' : 'FAIL'
+    });
+    await page.getByTestId('dash-token-cancel').click();
+    const cancelled = !(await page.getByTestId('dash-token-input').isVisible().catch(() => false)) && await gate.isVisible();
+    record({
+      mode, control: 'auth.token_cancel', area: 'authentication',
+      action: 'Cancel manual token entry.',
+      expectUi: 'the form closes without unlocking the dashboard',
+      actual: `formHiddenAndGateVisible=${cancelled}`,
+      verdict: cancelled ? 'PASS' : 'FAIL'
+    });
+  }
+
+  await page.getByTestId('dash-token-enter').click();
+  await page.getByTestId('dash-token-input').fill('lab-synthetic-key-000');
+  await page.getByTestId('dash-token-save').click();
+  await gate.waitFor({ state: 'hidden', timeout: 5000 });
+  if (mode === 'healthy') {
+    const stored = await page.evaluate(() => Boolean(window.localStorage.getItem('ghrdp.dashToken')));
+    record({
+      mode, control: 'auth.token_save', area: 'authentication',
+      action: 'Enter and save a synthetic lab-only dashboard key.',
+      expectUi: 'the key round-trips through local storage and the modal unlocks; the key value is not evidence',
+      actual: `gateHidden=${!(await gate.isVisible())} storagePresent=${stored}`,
+      verdict: !(await gate.isVisible()) && stored ? 'PASS' : 'FAIL'
+    });
+  }
+}
+
 async function main() {
   fs.mkdirSync(shotsDir, { recursive: true });
   // The interactive VM runs headed (a human can watch); a hosted runner has no
@@ -94,6 +173,10 @@ async function main() {
     // The polling hooks run on a 15 s config / 15 s status cadence; the first
     // answer is immediate, so wait for the shell rather than a fixed sleep.
     await page.waitForSelector('[data-testid="app-topbar"]', { timeout: 30000 });
+    // A runner-served dashboard deliberately blocks every other control until a
+    // key is present. Exercise that gate, then unlock with a synthetic value so
+    // later clicks cannot be intercepted and misreported as application no-ops.
+    await unlockWithSyntheticToken(page, mode);
     await page.waitForTimeout(1200);
 
     // ---- C-01/C-02/C-03: overview launch gate in this backend state --------
@@ -184,55 +267,61 @@ async function main() {
       await page.waitForTimeout(600);
       const before = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
       const themeBtn = await page.$('[data-testid="topbar-theme-toggle"], [data-testid="settings-theme-toggle"]');
-      let after = before, clicked = false;
-      if (themeBtn) { await themeBtn.click({ timeout: 5000 }).catch(() => {}); clicked = true; await page.waitForTimeout(400); after = await page.evaluate(() => document.documentElement.getAttribute('data-theme')); }
+      let after = before, clicked = false, themeClickError = '';
+      if (themeBtn) {
+        try { await themeBtn.click({ timeout: 5000 }); clicked = true; } catch (e) { themeClickError = String(e.message || e).split('\n')[0]; }
+        await page.waitForTimeout(400);
+        after = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+      }
       record({
         mode, control: 'settings.theme_toggle', area: 'settings',
-        action: 'Click the theme control.',
+        action: 'Click the theme control after the token gate is unlocked.',
         expectUi: 'the document theme attribute changes',
-        actual: `before=${before} after=${after} clicked=${clicked}`,
+        actual: `before=${before} after=${after} clicked=${clicked} clickError=${themeClickError}`,
         evidence: await shot(page, 'theme-toggle-healthy'),
-        verdict: clicked && after !== before ? 'PASS' : (clicked ? 'FAIL' : 'BLOCKED'),
-        note: clicked ? '' : 'no theme control exposed a test id'
+        verdict: clicked && after !== before ? 'PASS' : (themeBtn ? 'FAIL' : 'BLOCKED'),
+        note: themeClickError || (themeBtn ? '' : 'no theme control exposed a test id')
       });
 
       // ---- C-06: language toggle reaches Sinhala ---------------------------
       const lang = await page.$('[data-testid="topbar-lang-toggle"]');
-      let langOk = false, langDetail = '';
+      let langOk = false, langDetail = '', langClickError = '';
       if (lang) {
-        await lang.click({ timeout: 5000 }).catch(() => {});
+        try { await lang.click({ timeout: 5000 }); } catch (e) { langClickError = String(e.message || e).split('\n')[0]; }
         await page.waitForTimeout(500);
         const body2 = await page.evaluate(() => document.body.innerText || '');
         langOk = /[\u0D80-\u0DFF]/.test(body2);
-        langDetail = body2.replace(/\s+/g, ' ').slice(0, 100);
+        langDetail = (langClickError || body2.replace(/\s+/g, ' ').slice(0, 100));
       }
       record({
         mode, control: 'settings.language_toggle', area: 'settings',
-        action: 'Click the language control.',
+        action: 'Click the language control after the token gate is unlocked.',
         expectUi: 'Sinhala script appears in the UI',
         actual: langOk ? 'Sinhala text rendered' : langDetail,
         evidence: await shot(page, 'language-toggle-healthy'),
-        verdict: lang ? (langOk ? 'PASS' : 'FAIL') : 'BLOCKED'
+        verdict: lang ? (langOk ? 'PASS' : 'FAIL') : 'BLOCKED',
+        note: langClickError
       });
 
       // ---- C-07: text scale control ---------------------------------------
       const scale = await page.$('[data-testid="topbar-text-scale-toggle"]');
-      let scaleOk = false, scaleDetail = '';
+      let scaleOk = false, scaleDetail = '', scaleClickError = '';
       if (scale) {
-        const fs0 = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
-        await scale.click({ timeout: 5000 }).catch(() => {});
+        const beforeState = await page.evaluate(() => ({ font: getComputedStyle(document.documentElement).fontSize, scale: document.documentElement.getAttribute('data-scale') }));
+        try { await scale.click({ timeout: 5000 }); } catch (e) { scaleClickError = String(e.message || e).split('\n')[0]; }
         await page.waitForTimeout(400);
-        const fs1 = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
-        scaleOk = fs0 !== fs1;
-        scaleDetail = `${fs0} -> ${fs1}`;
+        const afterState = await page.evaluate(() => ({ font: getComputedStyle(document.documentElement).fontSize, scale: document.documentElement.getAttribute('data-scale') }));
+        scaleOk = !scaleClickError && beforeState.font !== afterState.font && beforeState.scale !== afterState.scale;
+        scaleDetail = `${beforeState.scale}/${beforeState.font} -> ${afterState.scale}/${afterState.font}; clickError=${scaleClickError}`;
       }
       record({
         mode, control: 'global.text_scale', area: 'global',
-        action: 'Click the text-scale control.',
-        expectUi: 'the root font size changes',
+        action: 'Click the text-scale control after the token gate is unlocked.',
+        expectUi: 'both html[data-scale] and the root font size change',
         actual: scaleDetail || 'control not found',
         evidence: await shot(page, 'text-scale-healthy'),
-        verdict: scale ? (scaleOk ? 'PASS' : 'FAIL') : 'BLOCKED'
+        verdict: scale ? (scaleOk ? 'PASS' : 'FAIL') : 'BLOCKED',
+        note: scaleClickError
       });
 
       // ---- C-08: search rejects an empty query visibly ---------------------

@@ -14,7 +14,7 @@
 | Application ZIP SHA-256 | `dadee74430ca5ee1645d3631f033f17d7d04ae4a8bebadafd39c07c2c44aa378` |
 | F201-only local candidate | commit `9bfe9946a2ca779085babaedc040e68dff95c233`, tree `06dce4388261f272ef2e45644bfb13f9b619a34b` |
 
-PR #26 හි පැරණි F201 fixture එකේ තිබූ stale run IP එක භාවිත නොකර, recorded repair patch එකම තෝරා ඇත. එහි SHA-256 `6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f` වේ. එය නව application base එකට `git apply --check` වැරදීමකින් තොරව apply වේ.
+PR #26 හි පැරණි F201 fixture එකේ තිබූ stale run IP එක භාවිත නොකර, recorded repair patch එකම තෝරා ඇත. එහි SHA-256 `692246ffe3642a355fd72f3e95e5f84f333cbab1ab658199c8273a3ef0657398` වේ. එය නව application base එකට `git apply --check` වැරදීමකින් තොරව apply වේ.
 
 PR-triggered discover / claim / Windows verify / report checkout සහ `lab_sha` දැන් exact PR head SHA එකට pin කර ඇත. එමගින් `pull_request` merge commit එකක candidate + පැරණි `main` code mixture එකක් ධාවනය වීම වළක්වයි.
 
@@ -41,7 +41,7 @@ PR-triggered discover / claim / Windows verify / report checkout සහ `lab_sha
 | C — F201 patched isolated candidate | F201 **8/8 PASS** | `evidence/candidate-f201.log` |
 | C — full hosted smoke | **1,375 / 1,375 PASS, 106 files** | `evidence/candidate-full-smoke.log` |
 | C — production frontend build | PASS; `ui/dist/index.html`, 1,273,547 bytes | `evidence/candidate-build.log`, `evidence/candidate-ui-sha256.txt` |
-| Lab harness hosted regressions | **221 PASS / 0 FAIL / 8 environment SKIP**, total 229 | lab test execution on Linux Node 22 |
+| Lab harness hosted regressions | **222 PASS / 0 FAIL / 8 environment SKIP**, total 230 | lab test execution on Linux Node 22 |
 
 F201 repair එක missing/refused backend probe එකක් measured credentials/DNS/listener failure එකක් ලෙස පෙන්වීම නවත්වයි. එය functional RDP, Web Desktop, හෝ real backend verification එකක් **නොවේ**.
 
@@ -53,4 +53,4 @@ Current `payloads/ghrdp-server.ps1` source එකේ TCP bind සහ `LISTENING`
 
 `candidate-run` label path එකට කෙටි, exclusive-desktop preflight එකක් එකතු කර ඇත. එය OS/account/session, runner responsiveness, resources, browsers, native launcher presence, tailnet state, exact origin metadata සහ sanitized headed-browser click එකක් වාර්තා කරයි. එහි verdict එක live application verdict එකෙන් වෙනම තැබීරීය.
 
-Real VM job, full served-DOM control inventory, production backend candidate, native RDP/Web Desktop proof, complete clean-clone replay සහ final coverage totals මෙම checkpoint එකේදී **NOT_RUN / pending** වේ. Mock/stub results ඒ වෙනුවට substitute නොකෙරේ.
+Real VM preflight `40053842579` **PASS** වී ඇත: interactive session 1, responsive runner, native `mstsc`, online tailnet සහ sanitized headed-browser click. එය application/RDP acceptance නොවේ. Full served-DOM control inventory, production backend baseline/candidate, native RDP/Web Desktop proof, complete clean-clone replay සහ final coverage totals තවම **NOT_RUN / pending** වේ. Mock/stub results ඒ වෙනුවට substitute නොකෙරේ.

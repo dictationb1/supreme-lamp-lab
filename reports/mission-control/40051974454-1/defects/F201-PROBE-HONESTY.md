@@ -8,4 +8,6 @@
 - **Repair:** preserve measured empty-object failures, but represent refused/missing probes as unavailable evidence rather than confirmed credential, DNS, or listener failures. Keep guarded launch actions disabled when prerequisites are not proven.
 - **Hosted confirmation:** 1,375 smoke tests across 106 files and the production frontend build passed.
 - **Not proven:** real PowerShell backend behavior, native RDP, Web Desktop, or live-origin deployment.
-- **Patch:** `../app-patches/0001-F201-probe-honesty.patch`, SHA-256 `6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f`.
+- **Patch:** `../app-patches/0001-F201-probe-honesty.patch`, SHA-256 `692246ffe3642a355fd72f3e95e5f84f333cbab1ab658199c8273a3ef0657398`.
+
+- **Bundle packaging correction:** the initially recorded patch (`6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f`) put only the new regression beneath an extra `candidate/` directory when applied at the application root. Runtime repair hunks were unaffected, but clean replay could not find that test. The patch above is regenerated from local-only candidate commit `9bfe9946a2ca779085babaedc040e68dff95c233`; its test path is `src/tests/smoke/f201-probe-honesty.test.tsx` and its resulting tree is the candidate tree. The earlier hosted `appTestExit=0` therefore did not execute the added F201 file and is not counted as its confirmation.

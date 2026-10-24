@@ -59,6 +59,18 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/NOT the application server/i.test(stub), 'the file must say what it is not');
   });
 
+  await test('candidate: replay patch paths and browser click preconditions are honest', async () => {
+    const patch = read('reports/mission-control/40051974454-1/app-patches/0001-F201-probe-honesty.patch');
+    const diffs = patch.split('\n').filter(l => l.startsWith('diff --git '));
+    assert.ok(diffs.length > 0);
+    assert.ok(diffs.every(l => !l.includes('a/candidate/') && !l.includes('b/candidate/')), 'patch must apply at the application root, not a nested candidate directory');
+    assert.ok(diffs.some(l => l.includes('a/src/tests/smoke/f201-probe-honesty.test.tsx') && l.includes('b/src/tests/smoke/f201-probe-honesty.test.tsx')));
+    const sweep = read('scripts/candidate/sweep.js');
+    assert.ok(sweep.indexOf('await unlockWithSyntheticToken(page, mode)') < sweep.indexOf("control: 'settings.theme_toggle'"));
+    assert.ok(/clickError=\$\{themeClickError\}/.test(sweep));
+    assert.ok(!/themeBtn\.click\([^\n]+\)\.catch\(\(\) => \{\}\)/.test(sweep), 'a timed-out click must not be recorded as clicked');
+  });
+
   await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {
     for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml', '.github/workflows/capability-check.yml']) {
       const wf = read(file);

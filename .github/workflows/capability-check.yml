@@ -382,6 +382,7 @@ jobs:
 
       - name: Publish sanitized server evidence to the exact PR branch
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -668,6 +669,7 @@ jobs:
         run: node scripts/verification-report.js
       - name: Publish the sanitized verdict to the exact PR branch
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

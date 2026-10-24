@@ -1,5 +1,5 @@
 diff --git a/src/components/domain/PrimaryActions.tsx b/src/components/domain/PrimaryActions.tsx
-index 7e41863..3e0f993 100644
+index 7e418631..3e0f993d 100644
 --- a/src/components/domain/PrimaryActions.tsx
 +++ b/src/components/domain/PrimaryActions.tsx
 @@ -56,6 +56,8 @@ export function PrimaryActions({
@@ -84,7 +84,7 @@ index 7e41863..3e0f993 100644
    const autoTitle = autoOk ? autoNote : t("autoLoginBlocked.title") + " " + autoWhy;
  
 diff --git a/src/components/layout/AppShell.tsx b/src/components/layout/AppShell.tsx
-index a398aa9..bf0ab24 100644
+index a398aa9d..bf0ab240 100644
 --- a/src/components/layout/AppShell.tsx
 +++ b/src/components/layout/AppShell.tsx
 @@ -100,6 +100,10 @@ function TopBar() {
@@ -130,7 +130,7 @@ index a398aa9..bf0ab24 100644
    // [#214 §4] 44px minimum on every top-bar control; the glyph stays 20px.
    const barBtn =
 diff --git a/src/hooks/useDashboardPolling.ts b/src/hooks/useDashboardPolling.ts
-index adc4b8a..065d826 100644
+index adc4b8a1..065d8269 100644
 --- a/src/hooks/useDashboardPolling.ts
 +++ b/src/hooks/useDashboardPolling.ts
 @@ -5,7 +5,7 @@
@@ -186,7 +186,7 @@ index adc4b8a..065d826 100644
  
      const pollDiagForSearch = async () => {
 diff --git a/src/i18n/en.json b/src/i18n/en.json
-index 5551e85..7eb4f56 100644
+index 5551e85c..7eb4f562 100644
 --- a/src/i18n/en.json
 +++ b/src/i18n/en.json
 @@ -1526,7 +1526,13 @@
@@ -215,7 +215,7 @@ index 5551e85..7eb4f56 100644
    },
    "health": {
 diff --git a/src/i18n/si.json b/src/i18n/si.json
-index d1c2e74..6601bd6 100644
+index d1c2e747..6601bd62 100644
 --- a/src/i18n/si.json
 +++ b/src/i18n/si.json
 @@ -1526,7 +1526,13 @@
@@ -244,7 +244,7 @@ index d1c2e74..6601bd6 100644
    },
    "health": {
 diff --git a/src/lib/api.ts b/src/lib/api.ts
-index 059a8f1..f827f1b 100644
+index 059a8f13..f827f1b3 100644
 --- a/src/lib/api.ts
 +++ b/src/lib/api.ts
 @@ -40,6 +40,50 @@ export async function getJson<T = unknown>(url: string, init?: RequestInit): Pro
@@ -299,7 +299,7 @@ index 059a8f1..f827f1b 100644
    const key = getKey();
    return apiBase() + "/api/config" + (key ? "?key=" + encodeURIComponent(key) : "");
 diff --git a/src/stores/sessionStore.ts b/src/stores/sessionStore.ts
-index 936e5e6..5c40f56 100644
+index 936e5e65..5c40f56f 100644
 --- a/src/stores/sessionStore.ts
 +++ b/src/stores/sessionStore.ts
 @@ -28,6 +28,17 @@ interface AutoLoginState {
@@ -348,9 +348,9 @@ index 936e5e6..5c40f56 100644
  
    setConfig: (cf) => {
      if (!cf) return;
-diff --git a/candidate/src/tests/smoke/f201-probe-honesty.test.tsx b/src/tests/smoke/f201-probe-honesty.test.tsx
+diff --git a/src/tests/smoke/f201-probe-honesty.test.tsx b/src/tests/smoke/f201-probe-honesty.test.tsx
 new file mode 100644
-index 0000000..d036761
+index 00000000..0b9f5261
 --- /dev/null
 +++ b/src/tests/smoke/f201-probe-honesty.test.tsx
 @@ -0,0 +1,170 @@
