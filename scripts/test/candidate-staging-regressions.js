@@ -92,6 +92,18 @@ module.exports = async function candidateStagingTests({ test, assert }) {
     assert.match(wf, /capability-cert-1\.err/, 'raw cert stderr is published');
     // PowerShell case-insensitivity trap: no $out variable shadowing $Out.
     assert.ok(!/\$out\s*=(?!=)/.test(bindCert), 'no $out assignment shadowing the $Out param');
+    // [RUN 40103527914 ROOT CAUSE] Invoke-CimMethod THROWS on the lab VM
+    // ('Method "SetSSLCertificateSHA1Hash" not found'); a ReturnValue-only
+    // fallback is dead code on that path. The WMI call must be wrapped in
+    // try/catch with the registry write in the CATCH (the app main.yml
+    // reference pattern), and the readback must remain the truth gate.
+    assert.match(bindCert, /RUN 40103527914 ROOT CAUSE/, 'the root cause is documented in place');
+    const wmiCall = bindCert.indexOf("Invoke-CimMethod -InputObject $setting -MethodName 'SetSSLCertificateSHA1Hash'");
+    const catchAfter = bindCert.indexOf('} catch {', wmiCall);
+    const registryInCatch = bindCert.indexOf('New-ItemProperty -Path $rdpKey -Name', catchAfter);
+    assert.ok(wmiCall > 0 && catchAfter > wmiCall && registryInCatch > catchAfter, 'the WMI bind has a registry fallback in its catch path');
+    assert.match(bindCert, /BIND_PATH/, 'which path bound the cert is recorded truthfully');
+    assert.match(bindCert, /schema = 'slab-capability-certificate\/2'/, 'report schema carries bindPath');
   });
 
   await test('bundle v2: series preserves 0001-0003 byte-identical and adds 0004', async () => {

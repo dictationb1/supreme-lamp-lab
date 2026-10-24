@@ -118,16 +118,36 @@ try {
     Set-ItemProperty -Path $rdpKey -Name 'MinEncryptionLevel' -Value 3 -Type DWord
     $listenerPolicy = Get-ItemProperty -Path $rdpKey -Name 'UserAuthentication','SecurityLayer','MinEncryptionLevel'
     if ([int]$listenerPolicy.UserAuthentication -ne 1 -or [int]$listenerPolicy.SecurityLayer -ne 2 -or [int]$listenerPolicy.MinEncryptionLevel -lt 3) { Save-Diag 'listener-policy' 'RDP_SECURITY_POLICY_READBACK_FAILED' $null; throw 'RDP_SECURITY_POLICY_READBACK_FAILED' }
-    $setting = Get-CimInstance -Namespace 'root/cimv2/TerminalServices' -ClassName 'Win32_TSGeneralSetting' -Filter "TerminalName='RDP-Tcp'"
-    $bind = Invoke-CimMethod -InputObject $setting -MethodName 'SetSSLCertificateSHA1Hash' -Arguments @{ SSLCertificateSHA1Hash = $thumb }
-    if ($bind.ReturnValue -ne 0) {
+    # [RUN 40103527914 ROOT CAUSE] Invoke-CimMethod THROWS 'Method
+    # "SetSSLCertificateSHA1Hash" not found' on the lab VM (the WMI method
+    # provider for Win32_TSGeneralSetting is not registered there), and the old
+    # code only handled a non-throw ReturnValue - the exception escaped and the
+    # registry fallback below was dead code. The application main.yml reference
+    # wraps the SAME call in try/catch and falls back to the registry write,
+    # because TermService binds from the registry value; the READBACK is the
+    # truth gate, never the WMI return.
+    $bindVia = ''
+    try {
+        $setting = Get-CimInstance -Namespace 'root/cimv2/TerminalServices' -ClassName 'Win32_TSGeneralSetting' -Filter "TerminalName='RDP-Tcp'" -ErrorAction Stop
+        $bind = Invoke-CimMethod -InputObject $setting -MethodName 'SetSSLCertificateSHA1Hash' -Arguments @{ SSLCertificateSHA1Hash = $thumb } -ErrorAction Stop
+        if ($bind.ReturnValue -ne 0) {
+            $bytes = for ($i = 0; $i -lt $thumb.Length; $i += 2) { [Convert]::ToByte($thumb.Substring($i, 2), 16) }
+            New-ItemProperty -Path $rdpKey -Name 'SSLCertificateSHA1Hash' -PropertyType Binary -Value $bytes -Force | Out-Null
+            $bindVia = 'registry (WMI returned ' + [int]$bind.ReturnValue + ')'
+        } else {
+            $bindVia = 'wmi'
+        }
+    } catch {
+        $wmiError = [string]$_.Exception.Message
         $bytes = for ($i = 0; $i -lt $thumb.Length; $i += 2) { [Convert]::ToByte($thumb.Substring($i, 2), 16) }
         New-ItemProperty -Path $rdpKey -Name 'SSLCertificateSHA1Hash' -PropertyType Binary -Value $bytes -Force | Out-Null
+        $bindVia = 'registry (WMI unavailable: ' + $wmiError + ')'
     }
+    Save-Diag 'bind' 'BIND_PATH' $bindVia
     $bound = (Get-ItemProperty -Path $rdpKey -Name 'SSLCertificateSHA1Hash').SSLCertificateSHA1Hash
     $boundHex = ($bound | ForEach-Object { $_.ToString('X2') }) -join ''
-    if ($boundHex -ine $thumb) { Save-Diag 'bind' 'CERT_BIND_MISMATCH' "bound=$boundHex expected=$thumb"; throw "CERT_BIND_MISMATCH: bound=$boundHex expected=$thumb" }
-    Save-Diag 'bind' 'CERT_BOUND' $null
+    if ($boundHex -ine $thumb) { Save-Diag 'bind' 'CERT_BIND_MISMATCH' "bound=$boundHex expected=$thumb via=$bindVia"; throw "CERT_BIND_MISMATCH: bound=$boundHex expected=$thumb" }
+    Save-Diag 'bind' 'CERT_BOUND' $bindVia
 
     $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
     try {
@@ -166,10 +186,11 @@ try {
     if ($LASTEXITCODE -ne 0) { Save-Diag 'config-stamp' 'CONFIG_ACL_FAILED_AFTER_CERT_STAMP' $null; throw 'CONFIG_ACL_FAILED_AFTER_CERT_STAMP' }
 
     $report = [ordered]@{
-        schema = 'slab-capability-certificate/1'; generatedAt = [datetime]::UtcNow.ToString('o')
+        schema = 'slab-capability-certificate/2'; generatedAt = [datetime]::UtcNow.ToString('o')
         dnsName = $fqdn; certificateDnsName = $certDns; thumbprint = $thumb; issuer = $cert.Issuer; subject = $cert.Subject
         notAfterUtc = $cert.NotAfter.ToUniversalTime().ToString('o'); chainOk = $chainOk
         chainStatus = $chainStatus; privateKeyAcl = [string]$keyFile; boundThumbprint = $boundHex
+        bindPath = $bindVia
         nla = ([int]$listenerPolicy.UserAuthentication -eq 1); securityLayer = [int]$listenerPolicy.SecurityLayer
         minEncryptionLevel = [int]$listenerPolicy.MinEncryptionLevel; credsspStrict = $credsspOk; listener3389 = @($listener | ForEach-Object { [string]$_.LocalAddress })
         authenticationLevelBypass = $false
