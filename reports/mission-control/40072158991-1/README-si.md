@@ -158,6 +158,28 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   යෙදුමේ 5-තත්පර starter කවුළුව. මෙය කිසිදු පාලනයක් FAIL නොකරයි; ඊළඟ ධාවනය මගින් හේතුව
   (යෙදුම් තර්කනය / Playwright-Chromium නිරීක්ෂණ සීමාව / ප්‍රතිපත්ති-proxy අවහිරය) වෙන් කරයි.
 
+### 3.4 ධාවනය 40089578561 — Playwright නිරීක්ෂණ අන්ධ-ස්ථානය තහවුරු විය; in-page recorder ක්‍රමය
+
+- head `abd4361` මත r2/backend raw-socket පාලන 11ම දිගටම PASS (30 PASS / 3 FAIL / 5 BLOCKED);
+  `/health` නිවැරදි කිරීමෙන් පසුවත් accept-loop අලුත්වැඩියාව නොවෙනස්ව පවතී.
+- රෝග-විනිශ්චය තීරණාත්මක කරුණු හෙළි කරයි: (අ) native `WebSocket` global එක පවතී සහ stub කර නැත
+  (`[native code]`); (ආ) පිටුව තුළ `/health` ලබාගැනීම `200 {ws:true}` ලබා දෙයි — සෙවනැලි-මාර්ග
+  නිවැරදි කිරීම සත්‍යයි; (ඉ) අතින් සාදන in-page WebSocket එකක් සත්‍ය ලෙස **විවෘත වේ (readyState 1)**
+  සහ සත්‍ය server frames + ping ලබා ගනී; (ඈ) එහෙත් Playwright 1.49.1 හි context `websocket`
+  සහ page request සිදුවීම් එම සනාථ-විවෘත socket එක සඳහාවත් ශුන්‍ය වේ. එනම් දෝෂය යෙදුමේ හෝ
+  transport එකේ නොවේ — මෙම self-hosted headed Windows runner හි **Playwright නිරීක්ෂණ අන්ධ-ස්ථානයකි**.
+- විසඳුම: `context.addInitScript` හරහා **විනිවිද පෙනෙන, stub නොවන in-page recorder** ක් ස්ථාපිත කර
+  ඇත. එය native WebSocket subclass කරයි (prototype/dynamics සංරක්ෂිත, constructor සත්‍ය native
+  අවස්ථාවම ලබා දෙයි); උදාසීන event taps මගින් මූලාශ්‍රය (`app`/`manual`), redacted URL,
+  readyState, frame ගණන් සහ පළමු frame පෙළ පමණක් වාර්තා කරයි. සෑම socket එකක්ම සත්‍ය server
+  එකට upgrade වී සත්‍ය frames හුවමාරු කරයි — interception/faking කිසිවක් නැත;
+  `browserWebSocketStubbed=false` ලෙසම පවතී, `browserWsObservationMechanism` ක්ෂේත්‍රය ක්‍රමය ලේඛනගත කරයි.
+- browser පාලන තුනට දැන් අවශ්‍ය වන්නේ shipped **යෙදුම විසින්ම** සාදන, විවෘත, frame රැගෙන එන සත්‍ය
+  socket එකක් (manual probe එක `manual` ලෙස ටැග් කර ඇත, කිසිදා යෙදුම් socket ලෙස ගණන් නොගැනේ),
+  ඉන් අදහස් වන්නේ ඒ සමගාමී in-page HTTP, සහ app socket එක වසා ladder එක නව socket එකක් විවෘත
+  කරන බව. recorder තර්කනය Linux හි mock native WebSocket එකකින් ඒකක-පරීක්ෂා කර ඇත; lab suite
+  235 pass / 0 fail / 8 skip. **recorder සාක්ෂි මත තුනම PASS වන තුරු evaluate gate එක රතු ලෙස පවතී.**
+
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 
 ```bash

@@ -160,13 +160,35 @@ an R2 PASS yet:
   request/failure/response events, a manual in-page socket, context-observer
   visibility and a 7 s app-starter window) to attribute the zero-construction
   symptom on the next run.
+- Run 40089578561 (head `abd4361`) kept all eleven r2/backend raw-socket
+  controls green and used the new diagnostic to attribute the browser
+  failure: the native `WebSocket` global is present and unstubbed, an in-page
+  `/health` fetch returns `200 {ws:true}`, and a **manually constructed
+  in-page socket really opened (readyState 1) and received genuine server
+  frames and pings** — yet Playwright 1.49.1's context `websocket` and page
+  request events fired zero times even for that proven-open socket. The
+  failure is therefore a Playwright instrumentation blind spot on this
+  self-hosted headed Windows runner, not an application or transport defect.
+- Observation now uses a **transparent, non-stubbing in-page recorder**
+  installed with `context.addInitScript`: it subclasses the native WebSocket
+  (prototype chain/statics preserved, constructor returns the real native
+  instance) and only adds passive event taps recording source
+  (`app`/`manual`), redacted URL, readyState, frame counts and first frame
+  texts. Every socket really upgrades against the real server and frames
+  cross the real network; `browserWebSocketStubbed` stays `false` and a
+  `browserWsObservationMechanism` field documents the method. The three
+  browser controls now require a real, open, frame-carrying **app** socket
+  (the manual probe is tagged and never counts), concurrent in-page HTTP, and
+  a real reconnect after closing the app's socket via the shipped ladder.
+  Recorder logic is unit-tested on Linux with a mock native WebSocket; the
+  lab suite stays 235 pass / 0 fail / 8 skip.
 - 0003 is now 576 lines with twelve static assertions (all green on LF and
   CRLF). The next labelled run must keep the r2 matrix green and additionally
-  show the three headed `real.browser_ws_*` controls PASSing with genuine
-  in-page frames; the evaluate gate stays red until then. Earlier matrix
-  honesty is preserved in `control-coverage.csv` (including every run's rows)
-  and the `evidence/windows-run-*.md` records; the passing re-run's evidence
-  supersedes those rows. Native RDP/Web Desktop remain separately BLOCKED.
+  show the three headed `real.browser_ws_*` controls PASSing on the recorder
+  evidence; the evaluate gate stays red until then. Earlier matrix honesty is
+  preserved in `control-coverage.csv` (including every run's rows) and the
+  `evidence/windows-run-*.md` records; the passing re-run's evidence supersedes
+  those rows. Native RDP/Web Desktop remain separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 

@@ -206,3 +206,25 @@ body, page-level `/ws` request/failure/response events, a manual in-page
 socket, context-observer visibility and a 7 s app-starter window) to attribute
 the zero-construction symptom on the next Windows run without any gate
 weakening. r2 structural 12/12 LF+CRLF; full suite 1390/1390; build OK.
+
+## 8. Run 40089578561: browser failure attributed to a Playwright blind spot
+
+All eleven r2/backend raw-socket controls stayed PASS after the `/health`
+fix, and the non-gating `browserWsDiagnostic` established that (a) the native
+`WebSocket` global is present and unstubbed, (b) an in-page `/health` fetch
+returns `200 {ws:true}`, and (c) a manually constructed in-page socket really
+opened (readyState 1) and received genuine server frames and pings — while
+Playwright 1.49.1's `BrowserContext.on('websocket')` and page-level request
+events fired zero times even for that proven-open socket. The browser
+controls were therefore failing on an instrumentation blind spot on the
+self-hosted headed Windows runner, not on the application.
+
+Observation moved to a transparent, non-stubbing in-page recorder installed
+with `context.addInitScript`: a passive subclass of the native WebSocket
+(prototype chain and statics preserved, real native instance returned) that
+only taps events to record source (`app` vs tagged `manual`), redacted URL,
+readyState, frame counts and first frame texts. No transport is intercepted;
+`browserWebSocketStubbed` remains `false`. The three `real.browser_ws_*`
+controls now pass only on a real, open, frame-carrying socket created by the
+shipped app, concurrent in-page HTTP, and a genuine ladder reconnect. See
+`evidence/windows-run-40089578561-instrumentation-blind-spot.md`.

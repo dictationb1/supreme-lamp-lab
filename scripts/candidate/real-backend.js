@@ -872,6 +872,52 @@ async function driveBrowser() {
     // events) so acceptance proves genuine frames, not a stubbed "Live" badge.
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     report.browserWsStubbed = false; // explicit, required acceptance identity
+    // Run 40089578561 proved Playwright's high-level context 'websocket' (and
+    // page request) events are blind on this headed Windows runner: a manually
+    // constructed in-page WebSocket really opened (readyState 1) and received
+    // real server frames, yet zero context/request events fired. This recorder
+    // is NOT a stub and does NOT intercept transport: it subclasses the native
+    // WebSocket with passive addEventListener taps only, every socket is a real
+    // native instance reaching the real PowerShell server, and every recorded
+    // frame traverses the real network. It is the trustworthy observation
+    // channel for the shipped app's own sockets; context events stay secondary.
+    report.browserWsObservationMechanism = 'native-subclass-passive-recorder (addInitScript); real sockets, no interception; context websocket events kept as secondary';
+    await ctx.addInitScript(() => {
+      try {
+        if (window.__wsObserverInstalled) return;
+        window.__wsObserverInstalled = true;
+        const Native = window.WebSocket;
+        if (!Native || typeof Native !== 'function') { window.__wsObserverError = 'native WebSocket missing'; return; }
+        const sockets = [];
+        const redact = (u) => { try { return String(u).replace(/([?&]key=)[^&]+/g, '$1<redacted>'); } catch (e) { return ''; } };
+        function WsObserver(url, protocols) {
+          const ws = protocols === undefined ? new Native(url) : new Native(url, protocols);
+          const rec = { source: window.__wsObserverTagNext || 'app', url: redact(url), createdAt: Date.now(),
+            readyState: ws.readyState, events: [], framesIn: 0, framesOut: 0, firstTexts: [], closed: false, handle: ws };
+          window.__wsObserverTagNext = null;
+          ws.addEventListener('open', () => { rec.events.push('open'); rec.readyState = ws.readyState; });
+          ws.addEventListener('message', (ev) => { rec.framesIn++; if (rec.firstTexts.length < 3) rec.firstTexts.push(String(ev.data).slice(0, 120)); if (rec.events.length < 24) rec.events.push('frame'); });
+          ws.addEventListener('error', () => { rec.events.push('error'); });
+          ws.addEventListener('close', (ev) => { rec.closed = true; rec.events.push('close:' + ((ev && ev.code) || '')); rec.readyState = ws.readyState; });
+          const nativeSend = ws.send.bind(ws);
+          ws.send = (data) => { rec.framesOut++; return nativeSend(data); };
+          sockets.push(rec);
+          return ws; // constructor returning the real native object
+        }
+        WsObserver.prototype = Native.prototype; // instanceof WebSocket + full native chain
+        WsObserver.CONNECTING = Native.CONNECTING; WsObserver.OPEN = Native.OPEN;
+        WsObserver.CLOSING = Native.CLOSING; WsObserver.CLOSED = Native.CLOSED;
+        window.WebSocket = WsObserver;
+        window.__wsObserver = {
+          sockets,
+          summary: () => sockets.map((r) => ({ source: r.source, url: r.url, readyState: r.readyState,
+            framesIn: r.framesIn, framesOut: r.framesOut, closed: r.closed, events: r.events.slice(0, 16),
+            firstTexts: r.firstTexts.slice(0, 3) })),
+          nativeToString: () => String(Native),
+          tagNext: (s) => { window.__wsObserverTagNext = String(s); }
+        };
+      } catch (e) { window.__wsObserverError = String((e && e.message) || e); }
+    });
     const wsObservations = [];
     ctx.on('websocket', (webSocket) => {
       const obs = { url: webSocket.url(), openedAt: Date.now(), framesIn: 0, framesOut: 0, firstTexts: [], closed: false, handle: webSocket };
@@ -964,8 +1010,9 @@ async function driveBrowser() {
     // does not surface it, (d) the network/policy layer blocks the upgrade.
     if (shell && !expired()) {
       const diag = {
-        webSocketType: '', webSocketToString: '', origin: '', tokenStoredLen: null,
+        webSocketType: '', webSocketToString: '', nativeToString: '', observerError: '', origin: '', tokenStoredLen: null,
         healthJson: null, consoleWs: [], pageWsRequests: [], pageWsFailed: [], pageWsResponses: [],
+        observerAtStart: null, observerAfterWait: null,
         manual: null, contextObservationsBeforeManual: wsObservations.length,
         contextObservationsAfterManual: null, contextSawManual: null,
         appSocketWaitedMs: null, contextObservationsAfterWait: null, appSocketObserved: null
@@ -979,16 +1026,22 @@ async function driveBrowser() {
         page.on('console', (m) => { try { const t = String(m.text() || ''); if (/websocket|\bws\b/i.test(t)) diag.consoleWs.push(sanitize(t).slice(0, 200)); } catch (e) {} });
 
         const env = await page.evaluate(() => {
-          const out = { typeofWebSocket: '', webSocketToString: '', origin: location.origin, tokenStoredLen: null };
+          const out = { typeofWebSocket: '', webSocketToString: '', nativeToString: '', observerError: '', origin: location.origin, tokenStoredLen: null };
           try { out.typeofWebSocket = typeof window.WebSocket; } catch (e) { out.typeofWebSocket = 'eval-error'; }
           try { out.webSocketToString = String(window.WebSocket).slice(0, 100); } catch (e) {}
+          try { out.nativeToString = window.__wsObserver ? window.__wsObserver.nativeToString().slice(0, 100) : ''; } catch (e) {}
+          try { out.observerError = String(window.__wsObserverError || ''); } catch (e) {}
           try { const t = localStorage.getItem('ghrdp.dashToken'); out.tokenStoredLen = t ? t.length : 0; } catch (e) {}
           return out;
         }).catch((e) => ({ typeofWebSocket: 'eval-threw:' + String(e.message || e).slice(0, 100) }));
         diag.webSocketType = env.typeofWebSocket || '';
         diag.webSocketToString = env.webSocketToString || '';
+        diag.nativeToString = env.nativeToString || '';
+        diag.observerError = env.observerError || '';
         diag.origin = env.origin || '';
         diag.tokenStoredLen = env.tokenStoredLen;
+        diag.observerAtStart = await page.evaluate(() =>
+          (window.__wsObserver ? window.__wsObserver.summary() : [])).catch(() => []);
 
         // The /health body the browser itself receives (must now carry ws=true).
         diag.healthJson = await page.evaluate(async () => {
@@ -997,7 +1050,10 @@ async function driveBrowser() {
         }).catch((e) => ({ error: String(e.message || e).slice(0, 120) }));
 
         // Manual in-page socket with the same URL shape as useDashboardPolling.
+        // Tagged 'manual' in the recorder so it can never be mistaken for an
+        // app-created socket; it only proves the environment can carry a real WS.
         const beforeManual = wsObservations.length;
+        await page.evaluate(() => { try { window.__wsObserver.tagNext('manual'); } catch (e) {} }).catch(() => {});
         diag.manual = await page.evaluate((k) => new Promise((resolve) => {
           const res = { constructed: false, threw: '', readyState: null, events: [], url: '' };
           try {
@@ -1023,6 +1079,8 @@ async function driveBrowser() {
         diag.appSocketWaitedMs = Date.now() - waitT0;
         diag.contextObservationsAfterWait = wsObservations.length;
         diag.appSocketObserved = wsObservations.length > beforeManual;
+        diag.observerAfterWait = await page.evaluate(() =>
+          (window.__wsObserver ? window.__wsObserver.summary() : [])).catch(() => []);
       } catch (e) { diag.diagError = String(e.message || e).slice(0, 160); }
       report.browserWsDiagnostic = diag;
       flush();
@@ -1065,27 +1123,47 @@ async function driveBrowser() {
         note: visible ? '' : 'routed component did not mount on the real server' });
     }
 
-    // (3b) REAL WebSocket in the ordinary shipped frontend. No stub: prove the
-    // browser opened /ws, received genuine protocol frames, kept HTTP polling
-    // and a button request alive while the socket was open, recovered after a
-    // controlled interruption, and reflects truthful connectivity/freshness.
+    // (3b) REAL WebSocket in the ordinary shipped frontend. No stub: the
+    // addInitScript recorder only passively subclasses the native WebSocket -
+    // every observed socket is a real native instance that really upgrades
+    // against the PowerShell server and exchanges real RFC6455 frames. Run
+    // 40089578561 proved Playwright's context 'websocket' events are blind on
+    // this headed Windows runner (a provably-open in-page socket emitted zero
+    // context/request events), so the in-page recorder is the primary evidence
+    // channel and context events are retained only as a secondary counter.
     if (shell && !expired()) {
-      let ws0 = null;
+      const readObserver = () => page.evaluate(() => {
+        if (!window.__wsObserver) return { error: String(window.__wsObserverError || 'no-observer'), sockets: [] };
+        return { error: '', sockets: window.__wsObserver.summary() };
+      }).catch((e) => ({ error: String(e.message || e).slice(0, 100), sockets: [] }));
+
+      // Wait for an APP-created socket (never the tagged manual probe) that
+      // opened and received at least one genuine server frame.
+      let snap = await readObserver();
+      let app0 = null;
       const wsT0 = Date.now();
       while (Date.now() - wsT0 < 8000) {
-        ws0 = wsObservations.find((o) => /\/ws(\?|$)/.test(o.url)) || null;
-        if (ws0 && ws0.framesIn >= 1) break;
+        app0 = (snap.sockets || []).find((s) => s.source === 'app' && s.framesIn >= 1 && s.events.includes('open')) || null;
+        if (app0) break;
         await sleep(200);
+        snap = await readObserver();
       }
-      const wsOpened = !!ws0;
-      const realFrames = ws0 ? ws0.framesIn : 0;
+      if (!app0) app0 = (snap.sockets || []).find((s) => s.source === 'app' && s.events.includes('open')) || null;
+      const appSockets = (snap.sockets || []).filter((s) => s.source === 'app');
+      const wsOpened = !!app0;
+      const realFrames = app0 ? app0.framesIn : 0;
+
       // An in-page fetch on the real origin while the socket stays open proves
       // HTTP is not starved by the live WebSocket (the R2 acceptance invariant).
       const concurrentPoll = wsOpened ? await page.evaluate(async () => {
-        try { const r = await fetch('/health', { cache: 'no-store' }); return { ok: r.ok, status: r.status }; }
-        catch (e) { return { ok: false, error: String(e) }; }
+        try { const r = await fetch('/health', { cache: 'no-store' }); const j = await r.json().catch(() => ({})); return { ok: r.ok, status: r.status, ws: j.ws }; }
+        catch (e) { return { ok: false, error: String(e).slice(0, 80) }; }
       }).catch((e) => ({ ok: false, error: String(e).slice(0, 80) })) : { ok: false, error: 'no-ws' };
-      const wsStillOpenAfterPoll = !!(ws0 && !ws0.closed);
+      let socketStillOpenAfterPoll = false;
+      if (wsOpened) {
+        const after = await readObserver();
+        socketStillOpenAfterPoll = (after.sockets || []).some((s) => s.source === 'app' && s.readyState === 1);
+      }
       // A real button/control path: the app's force-poll event fires its own
       // config/native-status request; assert a real 200 response is observed.
       let forcePollStatus = null;
@@ -1106,39 +1184,49 @@ async function driveBrowser() {
         action: 'let the shipped app open /ws and read its real frames while polling.',
         expect_ui: 'a live bridge indicator driven by genuine server frames',
         expect_req: 'real GET /ws 101 followed by >=1 server text frame',
-        actual: `wsOpened=${wsOpened} framesIn=${realFrames} framesOut=${ws0 ? ws0.framesOut : 0} url=${ws0 ? sanitize(ws0.url).slice(0, 90) : ''} bridge="${sanitize(bridgeText)}"`,
-        evidence: ws0 && ws0.firstTexts[0] ? sanitize(ws0.firstTexts[0]).slice(0, 120) : '',
+        actual: `wsOpened=${wsOpened} appSockets=${appSockets.length} framesIn=${realFrames} framesOut=${app0 ? app0.framesOut : 0} readyState=${app0 ? app0.readyState : 'n/a'} url=${app0 ? sanitize(app0.url).slice(0, 90) : ''} contextEvents=${wsObservations.length} bridge="${sanitize(bridgeText)}"`,
+        evidence: app0 && app0.firstTexts[0] ? sanitize(app0.firstTexts[0]).slice(0, 120) : '',
         verdict: (wsOpened && realFrames >= 1) ? 'PASS' : 'FAIL',
-        note: 'browserWebSocketStubbed=false; genuine RFC6455 frames from the real worker' });
+        note: 'browserWebSocketStubbed=false; passive native-subclass recorder, genuine RFC6455 frames from the real worker (context events known-blind on this runner)' });
       record({ control_id: 'real.browser_ws_http_concurrent', area: 'health',
         pre: 'a real /ws socket is open in the browser',
         action: 'fetch /health and trigger a force-poll while the socket stays open.',
         expect_ui: 'polls/button requests keep completing beside the live socket',
         expect_req: '/health 200 and a poll lane 200 with the socket still open',
-        actual: `health=${JSON.stringify(concurrentPoll)} forcePollStatus=${forcePollStatus} socketStillOpen=${wsStillOpenAfterPoll}`,
-        evidence: '', verdict: (concurrentPoll.ok && forcePollStatus === 200 && wsStillOpenAfterPoll) ? 'PASS' : 'FAIL',
+        actual: `health=${JSON.stringify(concurrentPoll)} forcePollStatus=${forcePollStatus} socketStillOpen=${socketStillOpenAfterPoll}`,
+        evidence: '', verdict: (concurrentPoll.ok && forcePollStatus === 200 && socketStillOpenAfterPoll) ? 'PASS' : 'FAIL',
         note: 'the R2 invariant, exercised through the real browser rather than a raw socket only' });
-      // Controlled interruption: close THIS socket from the client; the app's
-      // reconnect ladder must open a fresh one automatically.
-      let reconnected = false; let ws1Frames = 0;
-      if (ws0 && ws0.handle) {
-        const beforeCount = wsObservations.length;
-        try { await ws0.handle.close(); } catch (e) {}
+      // Controlled interruption: close the APP's real socket in-page; the
+      // shipped reconnect ladder must open a fresh native socket automatically.
+      let reconnected = false; let ws1Frames = 0; let appCountAfter = appSockets.length;
+      if (app0) {
+        const beforeIdx = await page.evaluate(() =>
+          (window.__wsObserver ? window.__wsObserver.sockets.filter((r) => r.source === 'app').length : 0)).catch(() => 0);
+        await page.evaluate(() => {
+          try {
+            const openApp = window.__wsObserver.sockets.filter((r) => r.source === 'app' && !r.closed && r.handle);
+            if (openApp.length) openApp[openApp.length - 1].handle.close();
+          } catch (e) {}
+        }).catch(() => {});
         const rcT0 = Date.now();
         while (Date.now() - rcT0 < 11000) {
-          const newer = wsObservations.slice(beforeCount).filter((o) => /\/ws(\?|$)/.test(o.url));
-          if (newer.some((o) => o.framesIn >= 1 || !o.closed)) { reconnected = true; ws1Frames = newer.reduce((a, o) => a + o.framesIn, 0); break; }
+          const s2 = await readObserver();
+          const newer = (s2.sockets || []).filter((s) => s.source === 'app').slice(beforeIdx);
+          appCountAfter = (s2.sockets || []).filter((s) => s.source === 'app').length;
+          if (newer.some((s) => s.events.includes('open') && s.framesIn >= 1)) {
+            reconnected = true; ws1Frames = newer.reduce((a, s) => a + s.framesIn, 0); break;
+          }
           await sleep(250);
         }
       }
       record({ control_id: 'real.browser_ws_reconnect', area: 'connections',
-        pre: 'real /ws socket open in the browser',
+        pre: 'real /ws socket open',
         action: 'close the socket client-side and wait for the app reconnect ladder.',
         expect_ui: 'the bridge automatically re-establishes without a manual reload',
         expect_req: 'a new GET /ws 101 with fresh frames after the close',
-        actual: `reconnected=${reconnected} secondSocketFrames=${ws1Frames} totalObservations=${wsObservations.length}`,
+        actual: `reconnected=${reconnected} secondSocketFrames=${ws1Frames} appSockets=${appCountAfter} contextEvents=${wsObservations.length}`,
         evidence: '', verdict: reconnected ? 'PASS' : 'FAIL',
-        note: 'exercises the shipped 1s/3s/10s/30s reconnect ladder against the real server' });
+        note: 'exercises the shipped 1s/3s/10s/30s reconnect ladder against the real server via the in-page recorder' });
     }
 
     // (4) global controls with real effect

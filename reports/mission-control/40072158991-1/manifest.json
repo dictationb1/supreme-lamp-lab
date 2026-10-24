@@ -1,8 +1,8 @@
 {
  "schema": "slab-mission-control-repair-bundle/2",
- "bundleState": "R2_RAW_SOCKET_MATRIX_GREEN_BROWSER_WS_CONSTRUCTION_OPEN_HEALTH_SHADOW_FIX_PENDING_WINDOWS_RECONFIRM",
+ "bundleState": "R2_RAW_MATRIX_GREEN_BROWSER_WS_OBSERVED_VIA_NATIVE_RECORDER_PENDING_WINDOWS_RECONFIRM",
  "createdAt": "2026-10-24T07:59:00Z",
- "updatedAt": "2026-10-24T11:30:00Z",
+ "updatedAt": "2026-10-24T12:20:00Z",
  "origin": {
   "repository": "dictationb1/supreme-lamp",
   "runId": "40072158991",
@@ -104,7 +104,13 @@
    "fix": "the single live /health ordered body now includes ws=[bool]$script:F96WsUpgradeSupported; the unreachable duplicate block is removed; static guard 12 pins exactly one /health route containing the flag",
    "note": "current client source does not gate socket construction on wsAvailable (F94 removed that precondition), so this fixes truthful UI/diagnostics; the zero-construction browser symptom is separately investigated via report.browserWsDiagnostic on the next Windows run"
   },
-  "browserWsDiagnostic": "scripts/candidate/real-backend.js emits a non-gating report.browserWsDiagnostic field (WebSocket global shape, stored-token length, in-page /health body, page-level /ws request/requestfailed/response events, a manual in-page socket with event/readyState capture, context-observer visibility and a 7s app-starter window) to split app-logic vs Playwright/Chromium vs policy causes"
+  "browserWsDiagnostic": "scripts/candidate/real-backend.js emits a non-gating report.browserWsDiagnostic field (WebSocket global shape, stored-token length, in-page /health body, page-level /ws request/requestfailed/response events, a manual in-page socket with event/readyState capture, context-observer visibility and a 7s app-starter window) to split app-logic vs Playwright/Chromium vs policy causes",
+  "browserObservation": {
+   "finding": "run 40089578561 showed Playwright 1.49.1 BrowserContext websocket/page-request events are blind on the self-hosted headed Windows runner: a manually constructed in-page WebSocket really opened (readyState 1) and received genuine server frames but produced zero context/request events",
+   "mechanism": "context.addInitScript installs a passive subclass of the native WebSocket (prototype chain and statics preserved, constructor returns the real native instance) with addEventListener taps only; real sockets, real upgrade, real frames, no interception; browserWebSocketStubbed stays false; a browserWsObservationMechanism field documents it",
+   "evidence": "recorder records source app/manual, redacted URL, readyState, frame counts and first frame texts; a manual probe is tagged manual so it can never count as an app socket; unit-checked on Linux with a mock native WebSocket; controls cannot pass without a real open frame-carrying app socket",
+   "healthFix": "the single live /health route now returns ws=true and the in-page diagnostic fetch on the VM returned 200 {ok:true, ws:true}"
+  }
  },
  "windowsVerification": {
   "workflow": ".github/workflows/real-backend.yml",
@@ -176,9 +182,18 @@
     "rootCauseFound": "shadowed /health route: the first handler returned without a ws field and the F99 handler carrying ws=F96WsUpgradeSupported was unreachable, so wsAvailable was always false; fixed in this revision (single /health route + flag + 12th static assertion). Because the current client does not gate on wsAvailable, a harness-only browserWsDiagnostic was added to identify the remaining construction cause on the next run without weakening any gate",
     "verificationSoFar": "r2 static 12/12 on LF and CRLF; clean replay 3 files/23 smoke tests; full app suite 108 files/1390 tests; production build OK; 0003 regenerated at 576 lines; Windows re-confirm pending",
     "evidence": "evidence/real-backend-40086011776/ (bot-committed sanitized stdout/stderr, reports, control coverage, screenshots) and evidence/windows-run-40086011776-r2-matrix-green-browser-ws-open.md"
+   },
+   {
+    "runId": "40089578561",
+    "headSha": "abd4361",
+    "result": "all 11 r2/backend raw-socket controls stay PASS after the /health fix (30 PASS / 3 FAIL / 5 BLOCKED overall); step 7 smoke 23/23 and step 8 PS parse PASS; step 12 FAILed only on the three headed real.browser_ws_* controls",
+    "diagnostic": "browserWsDiagnostic proved: native WebSocket present and unstubbed; /health in-page returns ws=true; a manual in-page socket opened (readyState 1) with real frames and pings; yet Playwright context websocket and page request events fired zero times even for that proven-open socket -> instrumentation blind spot, not an application/transport failure",
+    "fix": "harness now observes via a transparent native-subclass recorder installed with addInitScript (no stub, no interception); the three browser controls read real app-socket state/frames/reconnect from it, keeping context events as secondary; recorder logic unit-tested locally",
+    "verificationSoFar": "lab regressions 235 pass/0 fail/8 skip; harness node --check OK; recorder mock test OK; Windows re-confirm pending",
+    "evidence": "evidence/real-backend-40089578561/ (bot evidence) and evidence/windows-run-40089578561-instrumentation-blind-spot.md"
    }
   ],
-  "status": "R2 accept-loop repair fully validated at the raw-socket layer on real Windows (11/11 r2 controls + block control green, real 101 upgrades, frames, reconnect, idle, capacity, no leak). Open item: the shipped headed browser never constructs its own WebSocket (totalObservations=0); /health shadowing fixed and a non-gating in-page diagnostic was added for the next run, which must also show the three real.browser_ws_* controls PASSing before R2 acceptance",
+  "status": "R2 accept-loop repair fully green at the raw-socket layer (two runs). The browser-lane failure was attributed to a Playwright instrumentation blind spot via an in-page diagnostic; observation moved to a transparent native-WebSocket recorder. The next run must show the shipped app opening a real socket with genuine frames, concurrent HTTP and automatic reconnect on the recorder evidence before R2 acceptance",
   "matrixControls": [
    "r2.no_ws_control_health",
    "r2.one_ws_health_responsive",
@@ -198,7 +213,7 @@
  },
  "verdictScope": {
   "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-  "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1390/1390; Windows step-7 gate 23/23). On real Windows the R2 accept-loop starvation and all three earlier runtime defects are fixed: 11/11 r2 raw-socket controls + backend.ws_accept_loop_block PASS on run 40086011776 with genuine frames, reconnect, idle expiry and no slot leak. The headed-browser WebSocket controls still FAIL (no in-page socket constructed); /health advertisement fixed and a diagnostic-only harness probe will attribute the cause on the next run; the gate stays red",
+  "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1390/1390; Windows step-7 23/23). On real Windows all 11 r2 raw-socket controls plus the block control PASS across two runs (genuine 101s, frames, reconnect, idle expiry, exact capacity, no leak) and /health now truthfully advertises ws=true. Headed browser controls remain FAIL pending the recorder-based re-run that observes the shipped app own real socket; the gate stays red",
   "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
   "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
   "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",
