@@ -1,0 +1,27 @@
+{
+  "rdpConfigured": true,
+  "user": "slabrdp",
+  "reason": "OK",
+  "steps": [
+    "user",
+    "user-verified",
+    "audit-logon",
+    "rdp-enabled-nla",
+    "firewall-tailnet-only",
+    "webdesk-logon-task"
+  ],
+  "account": {
+    "enabled": true,
+    "administrators": true,
+    "remoteDesktopUsers": true
+  },
+  "auditLogon": {
+    "after": "Success and Failure",
+    "before": "Success and Failure"
+  },
+  "termService": "Running",
+  "listener3389": [
+    "::",
+    "0.0.0.0"
+  ]
+}
