@@ -1,0 +1,215 @@
+{
+  "schema": "slab-r2-fault-injection/1",
+  "generatedAt": "2026-10-24T16:42:38.801Z",
+  "label": "r2-fault",
+  "identity": {
+    "appSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "labRevision": "01947f029f5a2e92466d0c8fd17d53f216a4a183",
+    "serverOld": "ghrdp-server.ps1",
+    "serverNew": "ghrdp-server.ps1",
+    "key": "lab-synthetic-fault-key (never an upstream credential)"
+  },
+  "variants": [
+    {
+      "name": "old-persistent",
+      "kind": "persistent",
+      "derivedFrom": "ghrdp-server.ps1",
+      "derivedFromSha256": "3a753321c2addbd365cbf837c02dfff017dc72005b2050ef7311747423cdfd82",
+      "variantSha256": "6eaa6b6713a8ebe835abb7607199e100688574a42d0df6a3097775533786f568",
+      "mutation": "CreateRunspacePool call replaced by a throw (pool can NEVER initialize)"
+    },
+    {
+      "name": "new-persistent",
+      "kind": "persistent",
+      "derivedFrom": "ghrdp-server.ps1",
+      "derivedFromSha256": "44ab2a3f5fc7d09cb5b14a24870b5a843b93c83b8f2566240c62fe5339258d89",
+      "variantSha256": "9098e25f9ca88e19ac151d6384f45c65ec79b22d5d0f90ec7152d46d812c831e",
+      "mutation": "CreateRunspacePool call replaced by a throw (pool can NEVER initialize)"
+    },
+    {
+      "name": "new-transient",
+      "kind": "transient",
+      "derivedFrom": "ghrdp-server.ps1",
+      "derivedFromSha256": "44ab2a3f5fc7d09cb5b14a24870b5a843b93c83b8f2566240c62fe5339258d89",
+      "variantSha256": "47ff58a4ab1bd3d163c0ce48102fa07cb789ccbb39b142e67f42d239e1789691",
+      "mutation": "first Open() call throws once; every later call performs the REAL Open() (the transient scenario under test)"
+    }
+  ],
+  "phases": {
+    "A": {
+      "phase": "A-defect-reproduction",
+      "server": "0001-0003 + persistent fault",
+      "serverUp": true,
+      "oldServedUpgrade": true,
+      "healthProbes": 1,
+      "stallObserved": true,
+      "firstStallAtMs": 4015,
+      "probeMaxMs": 4015,
+      "oldServerStdoutTail": [
+        "[LAB-R2] worker pool unavailable; /ws falls back to inline: LAB-INJECTED persistent pool init failure (fault-injection harness)"
+      ]
+    },
+    "deadlineReached": false,
+    "B": {
+      "phase": "B-repair-verification",
+      "server": "0001-0004 + persistent fault",
+      "serverUp": true,
+      "healthDegradedAdvertised": true,
+      "healthWs": {
+        "ws": false,
+        "wsReason": "websocket worker pool unavailable"
+      },
+      "wsAttempts": [
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        },
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        },
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        },
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        },
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        },
+        {
+          "upgraded": false,
+          "status": 503,
+          "ms": null
+        }
+      ],
+      "healthDuringWsAttempts": {
+        "samples": 8,
+        "p95": 58,
+        "max": 58,
+        "starved": false
+      },
+      "newServerStdoutTail": [
+        "[LAB-R2] worker pool unavailable; /ws answers 503 until re-init succeeds: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness)",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED persistent pool init failure (fault-injection harness) retryInSec=30"
+      ]
+    },
+    "C": {
+      "phase": "C-bounded-recovery",
+      "server": "0001-0004 + transient fault",
+      "serverUp": true,
+      "firstAttempt": {
+        "upgraded": false,
+        "status": 503
+      },
+      "secondAttempt": {
+        "upgraded": true,
+        "status": 101
+      },
+      "healthAfterRecovery": {
+        "ws": true,
+        "wsReason": null
+      },
+      "recoveryServerStdoutTail": [
+        "[LAB-R2] worker pool unavailable; /ws answers 503 until re-init succeeds: System.Management.Automation.RuntimeException LAB-INJECTED transient pool init failure (fault-injection harness)",
+        "[LAB-R2] ws 503 pool unavailable: System.Management.Automation.RuntimeException LAB-INJECTED transient pool init failure (fault-injection harness) retryInSec=5",
+        "[LAB-R2] websocket worker pool ready max=8"
+      ]
+    }
+  },
+  "verdicts": {
+    "PASS": 5,
+    "FAIL": 0,
+    "BLOCKED": 0,
+    "PENDING": 0
+  },
+  "fatal": "",
+  "controls": [
+    {
+      "control_id": "r2b.defect_reproduction.old_inline_fallback_starves_http",
+      "phase": "A",
+      "area": "health",
+      "pre": "pre-0004 server (0001-0003) with a persistent injected pool-init failure; one authenticated /ws held open",
+      "action": "poll /health (4s timeout) while the /ws socket stays open",
+      "expect_ui": "n/a",
+      "expect_req": "the inline fallback pins the accept thread, so /health times out until the pump exits",
+      "actual": "REPRODUCED: /ws served 101 by the inline fallback; /health stalled 4015ms (timeout) after 0 ok probes",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "negative control on the PRE-REPAIR server: PASS means the source-identified starvation defect is real and reproducible"
+    },
+    {
+      "control_id": "r2b.repair.health_advertises_truthful_degraded_state",
+      "phase": "B",
+      "area": "health",
+      "pre": "persistent injected pool-init failure",
+      "action": "GET /health",
+      "expect_ui": "n/a",
+      "expect_req": "ws=false and wsReason naming the unavailable worker pool",
+      "actual": "ws=false wsReason=\"websocket worker pool unavailable\"",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "the UI must not be told ws=true while /ws answers 503"
+    },
+    {
+      "control_id": "r2b.repair.faulted_ws_gets_immediate_truthful_503",
+      "phase": "B",
+      "area": "connections",
+      "pre": "persistent injected pool-init failure",
+      "action": "attempt 6 authenticated /ws upgrades",
+      "expect_ui": "n/a",
+      "expect_req": "every attempt 503 with the truthful body; never a 101",
+      "actual": "503,503,503,503,503,503",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "bounded refusal with the reason, never a silent disable and never an inline pump"
+    },
+    {
+      "control_id": "r2b.repair.http_never_starves_while_ws_refused",
+      "phase": "B",
+      "area": "health",
+      "pre": "persistent injected pool-init failure; /ws attempts interleaved with /health probes",
+      "action": "GET /health immediately after each refused /ws attempt",
+      "expect_ui": "n/a",
+      "expect_req": "every probe 200 within 2000ms (p95)",
+      "actual": "8 samples, p95=58ms, max=58ms, starved=false",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "the pre-0004 fallback pinned the accept thread here; the repair must not"
+    },
+    {
+      "control_id": "r2b.recovery.transient_fault_recovers_after_retry_window",
+      "phase": "C",
+      "area": "connections",
+      "pre": "transient injected pool-init failure (first init only); retry window 5s",
+      "action": "first /ws attempt, wait 9000ms, second /ws attempt, GET /health",
+      "expect_ui": "n/a",
+      "expect_req": "first 503; second 101; /health ws=true with no wsReason",
+      "actual": "first=503, second=101, health={\"ws\":true,\"wsReason\":null}",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "degraded state is bounded: a transient init failure must not pin /ws off for the process lifetime"
+    }
+  ]
+}
