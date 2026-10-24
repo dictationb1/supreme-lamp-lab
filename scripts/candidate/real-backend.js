@@ -234,25 +234,31 @@ function stageRoot() {
 }
 
 let serverChild = null;
-let serverLogFd = null;
+let serverOutBuf = '';
+let serverErrBuf = '';
 function startServer() {
-  const logPath = path.join(out, 'server-stdout.log');
-  serverLogFd = fs.openSync(logPath, 'w');
   const runFile = path.join(root, 'ghrdp-server.ps1');
   const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', runFile,
     '-Port', String(port), '-Bind', '127.0.0.1', '-Root', root, '-LimitMinutes', '6'];
-  // LAB telemetry interval so a telescope tick is observable inside the short
-  // sampling window (production carries no GHRDP_LAB_ switch, stays 60s).
   const env = Object.assign({}, process.env, {
     GHRDP_LAB_TEL_INTERVAL_SEC: '9', GHRDP_SCAN_DELAY_MS: '40',
     GHRDP_BUILD_SHA: labRevision ? ('cand-' + labRevision.slice(0, 12)) : 'candidate',
     GITHUB_SHA: appSha || ''
   });
-  serverChild = spawn('powershell.exe', args, { detached: true, stdio: ['ignore', serverLogFd, serverLogFd], env, windowsHide: true });
+  report.startupDiag = { command: 'powershell.exe ' + args.join(' '), runFile, root, resolvedRunFileExists: fs.existsSync(runFile) };
+  // MEASURED (lab run 40062592553): a `detached:true` spawn with stdio bound to
+  // a numeric fs fd produced NO output and never bound on the client VM. Use
+  // real pipes captured in-process instead; the harness owns the whole lifetime.
+  serverChild = spawn('powershell.exe', args, { stdio: ['ignore', 'pipe', 'pipe'], env, windowsHide: true });
   report.identity.serverPid = serverChild.pid || null;
+  serverChild.on('error', (e) => { report.startupDiag.spawnError = String(e.message || e); });
+  serverChild.on('exit', (code, signal) => {
+    report.startupDiag.exit = { code, signal: signal || null, at: new Date().toISOString() };
+  });
+  serverChild.stdout.on('data', (d) => { serverOutBuf += d.toString('utf8'); if (serverOutBuf.length > 300000) serverOutBuf = serverOutBuf.slice(-300000); });
+  serverChild.stderr.on('data', (d) => { serverErrBuf += d.toString('utf8'); if (serverErrBuf.length > 300000) serverErrBuf = serverErrBuf.slice(-300000); });
 }
 function killOwned() {
-  if (serverLogFd !== null) { try { fs.closeSync(serverLogFd); } catch (e) {} serverLogFd = null; }
   if (serverChild && serverChild.pid) {
     try { execFileSync('taskkill', ['/PID', String(serverChild.pid), '/T', '/F'], { stdio: 'ignore', timeout: 8000 }); } catch (e) {}
   }
@@ -285,24 +291,53 @@ async function measureStartup() {
   const okFile = path.join(root, 'server-ok.txt');
   const readyFile = path.join(root, 'server-ready.txt');
   const tStart = Date.now();
-  // Clear any stale marker from a prior attempt.
   try { fs.writeFileSync(okFile, ''); } catch (e) {}
   try { fs.unlinkSync(readyFile); } catch (e) {}
 
-  const marker = await waitForFile(okFile, 60000);
+  // Wait up to 120s for the marker, but watch the child: if it EXITED before
+  // binding, stop early and record the exit + captured stderr (a parse error,
+  // a missing module, or an ExecutionPolicy failure shows up there). A listener
+  // can also appear even if the marker path is wrong, so probe the port too.
+  const liveness = [];
+  let marker = null, sawListener = false, tFirstListener = null;
+  for (let i = 0; i < 240; i++) {
+    if (fs.existsSync(okFile)) {
+      try { const c = fs.readFileSync(okFile, 'utf8').trim(); if (c) { marker = { at: Date.now(), text: c }; } } catch (e) {}
+    }
+    if (!sawListener) {
+      const tc = await tcpConnect();
+      if (tc.ok) { sawListener = true; tFirstListener = Date.now(); }
+    }
+    if (i % 8 === 0) {
+      liveness.push({ t: Date.now() - tStart, exited: !!(report.startupDiag && report.startupDiag.exit),
+        spawnError: (report.startupDiag && report.startupDiag.spawnError) || '',
+        stdoutBytes: serverOutBuf.length, stderrBytes: serverErrBuf.length, listener: sawListener });
+    }
+    if (marker) break;
+    if (report.startupDiag && report.startupDiag.exit) break; // child died before binding
+    if (report.startupDiag && report.startupDiag.spawnError) break; // spawn failed (e.g. no powershell)
+    await sleep(500);
+  }
+  report.startupDiag = report.startupDiag || {};
+  report.startupDiag.liveness = liveness;
+  report.startupDiag.listenerAppeared = sawListener;
   report.timings.markerAppearedMs = marker ? marker.at - tStart : null;
   report.timings.markerText = marker ? sanitize(marker.text) : null;
-  if (!marker) { report.fatal = 'LISTENING marker (server-ok.txt) never appeared within 60s'; return false; }
-
-  // First successful TCP connect.
-  let connect = null;
-  for (let i = 0; i < 40 && !connect; i++) {
-    const r = await tcpConnect();
-    if (r.ok) { connect = { at: Date.now(), ms: r.ms }; }
-    else await sleep(50);
+  report.timings.listenerAppearedMs = tFirstListener ? tFirstListener - tStart : null;
+  if (!marker) {
+    const exit = report.startupDiag.exit;
+    const spawnError = report.startupDiag.spawnError;
+    report.fatal = spawnError
+      ? ('powershell spawn failed: ' + sanitize(spawnError))
+      : exit
+        ? ('server process exited before binding (code=' + exit.code + ' signal=' + exit.signal + '); stderr: ' + sanitize(serverErrBuf.slice(-600)))
+        : ('LISTENING marker never appeared within 120s; listenerOnPort=' + sawListener + '; stderr: ' + sanitize(serverErrBuf.slice(-600)) + '; stdout: ' + sanitize(serverOutBuf.slice(-300)));
+    return false;
   }
-  report.timings.connectMs = connect ? connect.ms : null;
-  if (!connect) { report.fatal = 'TCP connect never succeeded after the LISTENING marker'; return false; }
+
+  // First successful TCP connect (already probed above; reuse its timing).
+  const connect = { at: tFirstListener || Date.now(), ms: 0 };
+  report.timings.connectMs = connect.ms;
   const tConnect = connect.at;
 
   // First HTTP 200 from /health. Per-attempt timeout 8s; keep trying so a
@@ -593,18 +628,16 @@ async function main() {
   } finally {
     killOwned();
     releaseDesktopLock();
-    // Sanitize the raw server stdout into a publish-safe copy and remove the
-    // unsanitized original. publish-evidence.js only accepts *.log.sanitized,
-    // and its credential-shape scan is a hard gate, so nothing raw is emitted.
+    // Write the pipe-captured stdout/stderr as sanitized evidence. These buffers
+    // are the ONLY place a parse error / ExecutionPolicy failure can be seen —
+    // run 40062592553 proved an fd-redirected detached child can go silent.
     try {
-      const rawLog = path.join(out, 'server-stdout.log');
-      if (fs.existsSync(rawLog)) {
-        const lines = fs.readFileSync(rawLog, 'utf8').split(/\r?\n/);
-        const clean = lines.slice(-400).map((l) => sanitize(l)).join('\n');
-        fs.writeFileSync(path.join(out, 'server-stdout.log.sanitized'),
-          '# sanitized server stdout (secrets redacted); tail of ' + lines.length + ' lines\n' + clean + '\n');
-        fs.unlinkSync(rawLog);
-      }
+      const cleanOut = serverOutBuf.split(/\r?\n/).slice(-400).map((l) => sanitize(l)).join('\n');
+      const cleanErr = serverErrBuf.split(/\r?\n/).slice(-400).map((l) => sanitize(l)).join('\n');
+      fs.writeFileSync(path.join(out, 'server-stdout.log.sanitized'),
+        '# sanitized server stdout (secrets redacted)\n' + cleanOut + '\n');
+      fs.writeFileSync(path.join(out, 'server-stderr.log.sanitized'),
+        '# sanitized server stderr (secrets redacted)\n' + cleanErr + '\n');
     } catch (e) {}
     // Aggregate verdicts (a BLOCKED acceptance item is NOT collapsed into PASS).
     const counts = { PASS: 0, FAIL: 0, BLOCKED: 0 };

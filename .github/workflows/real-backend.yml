@@ -156,6 +156,25 @@ jobs:
           "BUNDLE_SHA=$bsha" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Pop-Location
 
+      - name: Preflight - confirm PowerShell 5.1 parses both server files
+        run: |
+          # Independent of the Node harness: if a parse/encoding error exists it
+          # shows here with the exact line, instead of a silent non-bind.
+          foreach ($s in @($env:PRISTINE_SERVER, (Join-Path $env:APP_DIR 'payloads\ghrdp-server.ps1'))) {
+            $tokens = $null; $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($s, [ref]$tokens, [ref]$errs) | Out-Null
+            if ($errs -and $errs.Count -gt 0) {
+              $errs | Select-Object -First 4 | ForEach-Object { Write-Host "PARSE: $($_.Message) @ line $($_.Extent.StartLineNumber)" }
+              throw "PowerShell parse errors in $s"
+            }
+            Write-Host "parse OK: $s ($($tokens.Count) tokens)"
+          }
+          # Release any listener from an earlier attempt on OUR port before measuring.
+          try {
+            $c = Get-NetTCPConnection -LocalPort 7331 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($c) { Write-Host "::warning title=port 7331 pre-owned::pid=$($c.OwningProcess); stopping it before the measurement"; Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+          } catch {}
+
       - name: Measure REAL backend (baseline vs patched) + drive the real UI
         run: |
           $ErrorActionPreference = 'Continue'
@@ -211,7 +230,7 @@ jobs:
               if ($ext -eq '.png') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
               elseif ($_.Name -eq 'real-backend-report.json') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-real-backend-report.json')) -Force }
               elseif ($_.Name -eq 'real-backend-control-coverage.csv') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-real-backend-control-coverage.csv')) -Force }
-              elseif ($_.Name -like '*.log.sanitized') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-server-stdout.log.sanitized')) -Force }
+              elseif ($_.Name -like '*.log.sanitized') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
               elseif ($_.Name -like 'server-*.txt') { Copy-Item $_.FullName (Join-Path $flat ($lbl + '-' + $_.Name)) -Force }
             }
             $shots = Join-Path $d 'shots'
