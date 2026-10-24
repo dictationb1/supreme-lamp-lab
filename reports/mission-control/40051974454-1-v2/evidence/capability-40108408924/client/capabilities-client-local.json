@@ -1,0 +1,43 @@
+{
+  "scope": "client-local",
+  "job": "client",
+  "runId": "40108408924",
+  "runAttempt": "1",
+  "runner": "rdp-lab-client",
+  "writtenAt": "2026-10-24T16:01:03.659Z",
+  "capabilities": {
+    "browser_synthetic": {
+      "status": "PASS",
+      "required": true,
+      "contract": "headed chromium: local page DOM interaction asserted, valid PNG screenshot, video recorded",
+      "reason": "DOM interaction asserted; screenshot 1280x720; video 41744 bytes",
+      "evidence": {
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\browser-synthetic.png",
+        "video": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\video-browser-synthetic\\6957fcec944dbe4d5a23da50616aa51c.webm"
+      }
+    },
+    "native_screenshot": {
+      "status": "PASS",
+      "required": true,
+      "contract": "Windows interactive desktop captured to a valid, non-uniform PNG",
+      "reason": "CAPTURED 1022x765 session=1 path=C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\native-desktop.png; 1022x765",
+      "evidence": {
+        "screenshot": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\native-desktop.png"
+      }
+    }
+  },
+  "aggregate": {
+    "status": "PASS",
+    "accepted": true,
+    "firstCause": null,
+    "counts": {
+      "PASS": 2,
+      "FAIL": 0,
+      "BLOCKED": 0,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": []
+  }
+}
