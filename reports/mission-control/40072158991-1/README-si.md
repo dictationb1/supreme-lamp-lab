@@ -61,13 +61,13 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1389/1389 + Windows step-7 22/22 PASS; build OK. **සත්‍ය Windows මැනුම (ධාවනය 40084261133): accept-loop starvation මැකී ඇත, සත්‍ය HTTP 101 උත්ශ්‍රේණි දැන් සිදුවේ, r2/backend පාලන 4ක් PASS (HTTP කිසිදා නොනවතී). PS-runtime දෝෂ තුනක් VM හිදී හමුවී නිවැරදි කර ඇත: (1) PS 5.1 `[powershell]::Create(runspacePool)` overload MethodException → `Create()` + `.RunspacePool=`; (2) request handler ගේ පිටත finally එක async worker ගේ socket එක 101ට පෙර වැසීම (ECONNRESET) → `$r2Dispatched` හිමිකාර-මාරු ආරක්ෂකය; (3) F99 පොම්පය දත්ත රහිත peer-viyojanයක් (EOF) නොදැකීම නිසා worker-slot කාන්දුව → `Socket.Poll(SelectRead)` ජීවන-පරීක්ෂාව. තුන්වන නිවැරදි කිරීමේ VM නැවත-සනාථ කිරීම ඊළඟ ධාවනයේදී ලැබිය යුතුය.** |
+| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1390/1390 + Windows step-7 23/23 PASS; build OK. **ධාවනය 40086011776 හිදී සත්‍ය Windows VM මත R2 raw-socket matrix එක සම්පූර්ණයෙන්ම PASS (r2 පාලන 10 + block පාලනය, 30 PASS / 3 FAIL / 5 BLOCKED සමස්ත): ධාරිතාව නිවැරදිව held=8, 9වැන්න පමණක් 503; සත්‍ය frames + hello-ack; reconnect; idle expiry 8191ms; malformed 400; චක්‍ර 10/10 (+11 handles). PS-runtime දෝෂ හතරක් හමුවී නිවැරදි කර ඇත: (1) Create overload; (2) finally හිමිකාරිත්වය; (3) pump EOF slot කාන්දුව → `Socket.Poll`; (4) සෙවනැලි `/health` මාර්ගය (පළමු handler එකේ ws ධජය අස්ථානගත, දෙවැන්න ළඟා විය නොහැකි වීම) → තනි සජීව මාර්ගය. ඉතිරිව ඇත්තේ headed browser එක කිසිදා WebSocket constructor එක නොකැඳවීම (totalObservations=0) පමණි; ඊළඟ ධාවනය සඳහා gate නොවන රෝග-විනිශ්චයක් එක් කර ඇත.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
 | NATIVE_RDP / WEB_DESKTOP | BLOCKED | වෙනම lab-owned Windows application server + LogonType 10 සාක්ෂි අවශ්‍යයි; කිසිදා ව්‍යාජ PASS නොවේ |
 
-සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1389 පරීක්ෂණ (1378 පෙර + 11 නව R2);
+සත්කාරක (hosted) සංඛ්‍යාලේඛන: යෙදුම් smoke 108 ගොනු / 1390 පරීක්ෂණ (1378 පෙර + 12 නව R2);
 ලැබ් regression 243කින් 235ක් PASS, 8ක් optional-browser skip.
 
 ### 3.1 සත්‍ය Windows මැනුමෙන් හමුවූ දෝෂය (ධාවනය 40078279249) — වංචනික PASS නැත
@@ -133,6 +133,30 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   පමණක් 503 වීම, සත්‍ය frames/echo, server-side idle expiry, පිරිසිදු reconnect,
   handle වර්ධනයක් නැති 10/10 චක්‍ර, සහ headed `real.browser_ws_*` තුනම PASS.
   සියලු ධාවනවල සත්‍ය මැනුම් `control-coverage.csv` හි අවංකව සුරැකී ඇත.
+
+### 3.3 ධාවනය 40086011776 — R2 raw-socket matrix එක සම්පූර්ණ PASS; browser lane එක පමණක් ඉතිරියි
+
+- head `20df25a` මත `Socket.Poll` නිවැරදි කිරීම සත්‍ය Windows VM හි තහවුරු විය:
+  **r2 පාලන 10ම + `backend.ws_accept_loop_block` PASS** (සමස්ත 30 PASS / 3 FAIL /
+  5 BLOCKED). ධාරිතාව නිවැරදිය — held=8, හිතාමතා විවෘත කරන 9වැනි socket එක පමණක් 503;
+  සත්‍ය frames 4ක් (opcodes 1,11,14,9) hello-ack සමග; සාමාන්‍ය + හදිසි reconnect PASS;
+  idle expiry 8191ms; malformed handshake 400; චක්‍ර 10/10, handles 890→901 (+11),
+  threads 35→34. stdout හි ඇත්තේ එක 503 පේළියක් (ධාරිතා පරීක්ෂණයේ) පමණි; EXCEPTION ශුන්‍යයි.
+- ඉතිරි FAIL තුනම headed browser පාලන වේ: Playwright `totalObservations=0` වාර්තා කරයි —
+  එකම සේවාදායකයට එරෙහිව raw socket සියල්ල සාර්ථක වුවත්, පිටු JavaScript එක කිසිදා
+  `WebSocket` constructor එක කැඳවන්නේ නැත. එය තවත් accept-loop දෝෂයක් නොවේ; browser-lane දෝෂයකි.
+- **සතරවන දෝෂය (නිවැරදි කර ඇත): සෙවනැලි `/health` මාර්ගය.** `Invoke-ClientRequest` තුළ
+  `/health` ශාඛා දෙකක් විය: පළමුව (F45-R readiness) පිළිතුරු දෙන නමුත් `ws` ධජය නොතිබුණි;
+  `ws=F96WsUpgradeSupported` රැගත් දෙවන ශාඛාව ළඟා විය නොහැකි විය. එබැවින් browser එක සැමවිටම
+  "No /ws endpoint" ලෙස ව්‍යාජ ලෙස පෙන්වීය. දැන් තනි සජීව `/health` මාර්ගය ධජය ප්‍රචාරය කරයි,
+  මළ අනුපිටපත ඉවත් කර ඇත, දොළොස්වන ස්ථිතික පරීක්ෂණය එය අගුලු දමයි (r2 12/12 LF+CRLF,
+  සම්පූර්ණ suite 1390/1390, 0003 දැන් 576 පේළි).
+- වත්මන් client එක `wsAvailable` මත socket සෑදීම වාරණය නොකරන (F94) නිසා, ඊළඟ ධාවනය සඳහා
+  **gate නොවන** `report.browserWsDiagnostic` රෝග-විනිශ්චයක් harness එකට එක් කර ඇත:
+  WebSocket global ස්වරූපය, පිටුව තුළ `/health` පිළිතුර, `/ws` request/requestfailed/response
+  සිදුවීම්, අතින් සාදන in-page socket එකක සිදුවීම්/readyState, context-observer දෘශ්‍යතාව සහ
+  යෙදුමේ 5-තත්පර starter කවුළුව. මෙය කිසිදු පාලනයක් FAIL නොකරයි; ඊළඟ ධාවනය මගින් හේතුව
+  (යෙදුම් තර්කනය / Playwright-Chromium නිරීක්ෂණ සීමාව / ප්‍රතිපත්ති-proxy අවහිරය) වෙන් කරයි.
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 

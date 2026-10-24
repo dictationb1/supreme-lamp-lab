@@ -53,8 +53,8 @@ Already executed in this lab (Linux, Node v22):
 
 - Patch series applies cleanly on a fresh `832a82eb` download; output is
   byte-identical to the hand-built candidate.
-- Application smoke tests: **108 files / 1389 tests pass** (1378 historical +
-  11 new R2 structural tests; the R2 test fails on the pristine base and passes
+- Application smoke tests: **108 files / 1390 tests pass** (1378 historical +
+  12 new R2 structural tests; the R2 test fails on the pristine base and passes
   on the repaired file, on both LF and CRLF copies of the server script).
 - Production build `pnpm run build` (tsc + vite single-file) succeeds.
 - Lab hosted regressions `node scripts/run-regressions.js`: **235 pass /
@@ -137,14 +137,36 @@ an R2 PASS yet:
   Idle open sockets keep the old wait behavior; `Socket.Poll` exists on both
   .NET Framework (PS 5.1) and .NET (PS 7); no capacity or timeout value
   changed and the `Wait(0)` gate is untouched.
-- 0003 is now 537 lines with eleven static assertions (all green on LF and
-  CRLF). The next labelled run must show capacity holding at eight with a 503
-  only on the ninth, live frames/echo, server-side idle expiry, clean
-  abrupt-close reconnect, 10/10 leak-free cycles and the three headed browser
-  ws controls PASS. Earlier matrix honesty is preserved in
-  `control-coverage.csv` (including every run's rows) and the
-  `evidence/windows-run-*.md` records; the passing re-run's evidence supersedes
-  those rows. Native RDP/Web Desktop remain separately BLOCKED.
+- Run 40086011776 (head `20df25a`) then **validated the Poll fix on the real
+  VM: all ten `r2.*` behavioral controls plus `backend.ws_accept_loop_block`
+  PASS** (30 PASS / 3 FAIL / 5 BLOCKED overall). Capacity is exact
+  (`held=8`, only the deliberate 9th socket 503s), real frames arrive with
+  hello-ack, normal + abrupt reconnect pass, idle expiry fires at 8191 ms,
+  malformed handshakes get a bounded 400, cycles finish 10/10 with +11 handles
+  and flat threads, and stdout shows one saturated-503 line (the capacity
+  probe) with zero EXCEPTION lines. The accept-loop repair is now fully proven
+  at the raw-socket layer.
+- The three remaining FAILs are headed-browser controls: Playwright recorded
+  `totalObservations=0`, i.e. the shipped page never calls the `WebSocket`
+  constructor even though raw sockets against the same process fully pass — a
+  browser-lane defect, not another accept-loop defect. A shadowed duplicate
+  `/health` route was found and fixed (the first F45-R handler returned without
+  a `ws` field; the F99 handler carrying `ws=F96WsUpgradeSupported` was
+  unreachable, so the UI always showed "No /ws endpoint"). One live route now
+  advertises the flag, the dead duplicate is removed, and static assertion 12
+  pins this. Because the current client does not gate construction on that
+  flag, a **non-gating** `report.browserWsDiagnostic` harness field was added
+  (WebSocket global shape, in-page `/health` body, page-level `/ws`
+  request/failure/response events, a manual in-page socket, context-observer
+  visibility and a 7 s app-starter window) to attribute the zero-construction
+  symptom on the next run.
+- 0003 is now 576 lines with twelve static assertions (all green on LF and
+  CRLF). The next labelled run must keep the r2 matrix green and additionally
+  show the three headed `real.browser_ws_*` controls PASSing with genuine
+  in-page frames; the evaluate gate stays red until then. Earlier matrix
+  honesty is preserved in `control-coverage.csv` (including every run's rows)
+  and the `evidence/windows-run-*.md` records; the passing re-run's evidence
+  supersedes those rows. Native RDP/Web Desktop remain separately BLOCKED.
 
 ## 4. Remaining work that an application session / operator must own
 

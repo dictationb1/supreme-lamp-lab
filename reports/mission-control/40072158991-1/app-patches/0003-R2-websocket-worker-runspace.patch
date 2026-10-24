@@ -1,25 +1,17 @@
-From 5a0ba53f447d1dc5aa9f81d1230a275adce49cb0 Mon Sep 17 00:00:00 2001
-From: RDP Mission Control Lab <lab@dictationb1.local>
-Date: Sat, 24 Oct 2026 07:26:44 +0000
-Subject: [PATCH] 0003 R2: bounded WebSocket worker runspace (accept-loop
- starvation repair)
+From 791644ec5f2dc4a0091dc7af67804cdc9abf07c6 Mon Sep 17 00:00:00 2001
+From: lab <lab@local>
+Date: Sat, 24 Oct 2026 11:10:45 +0000
+Subject: [PATCH] R2 bounded WebSocket worker runspace (accept-loop starvation
+ repair)
 
-Move only the long-lived /ws pump off the single accept thread onto a
-bounded runspace pool gated by a non-blocking SemaphoreSlim. Ordinary HTTP
-stays inline so all script-scope ticket/cache/credential state keeps its
-single-threaded semantics. At capacity the server answers 503 immediately;
-the accept loop never parks. Workers receive only the pump's small
-dependency surface, serialize audits on a shared Monitor lock, and release
-the gate and close the socket in finally. Pool and semaphore are disposed
-at shutdown. Includes the static r2-websocket-worker smoke regression.
 ---
- payloads/ghrdp-server.ps1                   | 293 +++++++++++++++++++-
- src/tests/smoke/r2-websocket-worker.test.ts | 144 ++++++++++
- 2 files changed, 430 insertions(+), 7 deletions(-)
+ payloads/ghrdp-server.ps1                   | 306 +++++++++++++++++++-
+ src/tests/smoke/r2-websocket-worker.test.ts | 157 ++++++++++
+ 2 files changed, 451 insertions(+), 12 deletions(-)
  create mode 100644 src/tests/smoke/r2-websocket-worker.test.ts
 
 diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
-index e74b4b03b..720d73fbe 100644
+index e74b4b0..f3c246d 100644
 --- a/payloads/ghrdp-server.ps1
 +++ b/payloads/ghrdp-server.ps1
 @@ -440,6 +440,13 @@ $script:F99WsUpgradeSupported = $true
@@ -120,7 +112,41 @@ index e74b4b03b..720d73fbe 100644
              return
          }
          # [F10-2 §3] per-request creds authorization (strict subset of access).
-@@ -9366,8 +9412,13 @@ boot();
+@@ -2758,6 +2804,10 @@ function Invoke-ClientRequest {
+                     probeError = $(if ($hSt -and $hSt.probeError) { [string]$hSt.probeError } else { $null })
+                 }
+             }
++            # [LAB-R2] This is the SINGLE live /health route: an earlier duplicate
++            # block lower in the chain was unreachable and omitted the ws flag, so
++            # the browser always concluded "no /ws endpoint" even with the RFC6455
++            # upgrade live (run 40086011776). Advertise the upgrade feature flag here.
+             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json; charset=utf-8' -Body (ConvertTo-JsonBytes ([ordered]@{
+                 ok               = $true
+                 app              = 'ghrdp'
+@@ -2766,6 +2816,7 @@ function Invoke-ClientRequest {
+                 bind             = [string]$Bind
+                 port             = [int]$Port
+                 serverStartedUtc = [string]$script:ServerStartedUtc
++                ws               = [bool]$script:F96WsUpgradeSupported
+                 scans            = $hScans
+             }))
+             return
+@@ -9228,11 +9279,9 @@ boot();
+             Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json' -Body (ConvertTo-JsonBytes @{ ok = $true; ts = (Get-Date -Format o); wire = $script:Wire })
+             return
+         }
+-        if ($path -eq '/health') {
+-            # [F99 §2.1] was hardcoded ws=false; now computed from the upgrade feature flag
+-            Send-ClientResponse -Stream $stream -Code 200 -CType 'application/json' -Body (ConvertTo-JsonBytes @{ ok = $true; ws = [bool]$script:F96WsUpgradeSupported; port = $Port; pid = $PID; ts = (Get-Date -Format o) })
+-            return
+-        }
++        # [LAB-R2] The former duplicate /health block here was unreachable: the
++        # F45-R readiness route above returns first and is now the single source
++        # of the ws advertisement. Do not re-add a second /health branch.
+         if ($path -eq '/api/config') {
+             # [F10-2 §3] capture password fields BEFORE Remove-CredKeys strips
+             # them; they are re-attached ONLY when $credsAllowed (dash-token or
+@@ -9366,8 +9415,13 @@ boot();
              }) -ExtraHeaders ("X-Correlation-ID: $cId`r`n")
          } catch { }
      } finally {
@@ -136,7 +162,7 @@ index e74b4b03b..720d73fbe 100644
      }
  }
  $script:Wire = $null
-@@ -9753,6 +9804,228 @@ function Invoke-F99WatcherDiagnose {
+@@ -9753,6 +9807,228 @@ function Invoke-F99WatcherDiagnose {
      }
      return $out
  }
@@ -365,7 +391,7 @@ index e74b4b03b..720d73fbe 100644
  $start = Get-Date
  $limit = New-TimeSpan -Minutes $LimitMinutes
  $lastHeal = Get-Date
-@@ -9776,6 +10049,9 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9776,6 +10052,9 @@ while (((Get-Date) - $start) -lt $limit) {
          try { $client = $listener.AcceptTcpClient() } catch { }
          if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
      }
@@ -375,7 +401,7 @@ index e74b4b03b..720d73fbe 100644
      # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
      # last-run timer and remains the sole writer of its state file; the guard
      # only spreads coincident ticks across adjacent 50ms iterations so their
-@@ -9806,3 +10082,6 @@ while (((Get-Date) - $start) -lt $limit) {
+@@ -9806,3 +10085,6 @@ while (((Get-Date) - $start) -lt $limit) {
      Start-Sleep -Milliseconds $script:ScanDelayMs
  }
  try { $listener.Stop() } catch { }
@@ -384,10 +410,10 @@ index e74b4b03b..720d73fbe 100644
 +try { Stop-R2WebSocketPool } catch { }
 diff --git a/src/tests/smoke/r2-websocket-worker.test.ts b/src/tests/smoke/r2-websocket-worker.test.ts
 new file mode 100644
-index 000000000..e04ace31f
+index 0000000..28df47d
 --- /dev/null
 +++ b/src/tests/smoke/r2-websocket-worker.test.ts
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,157 @@
 +// [LAB-R2] WebSocket accept-loop starvation invariants - EXECUTED against the
 +// shipped payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base a
 +// single GET /ws runs Invoke-F99WebSocketUpgrade INLINE on the one accept
@@ -519,6 +545,19 @@ index 000000000..e04ace31f
 +    // timeout. Poll(SelectRead)+Available==0 signals EOF/reset within one loop tick.
 +    expect(server).toMatch(/\$Client\.Client\.Poll\(0,\s*\[System\.Net\.Sockets\.SelectMode\]::SelectRead\)/);
 +    expect(server).toMatch(/Poll\(0[\s\S]{0,120}Available\s*-eq\s*0[\s\S]{0,80}1006/);
++  });
++
++  it("advertises the upgrade flag from the single live /health route (no shadowing duplicate)", () => {
++    // Run 40086011776: an earlier F45-R readiness /health block returned first
++    // and carried no ws field, so the browser's probeHealth always set
++    // wsAvailable=false and rendered "No /ws endpoint" while the RFC6455 upgrade
++    // was live. The F99 block lower in the chain that did include the flag was
++    // unreachable. Pin one route, and that it advertises the feature flag.
++    const healthRoutes = server.match(/if \(\$path -eq '\/health'\)/g) || [];
++    expect(healthRoutes.length).toBe(1);
++    const healthStart = server.indexOf("if ($path -eq '/health')");
++    const healthBlock = server.slice(healthStart, healthStart + 2400);
++    expect(healthBlock).toMatch(/ws\s*=\s*\[bool\]\$script:F96WsUpgradeSupported/);
 +  });
 +
 +  it("constructs the worker PowerShell in a PS 5.1-compatible way (no 1-arg Create overload)", () => {

@@ -169,3 +169,40 @@ Poll pattern; the r2 suite passes 11/11 on LF and CRLF, full application suite
 8 held with 503 only on the 9th socket, frames/echo, idle expiry, clean
 reconnect, 10/10 leak-free cycles and the three headed `real.browser_ws_*`
 controls; see `evidence/windows-run-40084261133-slot-leak.md`.
+
+## 7. Run 40086011776: raw-socket R2 matrix fully green; browser socket still open
+
+The `Socket.Poll` fix was confirmed on the real Windows VM at head `20df25a`:
+all ten `r2.*` behavioral controls plus `backend.ws_accept_loop_block` PASS
+(30 PASS / 3 FAIL / 5 BLOCKED overall). Capacity behaves exactly as designed
+(held=8, only the deliberate 9th socket 503s), genuine frames arrive
+(opcodes `[1,11,14,9]`, hello-ack true), normal and abrupt reconnects pass,
+idle expiry fires at 8191 ms, malformed handshakes get a bounded 400, and 10/10
+cycles complete with only +11 handles and flat threads. The sanitized stdout
+has one saturated-503 line (the capacity probe itself) and zero EXCEPTION
+lines: the slot leak is gone.
+
+The three remaining FAILs are all headed-browser controls:
+`real.browser_ws_real_frames`, `real.browser_ws_http_concurrent` and
+`real.browser_ws_reconnect`, with Playwright `totalObservations=0` — the page
+never calls the `WebSocket` constructor (a blocked handshake would still emit
+the context event). The server upgrade path is proven healthy by the raw-socket
+matrix against the same process, so this is a browser-lane defect, not another
+accept-loop defect.
+
+### Defect #4 (fixed): shadowed `/health` route hid the ws advertisement
+
+`Invoke-ClientRequest` contained two `if ($path -eq '/health')` branches. The
+first (F45-R readiness) returns first and omitted `ws`; the second
+(`ws = [bool]$script:F96WsUpgradeSupported`) was unreachable. The browser's
+`probeHealth` therefore always set `wsAvailable=false` and rendered a false
+"No /ws endpoint" chip (see `patched-authenticated-patched.png`). The single
+live route now includes `ws = [bool]$script:F96WsUpgradeSupported`, the dead
+duplicate is removed, and static assertion 12 pins one `/health` route carrying
+the flag. The current client does not gate construction on `wsAvailable` (F94
+removed that precondition), so a separate harness-only
+`report.browserWsDiagnostic` field was added (global shape, in-page `/health`
+body, page-level `/ws` request/failure/response events, a manual in-page
+socket, context-observer visibility and a 7 s app-starter window) to attribute
+the zero-construction symptom on the next Windows run without any gate
+weakening. r2 structural 12/12 LF+CRLF; full suite 1390/1390; build OK.

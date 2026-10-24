@@ -955,6 +955,79 @@ async function driveBrowser() {
       evidence: ev, verdict: (topStatus || autoNote) ? 'PASS' : 'BLOCKED',
       note: 'F201: a refused/empty probe must not become confirmed credential/DNS/listener failure' });
 
+    // (2b) DIAGNOSTIC ONLY - never a gate control, cannot add a FAIL. Run
+    // 40086011776 had totalObservations=0: the shipped frontend apparently never
+    // constructed a WebSocket even though the raw-socket r2 matrix fully passed.
+    // This splits four possibilities without touching the application: (a) the
+    // WebSocket global is missing/replaced, (b) the app never calls the
+    // constructor, (c) the constructor is called but Playwright's context event
+    // does not surface it, (d) the network/policy layer blocks the upgrade.
+    if (shell && !expired()) {
+      const diag = {
+        webSocketType: '', webSocketToString: '', origin: '', tokenStoredLen: null,
+        healthJson: null, consoleWs: [], pageWsRequests: [], pageWsFailed: [], pageWsResponses: [],
+        manual: null, contextObservationsBeforeManual: wsObservations.length,
+        contextObservationsAfterManual: null, contextSawManual: null,
+        appSocketWaitedMs: null, contextObservationsAfterWait: null, appSocketObserved: null
+      };
+      try {
+        // Page-level /ws HTTP events are independent of the context 'websocket'
+        // event and persist across same-Page navigations below.
+        page.on('request', (r) => { try { if (/\/ws(\?|$)/.test(r.url())) diag.pageWsRequests.push({ url: sanitize(r.url()).slice(0, 120), method: r.method() }); } catch (e) {} });
+        page.on('requestfailed', (r) => { try { if (/\/ws(\?|$)/.test(r.url())) diag.pageWsFailed.push({ url: sanitize(r.url()).slice(0, 120), why: sanitize((r.failure() && r.failure().errorText) || '').slice(0, 120) }); } catch (e) {} });
+        page.on('response', (r) => { try { if (/\/ws(\?|$)/.test(r.url())) diag.pageWsResponses.push({ status: r.status(), url: sanitize(r.url()).slice(0, 120) }); } catch (e) {} });
+        page.on('console', (m) => { try { const t = String(m.text() || ''); if (/websocket|\bws\b/i.test(t)) diag.consoleWs.push(sanitize(t).slice(0, 200)); } catch (e) {} });
+
+        const env = await page.evaluate(() => {
+          const out = { typeofWebSocket: '', webSocketToString: '', origin: location.origin, tokenStoredLen: null };
+          try { out.typeofWebSocket = typeof window.WebSocket; } catch (e) { out.typeofWebSocket = 'eval-error'; }
+          try { out.webSocketToString = String(window.WebSocket).slice(0, 100); } catch (e) {}
+          try { const t = localStorage.getItem('ghrdp.dashToken'); out.tokenStoredLen = t ? t.length : 0; } catch (e) {}
+          return out;
+        }).catch((e) => ({ typeofWebSocket: 'eval-threw:' + String(e.message || e).slice(0, 100) }));
+        diag.webSocketType = env.typeofWebSocket || '';
+        diag.webSocketToString = env.webSocketToString || '';
+        diag.origin = env.origin || '';
+        diag.tokenStoredLen = env.tokenStoredLen;
+
+        // The /health body the browser itself receives (must now carry ws=true).
+        diag.healthJson = await page.evaluate(async () => {
+          try { const r = await fetch('/health', { cache: 'no-store' }); const j = await r.json(); return { status: r.status, ok: j.ok, ws: j.ws, app: j.app }; }
+          catch (e) { return { error: String(e).slice(0, 120) }; }
+        }).catch((e) => ({ error: String(e.message || e).slice(0, 120) }));
+
+        // Manual in-page socket with the same URL shape as useDashboardPolling.
+        const beforeManual = wsObservations.length;
+        diag.manual = await page.evaluate((k) => new Promise((resolve) => {
+          const res = { constructed: false, threw: '', readyState: null, events: [], url: '' };
+          try {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const url = proto + '//' + location.host + '/ws' + (k ? '?key=' + encodeURIComponent(k) : '');
+            res.url = url.replace(/key=[^&]+/, 'key=<redacted>');
+            const ws = new WebSocket(url);
+            res.constructed = true;
+            ws.onopen = () => res.events.push('open');
+            ws.onmessage = (e) => res.events.push('frame:' + String(e.data).slice(0, 40));
+            ws.onerror = () => res.events.push('error');
+            ws.onclose = (e) => res.events.push('close:' + ((e && e.code) || ''));
+            setTimeout(() => { try { res.readyState = ws.readyState; ws.close(); } catch (e) {} resolve(res); }, 2500);
+          } catch (e) { res.threw = String((e && e.message) || e).slice(0, 160); resolve(res); }
+        }), key).catch((e) => ({ constructed: false, threw: String(e.message || e).slice(0, 120) }));
+        await sleep(500);
+        diag.contextObservationsAfterManual = wsObservations.length;
+        diag.contextSawManual = wsObservations.length > beforeManual;
+
+        // Room for the app's own 5s wsStarter interval on this page load.
+        const waitT0 = Date.now();
+        await sleep(7000);
+        diag.appSocketWaitedMs = Date.now() - waitT0;
+        diag.contextObservationsAfterWait = wsObservations.length;
+        diag.appSocketObserved = wsObservations.length > beforeManual;
+      } catch (e) { diag.diagError = String(e.message || e).slice(0, 160); }
+      report.browserWsDiagnostic = diag;
+      flush();
+    }
+
     // (3) navigate every route, assert the page's OWN component marker mounts
     const ROUTES = [
       ['nav.overview', '#/', 'overview-page'], ['nav.search', '#/search', 'search-page'],
