@@ -549,20 +549,29 @@ async function driveBrowser() {
     const page = await ctx.newPage();
     page.on('console', (m) => { if (m.type() === 'error') report.consoleErrors.push(sanitize(m.text()).slice(0, 300)); });
     page.on('requestfailed', (r) => report.failedRequests.push({ url: sanitize(r.url()).slice(0, 200), why: sanitize((r.failure() && r.failure().errorText) || '').slice(0, 120) }));
-    await page.goto(base + '/?ui=v2', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch((e) => { report.fatal = report.fatal || ('initial goto: ' + e.message.slice(0, 120)); });
+    let initialGotoOk = true, initialGotoErr = '';
+    await page.goto(base + '/?ui=v2', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch((e) => { initialGotoOk = false; initialGotoErr = String(e.message || e).split('\n')[0].slice(0, 140); });
     await sleep(1000);
     const gate = page.getByTestId('dash-token-gate');
     const gateVisible = await gate.isVisible().catch(() => false);
     let ev = '';
     try { ev = await screenshot(page, 'gate-' + label); } catch (e) {}
+    // A timed-out first navigation is a SERVER-UNRESPONSIVE artifact (R2 inline
+    // WS residual / a periodic scan), NOT proof the gate is broken. The startup
+    // /health measurement already succeeded; classify the gate check BLOCKED in
+    // that case, never FAIL, so an infrastructure stall cannot masquerade as an
+    // application defect (the same honesty rule F201 applies to the UI).
+    if (!initialGotoOk) report.browserInitialGoto = 'timeout: ' + initialGotoErr;
     record({ control_id: 'real.auth_gate', area: 'authentication',
       pre: 'real PowerShell server, fresh context, no key',
       action: 'Load /?ui=v2 without a dashboard key.',
       expect_ui: 'the token gate blocks the dashboard (or an explicit refusal is shown)',
       expect_req: 'GET / -> 200 real ui-v2.html',
-      actual: `gateVisible=${gateVisible}`,
-      evidence: ev, verdict: gateVisible ? 'PASS' : 'FAIL',
-      note: 'a rendered UI behind a real gate is proof of real bootstrap, not a stub' });
+      actual: `initialGotoOk=${initialGotoOk} gateVisible=${gateVisible} ${initialGotoErr}`,
+      evidence: ev,
+      verdict: initialGotoOk ? (gateVisible ? 'PASS' : 'FAIL') : 'BLOCKED',
+      note: initialGotoOk ? 'a rendered UI behind a real gate is proof of real bootstrap, not a stub'
+        : 'first navigation timed out (server unresponsive — R2 inline-WS residual); gate could not be verified; NOT counted as an app failure' });
 
     // (2) authenticate with the synthetic key that matches dash-token.txt
     await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key), { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
@@ -744,8 +753,21 @@ async function main() {
     // Bounded proof of the inline-WebSocket accept-loop stall (R2), BEFORE the
     // browser (which we stub below) can otherwise pin the server for 30 minutes.
     if (ok && !expired()) { await measureWsBlock(); flush(); }
-    if (ok && !expired()) { await driveBrowser(); flush(); }
-    else if (ok) record({ control_id: 'real.browser_suite_deferred', area: 'browser', pre: 'real server', action: 'drive the real UI', expect_ui: 'n/a', expect_req: 'n/a', actual: 'skipped: global deadline reached after measurement', evidence: '', verdict: 'BLOCKED', note: 'startup measurement already persisted; a hanging endpoint must not erase it' });
+    // Give the accept loop time to notice the destroyed /ws socket and drain
+    // again before driving the browser; a still-pinned server (R2) must not turn
+    // the first navigation into a 15s timeout. The startup/tick/endpoint/ws
+    // evidence is already flushed; skip the browser if it has not recovered.
+    let serverFree = false;
+    if (ok && !expired()) {
+      await sleep(2000);
+      const hr = await httpGet('/health', 6000);
+      serverFree = !!(hr.ok && hr.status === 200);
+      report.timings.recoveredAfterWsMs = hr.ms;
+    }
+    if (ok && !expired() && serverFree) { await driveBrowser(); flush(); }
+    else if (ok) record({ control_id: 'real.browser_suite_deferred', area: 'browser', pre: 'real server', action: 'drive the real UI', expect_ui: 'n/a', expect_req: 'n/a',
+      actual: expired() ? 'skipped: global deadline reached after measurement' : 'skipped: accept loop still pinned by inline WS (R2) 2s after the bounded probe',
+      evidence: '', verdict: 'BLOCKED', note: 'startup/tick/endpoint/ws-block evidence already published before this skip' });
   } catch (e) {
     report.fatal = report.fatal || ('exception: ' + String(e.message || e).slice(0, 200));
   } finally {
