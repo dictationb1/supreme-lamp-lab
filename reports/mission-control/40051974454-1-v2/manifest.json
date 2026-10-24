@@ -1,89 +1,92 @@
 {
- "schema": "slab-mission-control-repair-bundle/3",
- "bundleState": "IN_PROGRESS_COMPLETE_CANDIDATE_VERIFICATION",
- "createdAt": "2026-10-24T14:30:00Z",
- "origin": {
-  "repository": "dictationb1/supreme-lamp",
-  "providedRunId": "40051974454",
-  "providedAttempt": 1,
-  "providedRunStatusLastChecked": "completed / cancelled",
-  "providedSourceSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
-  "note": "The provided application run is historical/cancelled and its credentials, endpoints and tickets are never reused. Live-origin acceptance stays BLOCKED/NOT_RUN in this lab-only session. The candidate is developed and verified independently on lab-owned infrastructure.",
-  "readOnlyRemote": true
- },
- "applicationBase": {
-  "pinnedTestedRevision": "832a82eb7c29613b0b101585c56b5011ea008a06",
-  "pinnedArchiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
-  "currentMainSha": "da2ada001be3ba989828f5209bd58a1c0744ea16",
-  "currentMainDelta": "verified 2026-10-24T14:00Z: current main differs from 832a82eb ONLY in docs/status.json (automated status commits; no code change). No repair has been merged upstream; the full series 0001-0004 applies unchanged to both.",
-  "priorBundle": "reports/mission-control/40072158991-1 (R2 accepted, 3 consecutive green Windows runs)"
- },
- "patchSeries": [
-  {
-   "order": 1,
-   "file": "app-patches/0001-F201-probe-honesty.patch",
-   "title": "F201 probe honesty (frontend)",
-   "preservedFrom": "40072158991-1",
-   "byteIdenticalToPriorBundle": true
+  "schema": "slab-mission-control-repair-bundle/3",
+  "bundleState": "IN_PROGRESS_COMPLETE_CANDIDATE_VERIFICATION",
+  "createdAt": "2026-10-24T14:30:00Z",
+  "origin": {
+    "repository": "dictationb1/supreme-lamp",
+    "providedRunId": "40051974454",
+    "providedAttempt": 1,
+    "providedRunStatusLastChecked": "completed / cancelled",
+    "providedSourceSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "note": "The provided application run is historical/cancelled and its credentials, endpoints and tickets are never reused. Live-origin acceptance stays BLOCKED/NOT_RUN in this lab-only session. The candidate is developed and verified independently on lab-owned infrastructure.",
+    "readOnlyRemote": true
   },
-  {
-   "order": 2,
-   "file": "app-patches/0002-R1-server-startup-readiness.patch",
-   "title": "R1 server startup readiness",
-   "preservedFrom": "40072158991-1",
-   "byteIdenticalToPriorBundle": true
+  "applicationBase": {
+    "pinnedTestedRevision": "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "pinnedArchiveSha256": "c0de6455046c896d8cd61e8671d566a29c2aaa4aa946fd4cd4c791d1ca2d2393",
+    "currentMainSha": "da2ada001be3ba989828f5209bd58a1c0744ea16",
+    "currentMainDelta": "verified 2026-10-24T14:00Z: current main differs from 832a82eb ONLY in docs/status.json (automated status commits; no code change). No repair has been merged upstream; the full series 0001-0004 applies unchanged to both.",
+    "priorBundle": "reports/mission-control/40072158991-1 (R2 accepted, 3 consecutive green Windows runs)"
   },
-  {
-   "order": 3,
-   "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
-   "title": "R2 bounded WebSocket worker runspace",
-   "preservedFrom": "40072158991-1",
-   "byteIdenticalToPriorBundle": true,
-   "acceptedWindowsRuns": [
-    "40091165292",
-    "40092088400",
-    "40092300001"
-   ]
+  "patchSeries": [
+    {
+      "order": 1,
+      "file": "app-patches/0001-F201-probe-honesty.patch",
+      "title": "F201 probe honesty (frontend)",
+      "preservedFrom": "40072158991-1",
+      "byteIdenticalToPriorBundle": true
+    },
+    {
+      "order": 2,
+      "file": "app-patches/0002-R1-server-startup-readiness.patch",
+      "title": "R1 server startup readiness",
+      "preservedFrom": "40072158991-1",
+      "byteIdenticalToPriorBundle": true
+    },
+    {
+      "order": 3,
+      "file": "app-patches/0003-R2-websocket-worker-runspace.patch",
+      "title": "R2 bounded WebSocket worker runspace",
+      "preservedFrom": "40072158991-1",
+      "byteIdenticalToPriorBundle": true,
+      "acceptedWindowsRuns": [
+        "40091165292",
+        "40092088400",
+        "40092300001"
+      ]
+    },
+    {
+      "order": 4,
+      "file": "app-patches/0004-R2b-pool-fallback-bounded-truth.patch",
+      "title": "R2b bounded truthful pool-unavailable degradation",
+      "newThisBundle": true,
+      "defect": "source-identified residual risk in the accepted R2 patch: the pool-unavailable fallback invoked the long-lived pump INLINE on the accept thread, recreating the R2 starvation defect on a constrained host",
+      "repair": "no inline pump call in the dispatch path; one bounded pool re-init attempt per clamped window (GHRDP_WS_POOL_RETRY_SEC 5..300 default 30); immediate truthful 503 'websocket worker pool unavailable; retry' while degraded; /health advertises ws=false + wsReason while unavailable and flips back on successful re-init; ordinary HTTP never parked; pooled path unchanged",
+      "regression": "src/tests/smoke/r2-websocket-worker.test.ts (13 tests: the inline-fallback test is replaced by bounded-truthful-degradation assertions; /health truthfulness updated)",
+      "runtimeStatus": "NOT_YET_RUNTIME_PROVEN - fault-injection measurement on the real Windows client is scheduled in this session; never claimed as already proven"
+    }
+  ],
+  "replayVerifiedThisSession": {
+    "archiveSha256Match": true,
+    "seriesAppliesCleanly": "0001+0002+0003+0004 on 832a82eb",
+    "smokeGate": "23/23 before 0004 (f201 8 + r1 3 + r2 12); 24/24 after 0004 (f201 8 + r1 3 + r2 13)",
+    "fullSuite": "108 files / 1391 tests passed after 0004 (1390 before, +1 net new structural assertion set)",
+    "productionBuild": "pnpm run build OK (single-file ui/dist/index.html)"
   },
-  {
-   "order": 4,
-   "file": "app-patches/0004-R2b-pool-fallback-bounded-truth.patch",
-   "title": "R2b bounded truthful pool-unavailable degradation",
-   "newThisBundle": true,
-   "defect": "source-identified residual risk in the accepted R2 patch: the pool-unavailable fallback invoked the long-lived pump INLINE on the accept thread, recreating the R2 starvation defect on a constrained host",
-   "repair": "no inline pump call in the dispatch path; one bounded pool re-init attempt per clamped window (GHRDP_WS_POOL_RETRY_SEC 5..300 default 30); immediate truthful 503 'websocket worker pool unavailable; retry' while degraded; /health advertises ws=false + wsReason while unavailable and flips back on successful re-init; ordinary HTTP never parked; pooled path unchanged",
-   "regression": "src/tests/smoke/r2-websocket-worker.test.ts (13 tests: the inline-fallback test is replaced by bounded-truthful-degradation assertions; /health truthfulness updated)",
-   "runtimeStatus": "NOT_YET_RUNTIME_PROVEN - fault-injection measurement on the real Windows client is scheduled in this session; never claimed as already proven"
+  "labRegressionsThisSession": {
+    "total": 263,
+    "passed": 255,
+    "failed": 0,
+    "skipped": 8,
+    "skippedReason": "browser-e2e optional lanes (Linux) / PowerShell-dependent lanes without pwsh on the host",
+    "addedThisSession": "candidate-staging-regressions.js (9 tests: staging identity, CRLF guard, build-identity forwarding, fx fixtures, cert observability + registry-fallback catch pin, bundle preservation); r2-fault-injection-regressions.js (5 tests: variant derivation + no-modify, honesty wording, threshold bounds, workflow gating, init-site preservation in 0003/0004); functional-sweep-regressions.js (5 tests: fixture pins vs Stage-FxFixtures, id recompute, no-claim discipline, contract coverage, workflow wiring)"
+  },
+  "harnessChangesThisSession": [
+    "scripts/server/Bind-RdpCertificate.ps1: observability rewrite (per-stage diag, per-attempt raw output) + the run-40103527914 root-cause fix: the WMI SetSSLCertificateSHA1Hash THROWS on the lab VM, so the call is wrapped in try/catch with the registry write in BOTH paths (app main.yml reference pattern); readback stays the truth gate; schema slab-capability-certificate/2 records bindPath. Run 40106229135: cert bound via registry fallback, chain OK, NLA=1",
+    "scripts/server/Stage-App.ps1: -LabLocalUi/-LabUiIdentity - stages a locally built patched UI with its own sha256 and provenance (uiBundleSource=local-patched-build)",
+    "scripts/server/Stage-FxFixtures.ps1: NEW - disposable File Explorer fixtures under the production RDP-Storage root + fx-index.json v2 with module-identical stable ids (runtime-staged: fx-fixtures.json evidence)",
+    "scripts/configure-capability.js: searchEnabled=true on the candidate (production default) so the federated search lifecycle is verifiable",
+    "scripts/mission-control-check.js: --expect-build (candidate UI identity) separate from --expect-sha (app source identity)",
+    "scripts/backend-supervisor.js: optional --expect-build forwarded to the server-local dashboard check (run 40106229135 DASHBOARD_BUILD_MISMATCH fix; app-sha fallback preserved for upstream-UI lanes)",
+    ".github/workflows/capability-check.yml: patched-candidate staging (ordered series BEFORE build+stage, CRLF checkout guard from run 40102291995, patched UI build, local-build staging, fx fixtures, raw cert attempt outputs) + the functional sweep step in the client job (fx/search/core contracts against the live candidate, report published, FAIL gates the job)",
+    "scripts/candidate/r2-fault-injection.js + .github/workflows/real-backend.yml: R2b fault-injection lane (3 phases, r2-fault-report.json, verdict gating, r2b- evidence prefix) on the real-backend-run label",
+    "scripts/candidate/functional-sweep.js: NEW - live-candidate contract probe (fx list/preview/download-verify/ops/upload, search lifecycle + validation, core contracts) with no-claim discipline for external delivery/ticket consumption"
+  ],
+  "scopedVerdicts": {
+    "LAB_HARNESS": "PASS (263 regressions, 255/0/8, this session)",
+    "PATCHED_APPLICATION_CANDIDATE": "IN_PROGRESS (R2 subset accepted on runs 40091165292/40092088400/40092300001; capability lane staging + cert bind runtime-proven this session (runs 40103527914 patch-apply via CRLF guard, 40106229135 cert=success via registry fallback); complete server-local/client capability + functional sweep measuring on the current PR head; R2b fault injection wired, pending the real-backend-run label run)",
+    "LIVE_ORIGIN_APPLICATION": "NOT_RUN (provided run cancelled; no new application run requested or dispatched)",
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "NOT_RUN this session (separate acceptance scope; MC-SIGNAL path unchanged)",
+    "UPSTREAM_DEPLOYMENT": "NOT_DEPLOYED (application remote read-only)"
   }
- ],
- "replayVerifiedThisSession": {
-  "archiveSha256Match": true,
-  "seriesAppliesCleanly": "0001+0002+0003+0004 on 832a82eb",
-  "smokeGate": "23/23 before 0004 (f201 8 + r1 3 + r2 12); 24/24 after 0004 (f201 8 + r1 3 + r2 13)",
-  "fullSuite": "108 files / 1391 tests passed after 0004 (1390 before, +1 net new structural assertion set)",
-  "productionBuild": "pnpm run build OK (single-file ui/dist/index.html)"
- },
- "labRegressionsThisSession": {
-  "total": 251,
-  "passed": 243,
-  "failed": 0,
-  "skipped": 8,
-  "skippedReason": "browser-e2e optional lanes (Linux) / PowerShell-dependent lanes without pwsh on the host",
-  "addedThisSession": "candidate-staging-regressions.js (8 tests: candidate staging identity, fx fixtures, cert observability, bundle preservation)"
- },
- "harnessChangesThisSession": [
-  "scripts/server/Bind-RdpCertificate.ps1: ALWAYS writes the failure diagnostic (stage/code/per-attempt redacted tailscale output) - the 16 consecutive invisible cert=failure causes are now publishable evidence",
-  "scripts/server/Stage-App.ps1: -LabLocalUi/-LabUiIdentity - stages a locally built patched UI with its own sha256 and provenance (uiBundleSource=local-patched-build)",
-  "scripts/server/Stage-FxFixtures.ps1: NEW - disposable File Explorer fixtures under the production RDP-Storage root + fx-index.json with module-identical stable ids",
-  "scripts/configure-capability.js: searchEnabled=true on the candidate (production default) so the federated search lifecycle is verifiable",
-  "scripts/mission-control-check.js: --expect-build (candidate UI identity) separate from --expect-sha (app source identity)",
-  ".github/workflows/capability-check.yml: applies the ordered patch series BEFORE building and staging, builds the patched production UI, stages the local build, stages fx fixtures, publishes the raw cert attempt outputs, verifies candidate provenance in the stage result"
- ],
- "scopedVerdicts": {
-  "LAB_HARNESS": "PASS (251 regressions, 243/0/8, this session)",
-  "PATCHED_APPLICATION_CANDIDATE": "IN_PROGRESS (R2 subset accepted on runs 40091165292/40092088400/40092300001; complete functional verification + R2b fault injection scheduled this session)",
-  "LIVE_ORIGIN_APPLICATION": "NOT_RUN (provided run cancelled; no new application run requested or dispatched)",
-  "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "NOT_RUN this session (separate acceptance scope; MC-SIGNAL path unchanged)",
-  "UPSTREAM_DEPLOYMENT": "NOT_DEPLOYED (application remote read-only)"
- }
 }
