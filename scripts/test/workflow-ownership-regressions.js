@@ -188,7 +188,15 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/measureWsBlock/.test(rb) && /backend\.ws_accept_loop_block/.test(rb), 'R2 inline-WS accept-loop block must be probed');
     assert.ok(/browserWsStubbed/.test(rb) && /LabStubWS/.test(rb), 'the driven browser must stub WebSocket to keep the run bounded');
     assert.ok(/GLOBAL_DEADLINE_MS/.test(rb) && /function flush\(\)/.test(rb), 'the harness must be time-bounded and publish incrementally');
+    assert.ok(/port,\s*headless,/.test(rb) && !/headless:\s*!headless/.test(rb), 'the report browser-mode field must equal the value passed to chromium.launch');
     assert.ok(read('reports/mission-control/40051974454-1/defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md').includes('fix deferred'), 'R2 must be documented as confirmed-but-unfixed');
+  });
+
+  await test('real-backend evidence: reported browser mode equals the Chromium launch mode', async () => {
+    const rb = read('scripts/candidate/real-backend.js');
+    assert.ok(/port,\s*headless,/.test(rb), 'identity.headless must record the actual boolean');
+    assert.ok(!/headless:\s*!headless/.test(rb), 'the historical inverted metadata field must not return');
+    assert.ok(/chromium\.launch\(\{\s*headless\s*,/.test(rb), 'chromium.launch must use the same boolean');
   });
 
   await test('R1 patch: applies at app root, includes the regression, nav weak-check replaced', async () => {

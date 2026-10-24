@@ -119,7 +119,7 @@ const report = {
   scope: 'REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance',
   identity: {
     label, appSha, labRevision, runner: runsOn,
-    port, headless: !headless,
+    port, headless,
     bundlePath: bundlePath ? path.basename(bundlePath) : '',
     syntheticKeyFingerprint: crypto.createHash('sha256').update(key).digest('hex').slice(0, 12),
     note: 'fresh lab-only synthetic dash key; never an upstream credential'

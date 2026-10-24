@@ -2,7 +2,7 @@
   "schema": "slab-mission-control-repair-bundle/1",
   "bundleState": "CONSOLIDATED_REPAIR_BUNDLE_VM_BACKEND_VERIFIED_NOT_FULL_ACCEPTANCE",
   "createdAt": "2026-10-24T02:16:31Z",
-  "updatedAt": "2026-10-24T05:48:00Z",
+  "updatedAt": "2026-10-24T06:33:22Z",
   "origin": {
     "repository": "dictationb1/supreme-lamp",
     "runId": "40051974454",
@@ -39,24 +39,43 @@
     "hostedRegressions": {
       "platform": "linux",
       "node": "v22.22.3",
-      "total": 236,
-      "passed": 228,
+      "total": 237,
+      "passed": 229,
       "failed": 0,
       "skipped": 8,
-      "addedThisSession": ["real-backend workflow: label/lock/BLOCKED honesty", "R1 patch at app root + nav weak-check replaced", "revision gate extended to real-backend.yml"]
+      "addedThisSession": [
+        "real-backend workflow: label/lock/BLOCKED honesty",
+        "R1 patch at app root + nav weak-check replaced",
+        "revision gate extended to real-backend.yml",
+        "real-backend report browser-mode metadata matches chromium.launch (fixes inverted identity.headless field)"
+      ]
     }
   },
   "candidate": {
     "applicationRemoteModified": false,
     "liveServerOverwritten": false,
     "baseSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
-    "orderedPatchSeries": ["0001-F201-probe-honesty.patch", "0002-R1-server-startup-readiness.patch"],
+    "orderedPatchSeries": [
+      "0001-F201-probe-honesty.patch",
+      "0002-R1-server-startup-readiness.patch"
+    ],
     "reviewedCandidateTree": "62679b8edfde8ba2180f8bb3ca86c03e00d02b31",
     "cleanReplay": "PASS (clean codeload download; archive SHA verified; both regressions fail on baseline, pass on candidate; tree matches; 1378 smoke tests across 107 files; production build PASS)",
     "hostedChecks": {
-      "baselineRegressions": { "f201": "8 FAIL", "r1": "3 FAIL", "expectedFailureReproduced": true },
-      "candidateRegressions": { "f201": "8 PASS", "r1": "3 PASS" },
-      "candidateFullSmoke": { "files": 107, "passed": 1378, "failed": 0 },
+      "baselineRegressions": {
+        "f201": "8 FAIL",
+        "r1": "3 FAIL",
+        "expectedFailureReproduced": true
+      },
+      "candidateRegressions": {
+        "f201": "8 PASS",
+        "r1": "3 PASS"
+      },
+      "candidateFullSmoke": {
+        "files": 107,
+        "passed": 1378,
+        "failed": 0
+      },
       "productionBuild": "PASS"
     }
   },
@@ -81,14 +100,15 @@
       "appliesToSeries": true,
       "includesRegressionTests": true,
       "scope": "PowerShell server startup readiness + one-scan-per-iteration bounding + server-ready.txt; 3 invariant tests",
-      "windowsTimingVerifiedBy": "evidence/real-backend-*/comparison.json (pending this VM run)"
+      "windowsTimingVerifiedBy": "evidence/real-backend-40068292422/comparison.json (definitive successful Windows VM job at head 704fc5d0e7c525dd9fd1d9dc7079f21c95d91b04)"
     }
   ],
   "environments": {
     "A_live_origin": "Actual application workflow metadata; staging failed before any served UI/signal (origin-run.json, origin-rdp-job.json, origin-signal-publication.json)",
     "B_isolated_baseline": "Unmodified complete clone at the pinned application SHA; F201+R1 regressions fail; real-backend baseline server measured on the client VM",
     "C_isolated_candidate": "Separate clean-clone worktree with the ordered 2-patch series; hosted regressions/smoke/build PASS; real-backend patched server measured on the client VM",
-    "client_vm": "PREFLIGHT PASS (run 40054869099, interactive session 1, headed native browser click, online tailnet); REAL-BACKEND verification job defined by .github/workflows/real-backend.yml gated by label real-backend-run"
+    "client_vm": "PREFLIGHT PASS (run 40054869099, interactive session 1, headed native browser click, online tailnet); REAL-BACKEND verification job defined by .github/workflows/real-backend.yml gated by label real-backend-run",
+    "D_lab_stub": "scripts/candidate/stub-server.js used only by the completeness sweep; explicitly NOT the application server. Its PASSes are never counted as live acceptance, and backend-dependent controls remain BLOCKED."
   },
   "realBackendVerification": {
     "workflow": ".github/workflows/real-backend.yml",
@@ -96,56 +116,178 @@
     "runner": "self-hosted Windows X64 rdp-lab-client (interactive, headed)",
     "label": "real-backend-run",
     "exclusiveLock": "registry.sessionLockDir() shared with live-run and client_preflight",
-    "measures": ["connect->first /health (baseline vs patched)", "server-ready.txt publication", "/health latency sampling across a lab-shortened telescope tick", "concurrent inline-scan vs /health", "endpoint schemas (redacted)", "listening socket PID/exe", "bounded /ws accept-loop block probe (R2)"],
+    "measures": [
+      "connect->first /health (baseline vs patched)",
+      "server-ready.txt publication",
+      "/health latency sampling across a lab-shortened telescope tick",
+      "concurrent inline-scan vs /health",
+      "endpoint schemas (redacted)",
+      "listening socket PID/exe",
+      "bounded /ws accept-loop block probe (R2)"
+    ],
     "drivesRealBrowser": true,
     "browserWsStubbed": true,
     "browserWsStubReason": "the real server handles /ws inline on its single accept thread (R2); a live socket froze run 40063545799 for 26+ min, so the driven browser stubs WS while the stall is measured separately and bounded",
     "harnessTimeBounded": "per-label global deadline (--max-seconds 180) + step timeout-minutes 20 + incremental flush after each phase; /diag removed from probes; token gate unlocked; routes skipped if the shell does not mount",
-    "acceptanceItemsKeptBlocked": ["native RDP connect (needs signed launcher + real listener)", "Web Desktop frames (needs a real captured session)", "real 4624 logon correlation", "external mirror uploads"],
-    "status": "MEASUREMENT_VERIFIED_ON_REAL_WINDOWS_CLIENT_VM",
+    "acceptanceItemsKeptBlocked": [
+      "native RDP connect (needs signed launcher + real listener)",
+      "Web Desktop frames (needs a real captured session)",
+      "real 4624 logon correlation",
+      "external mirror uploads"
+    ],
+    "status": "DEFINITIVE_SUCCESSFUL_REAL_WINDOWS_CLIENT_VM_RUN",
     "runs": [
-      { "runId": "40062592553", "head": "08f6edf3", "result": "detached+fd spawn failed to bind (environment fault); evidence published with honest fatal" },
-      { "runId": "40063545799", "head": "5f57e1a9", "result": "piped spawn bound; first inline /ws stalled the single-threaded accept loop for 26+ min (could not cancel, token lacks actions:write); baseline stall=3281ms captured before the freeze" },
-      { "runId": "40066357848", "head": "4aa2306a", "result": "bounded harness; both labels measured in 4 min; verified 18 real controls PASS (11 routed pages, theme, status chip, authenticated endpoints); baseline stall=3281ms vs patched=893ms; R2 confirmed; job failed only on an auth-gate navigation timeout (since reclassified BLOCKED)" },
-      { "runId": "40067304717", "head": "5665907f", "result": "FINAL job SUCCESS; baseline connect->first /health stall=3225ms, R1-patched=719ms (~78% reduction), server-ready.txt published ONLY on patched; R2 inline-WS blocked /health on BOTH (healthDuringWsMs~5006, timed out) and the server stayed pinned >8s after the socket closed so that run's browser phase was honestly deferred (verified instead in run 40066357848)" }
+      {
+        "runId": "40062592553",
+        "head": "08f6edf3",
+        "result": "detached+fd spawn failed to bind (environment fault); evidence published with honest fatal"
+      },
+      {
+        "runId": "40063545799",
+        "head": "5f57e1a9",
+        "result": "piped spawn bound; first inline /ws stalled the single-threaded accept loop for 26+ min (could not cancel, token lacks actions:write); baseline stall=3281ms captured before the freeze"
+      },
+      {
+        "runId": "40066357848",
+        "head": "4aa2306a",
+        "result": "bounded harness; both labels measured in 4 min; verified 18 real controls PASS (11 routed pages, theme, status chip, authenticated endpoints); baseline stall=3281ms vs patched=893ms; R2 confirmed; job failed only on an auth-gate navigation timeout (since reclassified BLOCKED)"
+      },
+      {
+        "runId": "40067304717",
+        "head": "5665907f",
+        "result": "SUPPLEMENTAL job SUCCESS; baseline connect->first /health stall=3225ms, R1-patched=719ms (~78% reduction); R2 inline-WS blocked /health on BOTH; browser phase honestly deferred. Superseded as the canonical number by 40068292422, which also verified the browser controls in the same successful run."
+      },
+      {
+        "runId": "40068292422",
+        "head": "704fc5d0e7c525dd9fd1d9dc7079f21c95d91b04",
+        "result": "DEFINITIVE job SUCCESS; real application PowerShell server on the interactive Windows client VM; baseline connect->first /health stall=3474ms vs R1-patched=841ms (2633ms / ~76% reduction); server-ready.txt published ONLY on patched; real socket owner powershell.exe pid=5428/7932; 18 real controls PASS, 6 BLOCKED, 1 FAIL; R2 inline-WS block confirmed on BOTH labels and recovery still failed after ~16.5s; browser WS stubbed for bounded control verification"
+      }
     ],
     "definitiveNumbers": {
-      "baselineStallMs": 3225,
-      "patchedStallMs": 719,
-      "stallReductionMs": 2506,
-      "stallReductionPct": 78,
+      "baselineStallMs": 3474,
+      "patchedStallMs": 841,
+      "stallReductionMs": 2633,
+      "stallReductionPct": 76,
       "patchedServerReadyPublished": true,
       "baselineServerReadyPublished": false,
+      "patchedReadyText": "READY pid=7932 port=7331 at=2026-10-24T11:31:45.8232175+05:30",
       "wsBlockConfirmedBothLabels": true,
-      "wsHealthDuringBlockMs": 5006,
-      "healthLatencyMaxMs": [2143, 2336],
-      "browserControlsPassVerifiedIn": "40066357848",
-      "listeningSocket": ["pid=3460 name=powershell (baseline)", "pid=6536 name=powershell (patched)"]
+      "wsHealthDuringBlockMs": {
+        "baseline": 5008,
+        "patched": 5005
+      },
+      "wsRecoveryAfterClose": {
+        "baselineRecovered": false,
+        "baselineWaitedMs": 16558,
+        "baselineLastProbeMs": 3013,
+        "patchedRecovered": false,
+        "patchedWaitedMs": 16555,
+        "patchedLastProbeMs": 3009
+      },
+      "realControlCounts": {
+        "PASS": 18,
+        "FAIL": 1,
+        "BLOCKED": 6,
+        "PENDING": 0
+      },
+      "realFailControl": "backend.ws_accept_loop_block",
+      "browserControlsPassVerifiedIn": "40068292422",
+      "healthLatencyMaxMs": [
+        2131,
+        2408
+      ],
+      "listeningSocket": [
+        "pid=5428 name=powershell (baseline)",
+        "pid=7932 name=powershell (patched)"
+      ],
+      "authenticatedScreenshot": "evidence/real-backend-40068292422/patched-authenticated-patched.png"
     },
-    "evidenceDir": "evidence/real-backend-40066357848/ + evidence/real-backend-40067304717/",
-    "note": "Final job 40067304717 concluded SUCCESS (measurement gate passed, R2 reported as a warning, native RDP/Web Desktop/real-logon BLOCKED by design). This is measurement + control verification on a real Windows client VM, NOT full acceptance."
+    "evidenceDir": "evidence/real-backend-40068292422/",
+    "note": "Definitive job 40068292422 concluded SUCCESS. It is measurement plus real Windows client-VM control verification, NOT full acceptance: R2 is an intentionally reported real FAIL, native RDP/Web Desktop/real-logon are BLOCKED, and the other PR acceptance gates at the same head remain honestly non-green.",
+    "definitiveRunId": "40068292422",
+    "definitiveHead": "704fc5d0e7c525dd9fd1d9dc7079f21c95d91b04",
+    "definitiveRunUrl": "https://github.com/dictationb1/supreme-lamp-lab/actions/runs/40068292422",
+    "browserLaunch": {
+      "workflowEnv": "CANDIDATE_HEADLESS=0",
+      "actual": "headed Chromium on the interactive Windows client VM (chromium.launch received headless:false)",
+      "historicalReportMetadata": "the immutable 40068292422 reports record identity.headless=true because the report field was inverted; the evidence files were not rewritten",
+      "sourceCorrection": "scripts/candidate/real-backend.js now records the same boolean passed to chromium.launch; hosted static regression rejects the inversion"
+    },
+    "supplementalEvidenceDirs": [
+      "evidence/real-backend-40067304717/",
+      "evidence/real-backend-40066357848/",
+      "evidence/real-backend-40063545799/",
+      "evidence/real-backend-40062592553/"
+    ],
+    "prChecksAtDefinitiveHead": [
+      {
+        "runId": "40068292422",
+        "workflow": "Real Backend Verification (lab-served, real client VM)",
+        "conclusion": "success",
+        "meaning": "definitive real baseline/patched server measurement and 18 real controls; R2 reported as a real FAIL"
+      },
+      {
+        "runId": "40068292411",
+        "workflow": "Live-Run Integration (Mission Control -> client VM)",
+        "conclusion": "success",
+        "meaning": "read-only pre-merge gate only; live origin discover/claim/client/report jobs were skipped"
+      },
+      {
+        "runId": "40068292398",
+        "workflow": "App Candidate (lab-owned Windows)",
+        "conclusion": "failure",
+        "meaning": "honest gate: the lab-stub sweep had 96 BLOCKED controls, and BLOCKED is never counted as PASS"
+      },
+      {
+        "runId": "40068292407",
+        "workflow": "Capability Check Workflow",
+        "conclusion": "failure",
+        "meaning": "standalone identity/TLS certificate step blocked the two server-local capabilities; downstream client checks were NOT_RUN"
+      }
+    ]
   },
   "confirmedDefects": [
-    { "id": "F201", "title": "missing backend probe shown as a measured credential/DNS/listener failure", "status": "FIXED", "patch": "app-patches/0001-F201-probe-honesty.patch" },
-    { "id": "R1", "title": "synchronous Get-WinEvent startup scans run before the HTTP accept loop", "status": "FIXED", "patch": "app-patches/0002-R1-server-startup-readiness.patch" },
-    { "id": "R2", "title": "inline /ws handling blocks the single-threaded accept loop (likely primary UI-freeze cause)", "status": "CONFIRMED_UNFIXED", "record": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md", "fixRecommendation": "dispatch Invoke-ClientRequest / the /ws branch to a runspace pool; verify with measureWsBlock flipping FAIL->PASS" }
+    {
+      "id": "F201",
+      "title": "missing backend probe shown as a measured credential/DNS/listener failure",
+      "status": "FIXED",
+      "patch": "app-patches/0001-F201-probe-honesty.patch"
+    },
+    {
+      "id": "R1",
+      "title": "synchronous Get-WinEvent startup scans run before the HTTP accept loop",
+      "status": "FIXED",
+      "patch": "app-patches/0002-R1-server-startup-readiness.patch"
+    },
+    {
+      "id": "R2",
+      "title": "inline /ws handling blocks the single-threaded accept loop (likely primary UI-freeze cause)",
+      "status": "CONFIRMED_UNFIXED",
+      "record": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md",
+      "fixRecommendation": "dispatch Invoke-ClientRequest / the /ws branch to a runspace pool; verify with measureWsBlock flipping FAIL->PASS"
+    }
   ],
   "verdicts": {
-    "LAB_HARNESS": "PASS (consolidated; 228 pass / 0 fail / 8 skip hosted; clean replay PASS; real-backend VM job 40067304717 SUCCESS)",
+    "LAB_HARNESS": "PASS (consolidated; 229 pass / 0 fail / 8 skip hosted; clean replay PASS; definitive real-backend VM job 40068292422 SUCCESS). Other PR acceptance gates at that head are separately reported as FAIL because their BLOCKED/NOT_RUN criteria are not full acceptance.",
     "LIVE_ORIGIN_APPLICATION": "FAIL (staging step 28 failed before any served UI or signal; signal not published, not a broken publisher)",
-    "PATCHED_APPLICATION_CANDIDATE": "PARTIAL — hosted PASS (F201+R1 regressions, 1378 smoke, production build, clean replay) AND real Windows client-VM backend verification (18 controls PASS, R1 startup stall 3225->719ms, server-ready.txt published); R2 inline-WS accept-loop stall CONFIRMED and NOT fixed (high-severity, likely the user's UI-freeze cause). NOT full acceptance: native RDP/Web Desktop/real-logon BLOCKED.",
+    "PATCHED_APPLICATION_CANDIDATE": "PARTIAL — hosted PASS (F201+R1 regressions, 1378 smoke, production build, clean replay) AND real Windows client-VM backend verification in successful run 40068292422 (18 PASS / 6 BLOCKED / 1 real FAIL; R1 startup stall 3474->841ms; server-ready.txt published). R2 inline-WS accept-loop stall CONFIRMED and NOT fixed (high-severity, likely the user's UI-freeze cause). NOT full acceptance: native RDP/Web Desktop/real-logon BLOCKED.",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (application remote is read-only this session; no push/merge/deploy)",
     "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED (origin never published an exact run+attempt MC-SIGNAL; discovery/claim/decrypt path remains wired and tested in the lab harness)"
   },
   "openObservations": [
-    { "id": "OBS-1", "surface": "Troubleshooting issue classification",
-      "observation": "The published screenshot evidence/real-backend-40066357848/patched-authenticated-patched.png reproduces the user's exact UI ('Live' badge, 'Launch unavailable', 'No Web Desktop URL', 'No runner host published yet'). The F201-fixed auto-login note correctly reads 'Waiting for the first status answer; nothing has been measured yet', but the separate Troubleshooting issue card still renders 'CONFIRMED ... launch gates are failing - source: auto-login gate (credentials / runner DNS / RDP listener)'. That card is fed by src/lib/overview/readiness.ts blockers from the trusted 200 /api/native-status body (the synthetic lab config genuinely has no valid FQDN/creds/listener), so it may be legitimate here; it is NOT asserted as a defect. A future session should confirm the issue-classification 'confirmed' wording obeys the same probe-trust rule as F201 on a LIVE run and on a genuinely missing-probe state.",
-      "status": "NOT_CLASSIFIED_AS_DEFECT", "evidence": "evidence/real-backend-40066357848/patched-authenticated-patched.png" }
+    {
+      "id": "OBS-1",
+      "surface": "Troubleshooting issue classification",
+      "observation": "The published screenshot evidence/real-backend-40068292422/patched-authenticated-patched.png reproduces the user's exact UI ('Live' badge, 'Launch unavailable', 'No Web Desktop URL', 'No runner host published yet'). The F201-fixed auto-login note correctly reads 'Waiting for the first status answer; nothing has been measured yet', but the separate Troubleshooting issue card still renders 'CONFIRMED ... launch gates are failing - source: auto-login gate (credentials / runner DNS / RDP listener)'. That card is fed by src/lib/overview/readiness.ts blockers from the trusted 200 /api/native-status body (the synthetic lab config genuinely has no valid FQDN/creds/listener), so it may be legitimate here; it is NOT asserted as a defect. A future session should confirm the issue-classification 'confirmed' wording obeys the same probe-trust rule as F201 on a LIVE run and on a genuinely missing-probe state.",
+      "status": "NOT_CLASSIFIED_AS_DEFECT",
+      "evidence": "evidence/real-backend-40068292422/patched-authenticated-patched.png"
+    }
   ],
   "blockingPrerequisitesForFullAcceptance": [
     "The pinned origin ended at staging with no live signal; a FRESH main.yml mode=rdp run URL is needed to verify the LIVE origin end-to-end (operator action requested once).",
     "R2 (inline /ws accept-loop block) is CONFIRMED but UNFIXED — the correct runspace-pool dispatch is a large PS 5.1 change that needs a dedicated Windows-verification session. Until R2 is fixed, the live dashboard will keep freezing after the WebSocket opens.",
-    "Native RDP and Web Desktop need a real signed launcher, a real captured session and a real credential chain; the lab candidate is loopback with synthetic identity and these are honestly BLOCKED."
+    "Native RDP and Web Desktop need a real signed launcher, a real captured session and a real credential chain; the lab candidate is loopback with synthetic identity and these are honestly BLOCKED.",
+    "The lab-stub candidate sweep (run 40068292398) and standalone capability TLS gate (run 40068292407) remain honestly non-green at the definitive head; their BLOCKED/NOT_RUN criteria are not collapsed into acceptance."
   ],
   "evidenceRetention": {
     "repositoryEvidence": "Immutable once the final commit is pinned; all text/screenshots sanitized by publish-evidence.js credential-shape gate",

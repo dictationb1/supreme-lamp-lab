@@ -16,6 +16,10 @@ The candidate workflow pointed at the previous application base and previous run
 
 A bounded preflight now measures the real client VM and performs a sanitized headed-browser interaction under the same `rdp-lab-desktop` lock used by live verification. Run `40053842579` passed that VM-only preflight. The capability server/client now resolve that same production lock; test-owned `LAB_STATE_DIR` remains isolated. Its VM verdict is independent of origin readiness/signal prerequisites. It does not claim automatic discovery, application authentication, RDP, or Web Desktop proof.
 
+## H-NEW-05 — report browser-mode metadata was inverted
+
+Definitive real-backend job `40068292422` set `CANDIDATE_HEADLESS=0`, and the harness passed `chromium.launch({ headless })`, so the browser launched **headed on the interactive VM**. The historical JSON reports nevertheless recorded `identity.headless=true` because the report field was written as `headless: !headless`. The immutable evidence files were not rewritten. The source now records `port, headless` — the same boolean actually passed to Chromium — and a hosted static regression rejects the inverted form. Future reports will be self-consistent; the existing `40068292422` field is a known metadata typo, not evidence that the browser was headless. The separate `browserWsStubbed=true` flag remains accurate and is explicitly disclosed.
+
 ## Validation
 
-The consolidated hosted harness suite passed 222 tests with 8 environment-dependent skips (230 total). Workflow structure validation passed. Local actionlint download was blocked by its non-allowlisted release-asset redirect; the trusted PR candidate gate remains the authoritative actionlint execution.
+The consolidated hosted harness suite passed **229 tests with 8 environment-dependent skips (237 total)** after the metadata regression was added. Workflow structure validation passed. The definitive real-backend VM job `40068292422` concluded SUCCESS, but the candidate/capability PR gates at the same head intentionally concluded FAIL because their blocked acceptance criteria are not counted as passes (`candidate-40068292398` and `capability-40068292407` evidence). Local actionlint download was blocked by its non-allowlisted release-asset redirect; the trusted PR candidate gate remains the authoritative actionlint execution.

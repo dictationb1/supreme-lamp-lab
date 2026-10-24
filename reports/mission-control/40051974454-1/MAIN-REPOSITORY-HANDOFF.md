@@ -176,6 +176,17 @@ capture redacted endpoint schemas and the listening socket owner, and drive a
 real headed browser. Copy these into the application repo if you want the same
 verification there; they are lab-side and do not modify the application.
 
+### 5.1 Definitive real-Windows result (run `40068292422`)
+
+- Job: <https://github.com/dictationb1/supreme-lamp-lab/actions/runs/40068292422> — **SUCCESS**, head `704fc5d0e7c525dd9fd1d9dc7079f21c95d91b04`.
+- Evidence: `evidence/real-backend-40068292422/` — both baseline/patched JSON reports, `comparison.json`, `patched-server-ready.txt`, sanitized stdout/stderr and both screenshots.
+- R1: `connect → first /health` was **3474 ms baseline → 841 ms patched** (2633 ms / ~76% lower). `server-ready.txt` appeared only on the patched label (`READY pid=7932 port=7331 …`). The port-7331 listener was owned by real `powershell.exe` on both labels (baseline pid 5428, patched pid 7932); this is not the lab stub.
+- R2: one real `/ws` upgrade blocked `/health` in **5008 ms baseline / 5005 ms patched**, with `wsUpgraded=true blocked=true` on both. The best-effort recovery probe stayed unrecovered after **16558/16555 ms**. This is the one real FAIL control.
+- Real control tally in the same successful run: **18 PASS, 6 BLOCKED, 1 FAIL**. The PASS set includes the authenticated shell, F201 status note, all 11 routed page markers, the theme toggle, and real `/api/config`, `/api/mirror/status`, `/api/progress`, `/health` responses. BLOCKED includes the unauthenticated first navigation (R2 residual timeout), real sessions/files/search prerequisites, native RDP and Web Desktop.
+- The browser WebSocket was stubbed (`browserWsStubbed=true`) only to keep this run bounded; the real WS defect was measured separately. Do not treat the stubbed `"Live"` badge as independent connectivity proof.
+- Historical metadata caveat: the published `40068292422` JSON says `identity.headless=true`, but the workflow set `CANDIDATE_HEADLESS=0` and the launch code passed `headless:false` to Chromium on the interactive VM. The report field was inverted; the immutable evidence was not rewritten. The harness source and a hosted static regression now keep the recorded mode equal to the actual launch mode.
+- Other PR gates at the same head are not silently green: App Candidate `40068292398` FAILed because its lab-stub sweep has 96 BLOCKED controls; Capability Check `40068292407` FAILed because standalone identity/TLS left server-local capabilities BLOCKED and the client checks NOT_RUN. Their evidence is retained in `evidence/candidate-40068292398/` and `evidence/capability-40068292407/`. Neither is full application acceptance.
+
 ---
 
 ## 6. Regression → defect map
@@ -193,11 +204,13 @@ verification there; they are lab-side and do not modify the application.
 `payloads/ghrdp-server.ps1`: the accept loop calls `Invoke-ClientRequest` **synchronously**;
 its `GET /ws` branch calls `Invoke-F99WebSocketUpgrade`, whose loop lives up to
 `F99WsMaxLifetimeSec` (1800s) / `F99WsIdleTimeoutSec` (90s) **on the accept thread**. One
-WebSocket therefore starves every HTTP endpoint. Real VM evidence: run `40067304717` measured
-`/health` blocked for >5 s (timeout) as soon as one `/ws` was open, on BOTH baseline and the
-R1-patched server, and the server stayed pinned >8 s after the socket closed. This matches the
-user's "green Live + frozen UI" exactly: `useDashboardPolling` opens `/ws` when `/health`
-advertises `ws=true`, then the frozen accept loop starves the config/native-status/progress polls.
+WebSocket therefore starves every HTTP endpoint. Definitive real VM evidence: successful run
+`40068292422` measured `/health` blocked for 5008 ms baseline / 5005 ms patched (both timeouts)
+as soon as one `/ws` was open, and the best-effort recovery probe remained unrecovered after
+16558/16555 ms. This matches the user's "green Live + frozen UI": `useDashboardPolling` opens
+`/ws` when `/health` advertises `ws=true`, then the frozen accept loop starves the
+config/native-status/progress polls. Earlier runs `40063545799` (26+ min freeze) and
+`40067304717` (>5 s bounded block) corroborate it; `40068292422` is the canonical number.
 
 Recommended repair: dispatch `Invoke-ClientRequest` (or at minimum the `/ws` branch) to a
 `[runspacefactory]::CreateRunspacePool` worker so the accept loop only accepts+enqueues;
@@ -207,8 +220,8 @@ FAIL to PASS (`measureWsBlock()` in `scripts/candidate/real-backend.js`). Do thi
 Windows runner — this bundle's Linux CI has no PowerShell.
 
 R1 (already in this bundle) independently reduced the `connect → first /health` startup stall
-from **3225 ms to 719 ms** on the same VM and added `server-ready.txt`; that fix is real and
-verified. R2 is separate and still open.
+from **3474 ms to 841 ms** on the same definitive VM run and added `server-ready.txt`; that fix
+is real and verified. R2 is separate and still open.
 
 ---
 
@@ -265,4 +278,5 @@ any of these is untested. A workflow/job success is not feature verification.
 
 - Branch consolidation: allowed branch `arena/69b9956b-supreme-lamp-lab` fast-forwarded to the PR #27 head `6e5fd96` (a superset of PR #26 reader/harness `f41804b` and the F201 repair `481de98`), then extended with R1 + real-backend harness + regressions. See `defects/LAB-HARNESS.md`.
 - Clean replay executed 2026-10-24: archive verified, baseline failure reproduced, 2 ordered patches, tree `62679b8e…`, 1378 smoke tests, production build. See `evidence/local-*`, `evidence/candidate-*` and `manifest.json`.
+- Definitive real-backend VM job `40068292422` executed and published sanitized evidence; the bundle documentation was finalised afterwards on the same allowed branch. Hosted regressions: 229 PASS / 0 FAIL / 8 SKIP (237 total), including a new guard that the reported browser mode matches the actual Chromium launch mode.
 - All published text passes the `publish-evidence.js` credential-shape gate; the lab repository is public. No passwords, private keys, cookies, authenticated URLs, browser profiles or raw secret field values are committed.
