@@ -495,9 +495,8 @@ async function cmdLive(a) {
     // verification aborted at CLAIMED before the origin was ever verified -
     // while the run still exited 0, so the queue recorded a verdict it did not
     // have. One desktop owner is a safety property: it must actually be taken.
-    const lockRoot = process.env.LAB_LOCK_DIR || path.join(os.tmpdir(), 'slab-locks');
     lock = acquireLock({
-      lockDir: path.join(lockRoot, 'rdp-lab-desktop'),
+      lockDir: registry.sessionLockDir(),
       runId: envOr('GITHUB_RUN_ID', 'local'),
       runAttempt: envOr('GITHUB_RUN_ATTEMPT', '1'),
       timeoutMs: 120000,

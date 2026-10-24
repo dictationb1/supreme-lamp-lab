@@ -63,8 +63,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read
+  contents: write
   actions: read
+
+env:
+  BUNDLE_DIR: reports/mission-control/40051974454-1
+  LAB_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+  HEAD_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
 jobs:
   static:
@@ -79,6 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -182,6 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -255,6 +262,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install pinned Node (sha256 verified)
@@ -372,6 +380,28 @@ jobs:
         if: always()
         run: node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP 'artifacts\cleanup-postflight.json')
 
+      - name: Publish sanitized server evidence to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-server'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          $art = Join-Path $env:RUNNER_TEMP 'artifacts'
+          if (Test-Path $art) {
+            Get-ChildItem -LiteralPath $art -Recurse -File -Filter '*.json' | ForEach-Object {
+              $target = Join-Path $flat $_.Name
+              if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
+              Copy-Item -LiteralPath $_.FullName -Destination $target
+            }
+          }
+          foreach ($name in @('stage-result.json','rdp-target.json','rdp-diagnostics.json')) {
+            $src = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/server') --branch $env:HEAD_BRANCH --message "evidence: capability server $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Upload server evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -435,6 +465,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Install pinned Node (sha256 verified)
@@ -547,6 +578,30 @@ jobs:
           node scripts/cleanup-lab.js --mode postflight --out (Join-Path $env:RUNNER_TEMP "artifacts\run-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT\cleanup-postflight.json")
           exit $LASTEXITCODE
 
+      - name: Publish sanitized client evidence to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-client'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          $art = Join-Path $env:RUNNER_TEMP "artifacts\run-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path $art) {
+            Get-ChildItem -LiteralPath $art -Recurse -File -Filter '*.json' | ForEach-Object {
+              $target = Join-Path $flat $_.Name
+              if (Test-Path $target) { $target = Join-Path $flat ($_.Directory.Name + '-' + $_.Name) }
+              Copy-Item -LiteralPath $_.FullName -Destination $target
+            }
+            # Browser-viewport images only. Native desktop/RDP captures, videos,
+            # profiles and credential artifacts are deliberately not auto-published.
+            foreach ($name in @('browser-synthetic.png','dashboard_client.png')) {
+              $src = Join-Path $art $name
+              if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+            }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/client') --branch $env:HEAD_BRANCH --message "evidence: capability client $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Upload client evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -576,12 +631,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write
       actions: read
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -591,7 +647,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           MODE: ${{ inputs.mode }}
-          LAB_SHA: ${{ github.sha }}
+          LAB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           SETUP_STATE: ${{ needs.client.outputs.setup_state }}
           SETUP_DETAIL: ${{ needs.client.outputs.setup_detail }}
           SETUP_SUMMARY_PATH: ${{ runner.temp }}/setup-summary.json
@@ -602,7 +658,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           APP_SHA: ${{ needs.static.outputs.app_sha }}
-          LAB_SHA: ${{ github.sha }}
+          LAB_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CORRELATION_ID: ${{ inputs.correlation_id }}
           EVENT_NAME: ${{ github.event_name }}
@@ -610,6 +666,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPORT_PATH: ${{ runner.temp }}/verification-report.json
         run: node scripts/verification-report.js
+      - name: Publish the sanitized verdict to the exact PR branch
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $flat = Join-Path $env:RUNNER_TEMP 'publish-report'
+          New-Item -ItemType Directory -Force -Path $flat | Out-Null
+          foreach ($name in @('verification-report.json','setup-summary.json')) {
+            $src = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
+          }
+          node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/report') --branch $env:HEAD_BRANCH --message "evidence: capability verdict $env:GITHUB_RUN_ID [skip ci]"
+          exit $LASTEXITCODE
+
       - name: Upload verification report
         if: always() && inputs.mode != 'consent-setup'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

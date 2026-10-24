@@ -7,6 +7,7 @@
 // and both are pinned here by reading the files (no interpreter, no YAML dep).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -59,7 +60,7 @@ module.exports = async function register({ test, assert }) {
   });
 
   await test('revision: every PR job checks out the exact head, not a merge of candidate and old main', async () => {
-    for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml']) {
+    for (const file of ['.github/workflows/live-run.yml', '.github/workflows/app-candidate.yml', '.github/workflows/capability-check.yml']) {
       const wf = read(file);
       const lines = wf.split('\n');
       let checkoutCount = 0;
@@ -67,6 +68,7 @@ module.exports = async function register({ test, assert }) {
         if (!lines[i].includes('- uses: actions/checkout@')) continue;
         checkoutCount++;
         const step = lines.slice(i, i + 7).join('\n');
+        if (/repository:\s*dictationb1\/supreme-lamp(?:\s|$)/.test(step)) continue; // the application checkout is pinned to APP_SHA instead
         assert.ok(/ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha \|\| github\.sha\s*\}\}/.test(step), `${file}: checkout at line ${i + 1} must pin the PR head SHA`);
       }
       assert.ok(checkoutCount > 0, `${file}: checkout steps found`);
@@ -104,5 +106,25 @@ module.exports = async function register({ test, assert }) {
     assert.strictEqual(result.vmVerdict, 'FAIL');
     assert.ok(result.checks.every(c => c.status === 'FAIL'));
     assert.strictEqual(result.originChecks[0].status, 'BLOCKED');
+  });
+
+  await test('ownership: every production desktop path resolves the same lock; test state stays isolated', async () => {
+    const registry = require('../lib/registry');
+    const oldState = process.env.LAB_STATE_DIR;
+    const oldLock = process.env.LAB_LOCK_DIR;
+    try {
+      delete process.env.LAB_STATE_DIR;
+      process.env.LAB_LOCK_DIR = path.join(os.tmpdir(), 'shared-production-lock');
+      assert.strictEqual(registry.sessionLockDir(), path.join(os.tmpdir(), 'shared-production-lock', 'rdp-lab-desktop'));
+      process.env.LAB_STATE_DIR = path.join(os.tmpdir(), 'isolated-test-state');
+      assert.strictEqual(registry.sessionLockDir(), path.join(os.tmpdir(), 'isolated-test-state', 'desktop-session.lock.d'));
+      const live = read('scripts/live-run.js');
+      const preflight = read('scripts/candidate/vm-preflight.js');
+      assert.ok(/lockDir:\s*registry\.sessionLockDir\(\)/.test(live));
+      assert.ok(/lockDir:\s*registry\.sessionLockDir\(\)/.test(preflight));
+    } finally {
+      if (oldState === undefined) delete process.env.LAB_STATE_DIR; else process.env.LAB_STATE_DIR = oldState;
+      if (oldLock === undefined) delete process.env.LAB_LOCK_DIR; else process.env.LAB_LOCK_DIR = oldLock;
+    }
   });
 };

@@ -174,7 +174,7 @@ async function main() {
   try {
     const lockStarted = Date.now();
     lock = acquireLock({
-      lockDir: path.join(process.env.LAB_LOCK_DIR || path.join(os.tmpdir(), 'slab-locks'), 'rdp-lab-desktop'),
+      lockDir: registry.sessionLockDir(),
       runId: report.lab.runId,
       runAttempt: report.lab.attempt,
       role: 'client-vm-preflight',

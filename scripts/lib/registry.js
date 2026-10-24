@@ -19,7 +19,13 @@ function stateDir() {
 }
 function registryPath() { return process.env.REGISTRY_PATH ? path.resolve(process.env.REGISTRY_PATH) : path.join(stateDir(), 'process-registry.json'); }
 function registryLockDir(regPath = registryPath()) { return `${regPath}.lock.d`; }
-function sessionLockDir() { return path.join(stateDir(), 'desktop-session.lock.d'); }
+function sessionLockDir() {
+  // Production uses ONE cross-workflow desktop lock. Tests that provide an
+  // isolated LAB_STATE_DIR retain their own lock path and never touch the VM's.
+  if (process.env.LAB_STATE_DIR) return path.join(stateDir(), 'desktop-session.lock.d');
+  const root = process.env.LAB_LOCK_DIR ? path.resolve(process.env.LAB_LOCK_DIR) : path.join(os.tmpdir(), 'slab-locks');
+  return path.join(root, 'rdp-lab-desktop');
+}
 
 function currentRun() {
   return {
