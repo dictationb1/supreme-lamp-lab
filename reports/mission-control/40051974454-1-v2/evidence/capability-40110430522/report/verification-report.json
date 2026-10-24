@@ -1,0 +1,300 @@
+{
+  "schema": 2,
+  "generatedAt": "2026-10-24T16:29:05.126Z",
+  "repository": "dictationb1/supreme-lamp-lab",
+  "runId": "40110430522",
+  "runAttempt": "1",
+  "event": "pull_request",
+  "correlationId": null,
+  "labCommit": "7e6764672850ca92617730bb182df054fd9a3d16",
+  "prHeadCommit": "7e6764672850ca92617730bb182df054fd9a3d16",
+  "appRepository": "dictationb1/supreme-lamp",
+  "appCommit": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "verdict": "NOT_VERIFIED",
+  "aggregate": "FAIL",
+  "counts": {
+    "pass": 7,
+    "fail": 1,
+    "blocked": 1,
+    "blockedDownstream": 1,
+    "notRun": 0,
+    "other": 0
+  },
+  "firstCause": {
+    "capability": "rdp_auto_login",
+    "status": "FAIL",
+    "reason": "PRODUCTION_DASHBOARD_NOT_OPERABLE: page.waitForSelector: Timeout 20000ms exceeded."
+  },
+  "independentCauses": [
+    {
+      "capability": "web_desktop",
+      "subsystem": "tailnet_or_remote",
+      "status": "BLOCKED",
+      "category": "DEPENDS_ON_RDP_SESSION",
+      "dependsOn": "rdp_auto_login",
+      "reason": "DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL"
+    },
+    {
+      "capability": "rdp_auto_login",
+      "subsystem": "tailnet_or_remote",
+      "status": "FAIL",
+      "category": null,
+      "dependsOn": null,
+      "reason": "PRODUCTION_DASHBOARD_NOT_OPERABLE: page.waitForSelector: Timeout 20000ms exceeded."
+    }
+  ],
+  "bySubsystem": {
+    "tailnet_or_remote": [
+      "web_desktop=BLOCKED (DEPENDS_ON_RDP_SESSION)",
+      "rdp_auto_login=FAIL"
+    ]
+  },
+  "diagnostics": {
+    "supervisorFirstFailure": "none",
+    "supervisorDegradedGuards": "none",
+    "backendIdentityState": "VERIFIED",
+    "backendFailureClass": "UNKNOWN",
+    "backendHealthProven": true,
+    "tailscaleStepOutcome": "success",
+    "tailnetCategory": "JOIN_OK",
+    "tailnetDetail": "identity token exchanged and tailscale up succeeded",
+    "tailnetFirstError": null,
+    "tailnetFailedOperation": null,
+    "tailnetCliVersion": null,
+    "tailnetServiceState": null,
+    "regressionGates": {
+      "static": {
+        "job": "static",
+        "required": true,
+        "total": 264,
+        "passed": 264,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "linux"
+      },
+      "client": {
+        "job": "client",
+        "required": true,
+        "total": 264,
+        "passed": 264,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "win32"
+      }
+    },
+    "regressionGateFailures": [],
+    "requiredJobFailures": [
+      {
+        "job": "client",
+        "result": "failure"
+      }
+    ],
+    "oidcSubject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "audienceMatchesConfigured": "true",
+    "rdpConfigured": "true",
+    "rdpReason": "OK",
+    "prerequisitesMissing": [
+      "web_desktop"
+    ],
+    "rootCauses": [
+      {
+        "capability": "rdp_auto_login",
+        "subsystem": "tailnet_or_remote",
+        "status": "FAIL",
+        "category": null,
+        "dependsOn": null,
+        "reason": "PRODUCTION_DASHBOARD_NOT_OPERABLE: page.waitForSelector: Timeout 20000ms exceeded."
+      }
+    ],
+    "downstreamBlocked": [
+      {
+        "capability": "web_desktop",
+        "subsystem": "tailnet_or_remote",
+        "category": "DEPENDS_ON_RDP_SESSION",
+        "dependsOn": "rdp_auto_login"
+      }
+    ]
+  },
+  "regressions": {
+    "static": {
+      "job": "static",
+      "required": true,
+      "total": 264,
+      "passed": 264,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "linux"
+    },
+    "client": {
+      "job": "client",
+      "required": true,
+      "total": 264,
+      "passed": 264,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "win32"
+    }
+  },
+  "capabilities": {
+    "browser_synthetic": {
+      "status": "PASS",
+      "required": true,
+      "reason": "DOM interaction asserted; screenshot 1280x720; video 52882 bytes",
+      "source": "client.caps_client_local"
+    },
+    "native_screenshot": {
+      "status": "PASS",
+      "required": true,
+      "reason": "CAPTURED 1022x765 session=1 path=C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40110430522-1\\native-desktop.png; 1022x765",
+      "source": "client.caps_client_local"
+    },
+    "backend_readiness_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=9100 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "server.caps_server_local"
+    },
+    "dashboard_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build cand-7e67646 (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "source": "server.caps_server_local"
+    },
+    "tailnet_connectivity": {
+      "status": "PASS",
+      "required": true,
+      "reason": "peer slab-srv-40110430522-1.tail7cf774.ts.net. 100.77.244.26 online; tcp 7331 reachable from 100.93.94.15",
+      "source": "client.caps_tailnet"
+    },
+    "backend_readiness_remote": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=9100 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "client.caps_remote"
+    },
+    "dashboard_client": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build cand-7e67646 (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "source": "client.caps_remote"
+    },
+    "web_desktop": {
+      "status": "BLOCKED",
+      "required": true,
+      "reason": "DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL",
+      "source": "client.caps_remote"
+    },
+    "rdp_auto_login": {
+      "status": "FAIL",
+      "required": true,
+      "reason": "PRODUCTION_DASHBOARD_NOT_OPERABLE: page.waitForSelector: Timeout 20000ms exceeded.",
+      "source": "client.caps_remote"
+    }
+  },
+  "jobs": {
+    "static": "success",
+    "server": "success",
+    "client": "failure"
+  },
+  "jobsDetail": [
+    {
+      "name": "static",
+      "id": 120920813536,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000004105",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T16:11:54Z",
+      "completedAt": "2026-10-24T16:14:46Z"
+    },
+    {
+      "name": "auth-diagnostic",
+      "id": 120920814262,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T16:11:51Z",
+      "completedAt": "2026-10-24T16:11:51Z"
+    },
+    {
+      "name": "live-origin guard",
+      "id": 120920814554,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T16:11:51Z",
+      "completedAt": "2026-10-24T16:11:51Z"
+    },
+    {
+      "name": "client",
+      "id": 120921486433,
+      "status": "completed",
+      "conclusion": "failure",
+      "runner": "rdp-lab-client",
+      "labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "rdp-lab-client"
+      ],
+      "startedAt": "2026-10-24T16:21:43Z",
+      "completedAt": "2026-10-24T16:28:13Z"
+    },
+    {
+      "name": "server",
+      "id": 120921486587,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000004108",
+      "labels": [
+        "windows-latest"
+      ],
+      "startedAt": "2026-10-24T16:14:49Z",
+      "completedAt": "2026-10-24T16:28:56Z"
+    },
+    {
+      "name": "report",
+      "id": 120924752554,
+      "status": "in_progress",
+      "conclusion": null,
+      "runner": "GitHub Actions 1000004109",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T16:28:59Z",
+      "completedAt": null
+    }
+  ],
+  "publish": {
+    "published": true,
+    "updated": true,
+    "created": false,
+    "id": 6385386217,
+    "status": 200,
+    "error": null
+  }
+}
