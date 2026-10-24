@@ -183,6 +183,12 @@ module.exports = async function register({ test, assert }) {
     assert.ok(/not the live origin/i.test(rb), 'the harness must say what it is not');
     assert.ok(/BLOCKED: native RDP/.test(rb) && /BLOCKED: web desktop/i.test(rb), 'native RDP and Web Desktop are BLOCKED, never simulated PASS');
     assert.ok(/real-backend-report\.json/.test(rb), 'structured evidence is always written');
+    // R2: the inline-WS accept-loop stall must be MEASURED (bounded) and the
+    // browser WS must be stubbed, else one socket freezes the run for 30 min.
+    assert.ok(/measureWsBlock/.test(rb) && /backend\.ws_accept_loop_block/.test(rb), 'R2 inline-WS accept-loop block must be probed');
+    assert.ok(/browserWsStubbed/.test(rb) && /LabStubWS/.test(rb), 'the driven browser must stub WebSocket to keep the run bounded');
+    assert.ok(/GLOBAL_DEADLINE_MS/.test(rb) && /function flush\(\)/.test(rb), 'the harness must be time-bounded and publish incrementally');
+    assert.ok(read('reports/mission-control/40051974454-1/defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md').includes('fix deferred'), 'R2 must be documented as confirmed-but-unfixed');
   });
 
   await test('R1 patch: applies at app root, includes the regression, nav weak-check replaced', async () => {

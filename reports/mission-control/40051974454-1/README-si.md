@@ -64,6 +64,29 @@ kernel backlog එකට පිළිගැනුණත් කිසිදු th
 මෙය **ව්‍යුහාත්මකව source එකෙන් තහවුරු** ය (static invariant regression මගින් pin කර ඇත);
 සංඛ්‍යාත්මක ප්‍රමාදය load මත රඳා පවතින අතර Windows client VM එකේ සත්‍යව මනිනු ලැබේ (පහත §5).
 
+### R2 — වඩා බරපතල මූල හේතුව (තහවුරු; මෙම session එකේ fix නොකළේය)
+
+Accept loop එක **එකම thread** එකකි. `GET /ws` එක `Invoke-F99WebSocketUpgrade` **inline** ලෙස එම thread
+එකේම ධාවනය කර, එහි loop එක විනාඩි 30ක් (හෝ idle තත්පර 90ක්) දක්වා ජීවත් වේ. එක් `/ws`
+සම්බන්ධතාවයක් සම්පූර්ණ HTTP server එකම අවහිර කරයි — `/health`, `/api/config`, `/api/native-status`,
+`/api/progress` සියල්ල පිළිතුරු නොදේ. Dashboard එකේ `useDashboardPolling` `/health` හි `ws=true`
+දුටු වහාම `/ws` විවෘත කරන නිසා, පරිශීලකයා දකින **"Live" බැනරය සමඟ නිශ්චල UI, හිස්
+FQDN/user/IP, අක්‍රීය Launch සහ පාලන** යන සියල්ල එකම transport-starvation ගැටලුවක ප්‍රතිඵලයක් වීමට
+බොහෝ දුරට ඉඩ ඇත (වෙන වෙන UI bugs අටක් නොවේ).
+
+සාක්ෂි: lab run `40063545799` හි සැබෑ browser එක app එක විවෘත කළ වහාම measurement step එක විනාඩි
+26+ ඇලුණේය (30-min inline WS lifetime ට අනුකූලයි). `scripts/candidate/real-backend.js :: measureWsBlock()`
+දැන් එක් `/ws` එකක් විවෘත කර `/health` අවහිර වේදැයි **සීමිත (~7s) පරීක්ෂණයකින්** මනී;
+browser phase එකේ WS stub කර ඇත (recorded `browserWsStubbed=true`) එවිට අනෙකුත් controls සත්‍යව පරීක්ෂා කළ හැක.
+
+**Fix නොකළේ ඇයි:** නිවැරදි පිළියම වන්නේ සෑම client එකක්ම background runspace/thread pool එකකට
+යැවීමයි (accept loop එක drain වෙමින් පවතී). එය socket/stream lifetime, `$script:` shared state සහ
+F99/F101 keepalive හරහා ~9,800-පේළි PS 5.1 file එක ස්පර්ශ කරයි; මෙහි local PowerShell නැති අතර
+එකම සත්‍යාපන මාර්ගය මන්දගාමී client-VM runs ය. ඉක්මන් async rewrite එකකින් audit/logon සාක්ෂි
+හෝ sockets නිහඬව බිඳ වැටිය හැක. එබැවින් R2 **තහවුරු, ඉහළ-බරපතල, fix-නොකළ** defect එකක් ලෙස
+`defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md` හි නිශ්චිත පිළියම් ස්ථානය සමඟ සටහන් කර ඇත.
+ඒ අනුව **PATCHED_APPLICATION_CANDIDATE = PARTIAL** මිස සම්පූර්ණ verified නොවේ.
+
 ## 5. සත්‍ය Windows client VM සහ REAL backend සත්‍යාපනය
 
 - VM preflight (run `40054869099`) **PASS**: `WIN-NFU1JG4VESE\User`, interactive session 1,

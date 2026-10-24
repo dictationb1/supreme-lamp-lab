@@ -96,17 +96,29 @@
     "runner": "self-hosted Windows X64 rdp-lab-client (interactive, headed)",
     "label": "real-backend-run",
     "exclusiveLock": "registry.sessionLockDir() shared with live-run and client_preflight",
-    "measures": ["connect->first /health (baseline vs patched)", "server-ready.txt publication", "/health latency sampling across a lab-shortened telescope tick", "concurrent inline-scan vs /health", "endpoint schemas (redacted)", "listening socket PID/exe"],
+    "measures": ["connect->first /health (baseline vs patched)", "server-ready.txt publication", "/health latency sampling across a lab-shortened telescope tick", "concurrent inline-scan vs /health", "endpoint schemas (redacted)", "listening socket PID/exe", "bounded /ws accept-loop block probe (R2)"],
     "drivesRealBrowser": true,
+    "browserWsStubbed": true,
+    "browserWsStubReason": "the real server handles /ws inline on its single accept thread (R2); a live socket froze run 40063545799 for 26+ min, so the driven browser stubs WS while the stall is measured separately and bounded",
+    "harnessTimeBounded": "per-label global deadline (--max-seconds 180) + step timeout-minutes 20 + incremental flush after each phase; /diag removed from probes; token gate unlocked; routes skipped if the shell does not mount",
     "acceptanceItemsKeptBlocked": ["native RDP connect (needs signed launcher + real listener)", "Web Desktop frames (needs a real captured session)", "real 4624 logon correlation", "external mirror uploads"],
-    "status": "PENDING_VM_RUN",
+    "status": "PENDING_BOUNDED_VM_RERUN",
+    "priorAttempts": [
+      { "runId": "40062592553", "result": "detached+fd spawn failed to bind (environment fault); evidence published with honest fatal" },
+      { "runId": "40063545799", "result": "piped spawn bound, but an inline /ws upgrade stalled the single-threaded accept loop for 26+ min; could not be cancelled (token lacks actions:write); bounded-rerun fixes isolation" }
+    ],
     "evidenceDir": "evidence/real-backend-<labRunId>/",
-    "note": "This field is updated from the committed VM evidence before the bundle is declared final."
+    "note": "Numeric stall/ws-block values are filled from the committed VM evidence before the bundle is declared final."
   },
+  "confirmedDefects": [
+    { "id": "F201", "title": "missing backend probe shown as a measured credential/DNS/listener failure", "status": "FIXED", "patch": "app-patches/0001-F201-probe-honesty.patch" },
+    { "id": "R1", "title": "synchronous Get-WinEvent startup scans run before the HTTP accept loop", "status": "FIXED", "patch": "app-patches/0002-R1-server-startup-readiness.patch" },
+    { "id": "R2", "title": "inline /ws handling blocks the single-threaded accept loop (likely primary UI-freeze cause)", "status": "CONFIRMED_UNFIXED", "record": "defects/R2-WEBSOCKET-ACCEPT-LOOP-BLOCK.md", "fixRecommendation": "dispatch Invoke-ClientRequest / the /ws branch to a runspace pool; verify with measureWsBlock flipping FAIL->PASS" }
+  ],
   "verdicts": {
     "LAB_HARNESS": "PASS (consolidated; 228 pass / 0 fail / 8 skip hosted; clean replay PASS)",
     "LIVE_ORIGIN_APPLICATION": "FAIL (staging step 28 failed before any served UI or signal; signal not published, not a broken publisher)",
-    "PATCHED_APPLICATION_CANDIDATE": "PASS_HOSTED (F201+R1 regressions, 1378 smoke, production build, clean replay); WINDOWS_BACKEND PENDING real-backend VM run",
+    "PATCHED_APPLICATION_CANDIDATE": "PARTIAL — hosted PASS (F201+R1 regressions, 1378 smoke, production build, clean replay); R2 inline-WS accept-loop stall CONFIRMED and NOT fixed (high-severity, likely the user's UI-freeze cause); Windows numeric timing pending the bounded VM re-run",
     "UPSTREAM_DEPLOYMENT": "NOT_RUN (application remote is read-only this session; no push/merge/deploy)",
     "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "BLOCKED (origin never published an exact run+attempt MC-SIGNAL; discovery/claim/decrypt path remains wired and tested in the lab harness)"
   },

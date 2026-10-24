@@ -101,6 +101,18 @@ const shotsDir = path.join(out, 'shots');
 fs.mkdirSync(shotsDir, { recursive: true });
 fs.mkdirSync(root, { recursive: true });
 
+// MEASURED (lab run 40063545799): the real server is single-threaded and one
+// hanging endpoint (e.g. /diag mirror probes with PS 5.1's infinite default
+// web timeout, or a long inline scan) blocks every later request, so a naive
+// step can run 25+ minutes. Bound the WHOLE harness and publish incrementally.
+const GLOBAL_DEADLINE_MS = parseInt(arg('max-seconds', '420'), 10) * 1000;
+const globalT0 = Date.now();
+let deadlineHit = false;
+function expired() {
+  if (Date.now() - globalT0 > GLOBAL_DEADLINE_MS) { deadlineHit = true; return true; }
+  return false;
+}
+
 const report = {
   schema: 'slab-real-backend/1',
   generatedAt: new Date().toISOString(),
@@ -133,6 +145,23 @@ function record(c) {
     sanitize(String(c.actual === undefined ? '' : c.actual)).replace(/\s+/g, ' ').slice(0, 400),
     c.evidence || '', c.verdict, (c.note || '').replace(/[\r\n]+/g, ' ')
   ]);
+}
+
+// Incremental persistence: the real server is single-threaded and can stall a
+// request for a long time, so write the report + CSV after EVERY phase. A hard
+// job-timeout kill then still leaves publishable partial evidence on disk.
+function flush() {
+  try {
+    const counts = { PASS: 0, FAIL: 0, BLOCKED: 0, PENDING: 0 };
+    for (const c of report.controls) counts[c.verdict] = (counts[c.verdict] || 0) + 1;
+    report.verdicts = counts;
+    if (deadlineHit) report.fatal = report.fatal || ('global harness deadline (' + (GLOBAL_DEADLINE_MS / 1000) + 's) reached; later phases skipped');
+    fs.writeFileSync(path.join(out, 'real-backend-report.json'), JSON.stringify(report, null, 2));
+    const header = 'control_id,area,preconditions,action,expected_ui,expected_request,actual,evidence,verdict,note\n';
+    const esc = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+    fs.writeFileSync(path.join(out, 'real-backend-control-coverage.csv'),
+      header + rows.map((r) => r.map(esc).join(',')).join('\n') + '\n');
+  } catch (e) { /* best effort; finally writes again */ }
 }
 
 function httpGet(pathname, timeoutMs) {
@@ -368,17 +397,21 @@ async function measureStartup() {
 async function sampleTicks() {
   const samples = [];
   const t0 = Date.now();
+  const windowMs = Math.min(measureSeconds, 22) * 1000; // hard cap regardless of input
   let firedConcurrent = false;
   let concurrent = null;
-  while (Date.now() - t0 < measureSeconds * 1000) {
+  while (Date.now() - t0 < windowMs && !expired()) {
     const elapsed = Date.now() - t0;
     if (!firedConcurrent && elapsed >= 5000) {
       firedConcurrent = true;
-      // Fire an inline-event-scan endpoint concurrently with /health and time
-      // the /health that shares the single accept-loop thread.
-      const slow = httpGet('/api/diag/comprehensive' + '?key=' + encodeURIComponent(key), 12000);
-      const h = await httpGet('/health', 12000);
-      concurrent = { healthMs: h.ms, healthStatus: h.status, slowFired: true };
+      // Fire /api/native-status (whose handler does an INLINE bounded Schannel
+      // Get-WinEvent on a cache miss — the §7 secondary hypothesis) at the same
+      // instant as /health, and time the /health that shares the single accept
+      // thread. Avoids /api/diag/comprehensive, whose mirror probes can hang on
+      // PS 5.1's infinite default web timeout (measured run 40063545799).
+      const slow = httpGet('/api/native-status' + '?key=' + encodeURIComponent(key), 8000);
+      const h = await httpGet('/health', 8000);
+      concurrent = { healthMs: h.ms, healthStatus: h.status, slowFired: true, slowEndpoint: '/api/native-status' };
       const sr = await slow;
       concurrent.slowMs = sr.ms;
       concurrent.slowStatus = sr.status;
@@ -399,6 +432,10 @@ async function sampleTicks() {
 }
 
 async function captureEndpoints() {
+  // NOTE: /diag is deliberately NOT probed here. On PS 5.1 its F46 mirror-host
+  // matrix uses outbound web calls with the platform's infinite default timeout,
+  // which blocked the single-threaded server for the whole of run 40063545799.
+  // /diag is exercised separately only via the bounded concurrent test below.
   const list = [
     ['/health', ''],
     ['/api/config', '?key=' + encodeURIComponent(key)],
@@ -406,11 +443,11 @@ async function captureEndpoints() {
     ['/api/progress', ''],
     ['/api/version', ''],
     ['/ping', ''],
-    ['/diag', ''],
     ['/', '?ui=v2']
   ];
   for (const [p, q] of list) {
-    const r = await httpGet(p + q, 10000);
+    if (expired()) break;
+    const r = await httpGet(p + q, 6000);
     let keys = [];
     try {
       const parsed = JSON.parse(r.bodyHead.replace(/\s+$/, ''));
@@ -425,6 +462,48 @@ async function captureEndpoints() {
       bodyHead: r.ctype && r.ctype.indexOf('html') >= 0 ? (r.bodyHead.slice(0, 200).replace(/<[^>]*>/g, '').slice(0, 120)) : sanitize(r.bodyHead).slice(0, 400)
     };
   }
+}
+
+// [R2] Bounded proof of the WebSocket accept-loop stall. The application's
+// Invoke-ClientRequest calls Invoke-F99WebSocketUpgrade INLINE on the single
+// accept thread; one /ws connection occupies that thread for up to
+// F99WsMaxLifetimeSec (1800s) / F99WsIdleTimeoutSec (90s), so unrelated
+// lightweight requests (e.g. /health) cannot be served. Open ONE upgrade,
+// measure /health during it, then destroy the socket so the server recovers.
+// Entire probe is hard-bounded to a few seconds; it can never hang the harness.
+async function measureWsBlock() {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  const result = { wsUpgraded: false };
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; Object.assign(result, v); try { sock.destroy(); } catch (e) {} resolve(); };
+    let sock = null;
+    const req = http.request({ host: '127.0.0.1', port, path: '/ws?key=' + encodeURIComponent(key),
+      headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Key': nonce, 'Sec-WebSocket-Version': '13' } });
+    req.on('upgrade', (res, socket) => {
+      sock = socket;
+      socket.on('error', () => {});
+      // Give the server a moment to enter its inline WS loop, then probe /health
+      // on a SEPARATE connection; if the WS blocks the accept thread, this times out.
+      setTimeout(async () => {
+        const h = await httpGet('/health', 5000);
+        finish({ wsUpgraded: true, healthDuringWsMs: h.ms, healthOk: h.ok, healthStatus: h.status, blocked: !(h.ok && h.status === 200) });
+      }, 1500);
+    });
+    req.on('response', (res) => { res.resume(); finish({ wsUpgraded: false, httpStatus: res.statusCode }); });
+    req.on('error', (e) => finish({ wsUpgraded: false, error: String(e.code || e.message) }));
+    req.setTimeout(7000, () => finish({ wsUpgraded: false, error: 'upgrade-timeout' }));
+    req.end();
+  });
+  report.timings.wsBlock = result;
+  record({ control_id: 'backend.ws_accept_loop_block', area: 'health',
+    pre: 'real PowerShell server, authenticated raw WebSocket upgrade',
+    action: 'Open one /ws connection and concurrently GET /health.',
+    expect_ui: 'an unrelated lightweight endpoint stays responsive while a long-lived WS is open',
+    expect_req: 'GET /ws (101) + GET /health in parallel',
+    actual: `wsUpgraded=${result.wsUpgraded} blocked=${result.blocked} healthDuringWsMs=${result.healthDuringWsMs} ${result.error || ''}`,
+    evidence: '', verdict: (result.wsUpgraded && result.blocked) ? 'FAIL' : (result.wsUpgraded ? 'PASS' : 'BLOCKED'),
+    note: 'FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden' });
 }
 
 async function captureSocketOwner() {
@@ -452,13 +531,26 @@ async function driveBrowser() {
   const base = 'http://127.0.0.1:' + port;
   const browser = await chromium.launch({ headless, args: ['--no-first-run', '--no-default-browser-check'] });
   try {
-    // (1) unauthenticated gate
+    // (1) unauthenticated gate. Stub WebSocket in THIS browser context only:
+    // the real server handles /ws inline on its single accept thread (R2), so a
+    // live socket would freeze every later request and prevent honest control
+    // verification. The REAL WS stall is measured separately by measureWsBlock().
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await ctx.addInitScript(() => {
+      class LabStubWS {
+        constructor() { this.readyState = 1; this.bufferedAmount = 0; setTimeout(() => { if (this.onopen) this.onopen({}); }, 0); }
+        send() {} close() { this.readyState = 3; if (this.onclose) this.onclose({ code: 1000 }); }
+        addEventListener() {} removeEventListener() {}
+      }
+      LabStubWS.CONNECTING = 0; LabStubWS.OPEN = 1; LabStubWS.CLOSING = 2; LabStubWS.CLOSED = 3;
+      try { Object.defineProperty(window, 'WebSocket', { value: LabStubWS, configurable: true, writable: true }); } catch (e) {}
+    });
+    report.browserWsStubbed = true;
     const page = await ctx.newPage();
     page.on('console', (m) => { if (m.type() === 'error') report.consoleErrors.push(sanitize(m.text()).slice(0, 300)); });
     page.on('requestfailed', (r) => report.failedRequests.push({ url: sanitize(r.url()).slice(0, 200), why: sanitize((r.failure() && r.failure().errorText) || '').slice(0, 120) }));
-    await page.goto(base + '/?ui=v2', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch((e) => { report.fatal = report.fatal || ('initial goto: ' + e.message.slice(0, 120)); });
-    await sleep(1200);
+    await page.goto(base + '/?ui=v2', { waitUntil: 'domcontentloaded', timeout: 15000 }).catch((e) => { report.fatal = report.fatal || ('initial goto: ' + e.message.slice(0, 120)); });
+    await sleep(1000);
     const gate = page.getByTestId('dash-token-gate');
     const gateVisible = await gate.isVisible().catch(() => false);
     let ev = '';
@@ -473,11 +565,27 @@ async function driveBrowser() {
       note: 'a rendered UI behind a real gate is proof of real bootstrap, not a stub' });
 
     // (2) authenticate with the synthetic key that matches dash-token.txt
-    await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key), { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    // The runner-served dashboard deliberately gates every other control until
+    // a key is entered; a ?key in the URL is not always enough. Unlock the same
+    // way the stub sweep does, so the routed controls are not blocked by the
+    // modal and their assertions are meaningful (bounded, so a blocked server
+    // cannot turn one control into a 25-minute stall).
+    let unlocked = false;
+    try {
+      const gate2 = page.getByTestId('dash-token-gate');
+      if (await gate2.isVisible().catch(() => false)) {
+        await page.getByTestId('dash-token-enter').click({ timeout: 3000 });
+        await page.getByTestId('dash-token-input').fill(key, { timeout: 3000 });
+        await page.getByTestId('dash-token-save').click({ timeout: 3000 });
+        await gate2.waitFor({ state: 'hidden', timeout: 4000 });
+      }
+      unlocked = true;
+    } catch (e) { report.browserUnlockError = String(e.message || e).slice(0, 160); }
     let shell = false, topStatus = '', autoNote = '';
-    try { await page.waitForSelector('[data-testid="app-topbar"]', { timeout: 15000 }); shell = true; } catch (e) {}
-    try { topStatus = await page.getByTestId('topbar-status-summary').innerText({ timeout: 3000 }); } catch (e) {}
-    try { autoNote = await page.getByTestId('overview-auto-login-note').innerText({ timeout: 3000 }); } catch (e) {}
+    try { await page.waitForSelector('[data-testid="app-topbar"]', { timeout: 8000 }); shell = true; } catch (e) {}
+    try { topStatus = await page.getByTestId('topbar-status-summary').innerText({ timeout: 2500 }); } catch (e) {}
+    try { autoNote = await page.getByTestId('overview-auto-login-note').innerText({ timeout: 2500 }); } catch (e) {}
     // document origin + served UI variant + build stamp
     const doc = await page.evaluate(() => ({
       origin: location.origin,
@@ -492,9 +600,9 @@ async function driveBrowser() {
       action: 'Load with ?key, wait for the app shell.',
       expect_ui: 'app-topbar mounts against the real backend; served origin is this server',
       expect_req: 'GET /api/config, /api/native-status, /api/progress -> real responses',
-      actual: `shell=${shell} origin=${doc.origin} uiV2MissingBanner=${doc.uiV2MissingBanner} topStatus="${(topStatus || '').replace(/\s+/g, ' ').slice(0, 60)}"`,
+      actual: `shell=${shell} unlocked=${unlocked} origin=${doc.origin} uiV2MissingBanner=${doc.uiV2MissingBanner} topStatus="${(topStatus || '').replace(/\s+/g, ' ').slice(0, 60)}"`,
       evidence: ev, verdict: shell ? 'PASS' : 'BLOCKED',
-      note: shell ? '' : 'shell did not mount; inspect consoleErrors + endpoints' });
+      note: shell ? '' : 'shell did not mount; inspect consoleErrors + endpoints + browserUnlockError' });
     record({ control_id: 'real.status_chip_semantics', area: 'overview',
       pre: 'real backend with lab synthetic data',
       action: 'Read the topbar status chip and the auto-login gate note.',
@@ -515,9 +623,19 @@ async function driveBrowser() {
     ];
     for (const [cid, hash, marker] of ROUTES) {
       let visible = false, heading = '';
+      if (!shell || expired()) {
+        record({ control_id: 'real.' + cid, area: 'navigation',
+          pre: 'authenticated real server',
+          action: 'Navigate to ' + hash + ' and assert [' + marker + '] is visible.',
+          expect_ui: 'the routed page component mounts (not merely a non-empty body)',
+          expect_req: 'any page data comes from the real backend routes',
+          actual: `marker=${marker} visible=false`, evidence: ev, verdict: 'BLOCKED',
+          note: shell ? 'global deadline reached before this route' : 'app shell never mounted (blocked server or token gate); skipping to keep the run bounded' });
+        continue;
+      }
       try {
-        await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key) + hash, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await page.waitForSelector('[data-testid="' + marker + '"]', { state: 'visible', timeout: 8000 });
+        await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key) + hash, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.waitForSelector('[data-testid="' + marker + '"]', { state: 'visible', timeout: 5000 });
         visible = true;
         heading = (await page.getByTestId(marker).innerText({ timeout: 2000 })).replace(/\s+/g, ' ').slice(0, 80);
       } catch (e) {}
@@ -532,8 +650,8 @@ async function driveBrowser() {
     }
 
     // (4) global controls with real effect
-    await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key) + '#/settings', { waitUntil: 'domcontentloaded' });
-    await sleep(700);
+    if (shell && !expired()) await page.goto(base + '/?ui=v2&key=' + encodeURIComponent(key) + '#/settings', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+    await sleep(500);
     const before = await page.evaluate(() => document.documentElement.getAttribute('data-theme')).catch(() => null);
     let after = before, clicked = false;
     try { const b = await page.$('[data-testid="topbar-theme-toggle"], [data-testid="settings-theme-toggle"]'); if (b) { await b.click({ timeout: 4000 }); clicked = true; } } catch (e) {}
@@ -560,7 +678,8 @@ async function driveBrowser() {
       ['search.query', '/api/search/status', 'search lane status (a real query needs the search backend)']
     ];
     for (const [cid, ep, prereq] of areaChecks) {
-      const r = await httpGet(ep + (ep.indexOf('config') >= 0 ? '?key=' + encodeURIComponent(key) : ''), 10000);
+      let r = { ok: false, status: null, ms: 0, bytes: 0, error: 'global-deadline' };
+      if (!expired()) r = await httpGet(ep + (ep.indexOf('config') >= 0 ? '?key=' + encodeURIComponent(key) : ''), 6000);
       let keys = [];
       try { keys = Object.keys(JSON.parse(r.bodyHead.replace(/\s+$/, '')) || {}); } catch (e) {}
       const reachable = r.ok && r.status === 200;
@@ -617,12 +736,16 @@ async function main() {
     stageRoot();
     startServer();
     const ok = await measureStartup();
+    flush(); // measurement (the key §7 number) is persisted BEFORE any slow phase
     await captureSocketOwner();
-    if (ok) {
-      await sampleTicks();
-      await captureEndpoints();
-      await driveBrowser();
-    }
+    if (ok && !expired()) { await sampleTicks(); flush(); }
+    else if (ok) record({ control_id: 'real.tick_sampling', area: 'health', pre: 'real server', action: 'sample /health across a tick', expect_ui: 'n/a', expect_req: 'n/a', actual: 'skipped: global deadline', evidence: '', verdict: 'BLOCKED', note: 'bounded run' });
+    if (ok && !expired()) { await captureEndpoints(); flush(); }
+    // Bounded proof of the inline-WebSocket accept-loop stall (R2), BEFORE the
+    // browser (which we stub below) can otherwise pin the server for 30 minutes.
+    if (ok && !expired()) { await measureWsBlock(); flush(); }
+    if (ok && !expired()) { await driveBrowser(); flush(); }
+    else if (ok) record({ control_id: 'real.browser_suite_deferred', area: 'browser', pre: 'real server', action: 'drive the real UI', expect_ui: 'n/a', expect_req: 'n/a', actual: 'skipped: global deadline reached after measurement', evidence: '', verdict: 'BLOCKED', note: 'startup measurement already persisted; a hanging endpoint must not erase it' });
   } catch (e) {
     report.fatal = report.fatal || ('exception: ' + String(e.message || e).slice(0, 200));
   } finally {
@@ -639,26 +762,19 @@ async function main() {
       fs.writeFileSync(path.join(out, 'server-stderr.log.sanitized'),
         '# sanitized server stderr (secrets redacted)\n' + cleanErr + '\n');
     } catch (e) {}
-    // Aggregate verdicts (a BLOCKED acceptance item is NOT collapsed into PASS).
-    const counts = { PASS: 0, FAIL: 0, BLOCKED: 0 };
-    for (const c of report.controls) counts[c.verdict] = (counts[c.verdict] || 0) + 1;
-    report.verdicts = counts;
-    // Startup-stall verdict for THIS label.
+    // Startup-stall verdict for THIS label, then one final flush (a BLOCKED
+    // acceptance item is NOT collapsed into PASS).
     if (report.timings.stallMs !== null && report.timings.stallMs !== undefined) {
-      report.verdicts.startupStallMs = report.timings.stallMs;
+      report._startupStallMs = report.timings.stallMs;
     }
-    fs.writeFileSync(path.join(out, 'real-backend-report.json'), JSON.stringify(report, null, 2));
-    const header = 'control_id,area,preconditions,action,expected_ui,expected_request,actual,evidence,verdict,note\n';
-    const esc = (v) => '"' + String(v).replace(/"/g, '""') + '"';
-    fs.writeFileSync(path.join(out, 'real-backend-control-coverage.csv'),
-      header + rows.map((r) => r.map(esc).join(',')).join('\n') + '\n');
+    flush();
     // Sanitized copy of the marker/ready files for offline inspection.
     for (const f of ['server-ok.txt', 'server-ready.txt']) {
       try { fs.copyFileSync(path.join(root, f), path.join(out, f)); } catch (e) {}
     }
     process.stdout.write('REAL_BACKEND ' + label + ' fatal=' + (report.fatal || 'none') +
       ' stallMs=' + report.timings.stallMs + ' readyMs=' + report.timings.readyAppearedMs +
-      ' healthP95Ms=' + report.timings.healthLatencyP95Ms + ' counts=' + JSON.stringify(counts) + '\n');
+      ' healthP95Ms=' + report.timings.healthLatencyP95Ms + ' counts=' + JSON.stringify(report.verdicts) + '\n');
   }
 }
 main();
