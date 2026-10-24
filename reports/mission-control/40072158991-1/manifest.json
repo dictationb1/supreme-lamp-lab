@@ -1,8 +1,8 @@
 {
  "schema": "slab-mission-control-repair-bundle/2",
- "bundleState": "R2_RAW_MATRIX_GREEN_BROWSER_WS_OBSERVED_VIA_NATIVE_RECORDER_PENDING_WINDOWS_RECONFIRM",
+ "bundleState": "R2_ACCEPTED_ON_REAL_WINDOWS_HEADED_ACTUAL_APPLICATION_NO_STUB_RUN_40091165292",
  "createdAt": "2026-10-24T07:59:00Z",
- "updatedAt": "2026-10-24T12:20:00Z",
+ "updatedAt": "2026-10-24T12:55:00Z",
  "origin": {
   "repository": "dictationb1/supreme-lamp",
   "runId": "40072158991",
@@ -110,6 +110,26 @@
    "mechanism": "context.addInitScript installs a passive subclass of the native WebSocket (prototype chain and statics preserved, constructor returns the real native instance) with addEventListener taps only; real sockets, real upgrade, real frames, no interception; browserWebSocketStubbed stays false; a browserWsObservationMechanism field documents it",
    "evidence": "recorder records source app/manual, redacted URL, readyState, frame counts and first frame texts; a manual probe is tagged manual so it can never count as an app socket; unit-checked on Linux with a mock native WebSocket; controls cannot pass without a real open frame-carrying app socket",
    "healthFix": "the single live /health route now returns ws=true and the in-page diagnostic fetch on the VM returned 200 {ok:true, ws:true}"
+  },
+  "acceptance": {
+   "runId": "40091165292",
+   "headSha": "5ba3745",
+   "result": "ACCEPTED: 33 PASS / 0 FAIL / 5 BLOCKED (the five BLOCKED are pre-declared design-BLOCKED capabilities unrelated to R2)",
+   "identity": {
+    "backendKind": "actual_application",
+    "browserWebSocketStubbed": false,
+    "browserMode": "headed",
+    "runner": "WIN-NFU1JG4VESE\\User",
+    "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS"
+   },
+   "rawSocket": "all 11 r2/backend controls PASS: exact capacity held=8/rejected=1, real frames + hello-ack, normal/abrupt reconnect, idle expiry 8050ms, malformed 400, 10/10 cycles +14 handles, HTTP never blocked",
+   "browser": "the shipped app own socket (source=app) opened readyState=1, framesIn=11 framesOut=6; concurrent in-page /health 200 ws=true with socket still open; ladder reconnect opened a second app socket with a fresh frame; observed through the passive native-subclass recorder because Playwright context events are blind on this runner",
+   "defectsFixed": [
+    "PS5.1 Create(RunspacePool) overload (run 40081193119)",
+    "outer-finally socket ownership ECONNRESET (run 40082655039)",
+    "pump EOF slot leak via Socket.Poll (run 40084261133)",
+    "shadowed /health ws advertisement + Playwright event blind spot via native recorder (runs 40086011776/40089578561)"
+   ]
   }
  },
  "windowsVerification": {
@@ -191,9 +211,19 @@
     "fix": "harness now observes via a transparent native-subclass recorder installed with addInitScript (no stub, no interception); the three browser controls read real app-socket state/frames/reconnect from it, keeping context events as secondary; recorder logic unit-tested locally",
     "verificationSoFar": "lab regressions 235 pass/0 fail/8 skip; harness node --check OK; recorder mock test OK; Windows re-confirm pending",
     "evidence": "evidence/real-backend-40089578561/ (bot evidence) and evidence/windows-run-40089578561-instrumentation-blind-spot.md"
+   },
+   {
+    "runId": "40091165292",
+    "headSha": "5ba3745",
+    "result": "R2 ACCEPTED - workflow evaluate step passed; 33 PASS / 0 FAIL / 5 BLOCKED; identity actual_application / stub=false / headed",
+    "r2Matrix": "11/11 r2 + backend.ws_accept_loop_block PASS (held=8 rejected=1 503; frames/hello-ack; reconnect; idle 8050ms; malformed 400; cycles 10/10 handles +14 threads flat; HTTP never blocked)",
+    "browserControls": "real.browser_ws_real_frames PASS (app socket readyState=1 framesIn=11 framesOut=6); real.browser_ws_http_concurrent PASS (/health 200 ws=true, force-poll 200, socket still open); real.browser_ws_reconnect PASS (shipped ladder opened a second app socket with a fresh frame); observed via the transparent native-subclass recorder, contextEvents=0 (blind channel)",
+    "blockedByDesign": "real.sessions.list, real.files.browse, real.search.query, real.native_rdp_connect, real.web_desktop_frames (real logon/index/search backend or separate lab RDP/Web Desktop server required; never simulated)",
+    "verificationSoFar": "app suite 108 files/1390 tests; r2 static 12/12 LF+CRLF; lab regressions 235/0/8; recorder mock unit test OK; production build OK; audit has one capacity-503 line and zero exceptions",
+    "evidence": "evidence/real-backend-40091165292/ (bot evidence) and evidence/windows-run-40091165292-r2-accepted.md"
    }
   ],
-  "status": "R2 accept-loop repair fully green at the raw-socket layer (two runs). The browser-lane failure was attributed to a Playwright instrumentation blind spot via an in-page diagnostic; observation moved to a transparent native-WebSocket recorder. The next run must show the shipped app opening a real socket with genuine frames, concurrent HTTP and automatic reconnect on the recorder evidence before R2 acceptance",
+  "status": "R2 accept-loop starvation repair ACCEPTED on the real Windows client across raw-socket and headed-browser evidence (run 40091165292, evaluate step green). Remaining mission work: native RDP/Web Desktop acceptance (BLOCKED on a separate lab server), control-by-control inventory and the final separated verdict report",
   "matrixControls": [
    "r2.no_ws_control_health",
    "r2.one_ws_health_responsive",
@@ -213,7 +243,7 @@
  },
  "verdictScope": {
   "LAB_HARNESS": "PASS (235 hosted regressions green; new R2 framing/patch tests green)",
-  "PATCHED_APPLICATION_CANDIDATE": "static/build/smoke PASS (1390/1390; Windows step-7 23/23). On real Windows all 11 r2 raw-socket controls plus the block control PASS across two runs (genuine 101s, frames, reconnect, idle expiry, exact capacity, no leak) and /health now truthfully advertises ws=true. Headed browser controls remain FAIL pending the recorder-based re-run that observes the shipped app own real socket; the gate stays red",
+  "PATCHED_APPLICATION_CANDIDATE": "R2 PASS on real Windows (run 40091165292): static/build/smoke 1390/1390, step-7 gate 23/23, 11/11 raw-socket r2 controls and all three headed unstubbed browser_ws controls PASS with genuine frames, exact capacity, reconnect, idle expiry and no leak; 33 PASS / 0 FAIL / 5 design-BLOCKED",
   "LIVE_ORIGIN_APPLICATION": "run 40072158991 in_progress observed read-only; its MC-SIGNAL check-run is live and cryptographically bound (evidence/live-origin-signal-validation.md); not modified",
   "UPSTREAM_DEPLOYMENT": "NOT_RUN (read-only remote; no deploy)",
   "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "MC-SIGNAL publication now succeeds on the live run and validates structurally from the lab; live tailnet endpoint/decryption remains VM-bound (off-tailnet connect timeout, honestly recorded)",

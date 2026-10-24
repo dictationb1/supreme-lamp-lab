@@ -81,6 +81,26 @@ and ten cycles with a process-handle trend. Results publish to
 the patched server still blocks, any `r2.*` control fails, the backend is not
 `actual_application`, or the browser is stubbed.
 
+### CURRENT STATUS: R2 ACCEPTED (run 40091165292, head `5ba3745`)
+
+The evaluate step is green: **33 PASS / 0 FAIL / 5 BLOCKED**, the five BLOCKED
+being pre-declared design-BLOCKED capabilities (real logon rows, staged file
+index, external search backend, native RDP, Web Desktop), none related to R2.
+All eleven `r2.*`/backend raw-socket controls pass (exact `held=8/rejected=1`
+capacity, real frames + hello-ack, normal/abrupt reconnect, idle expiry,
+bounded 400 on a malformed handshake, 10/10 leak-free cycles with flat threads),
+and all three headed `real.browser_ws_*` controls pass on the **shipped
+application's own** real socket via the passive native-subclass recorder
+(app socket readyState 1, 11 frames in / 6 out; concurrent `/health` 200
+`ws=true`; ladder reconnect opens a second real app socket). Identity flags in
+the report: `backendKind=actual_application`, `browserWebSocketStubbed=false`,
+`browserMode=headed`. Four defects were found and fixed on the way (PS 5.1
+`Create` overload; outer-finally socket ownership; pump EOF slot leak via
+`Socket.Poll`; shadowed `/health` advertisement + the Playwright event blind
+spot handled by the recorder). Full narrative:
+`evidence/windows-run-40091165292-r2-accepted.md`; the per-run subsections below
+retain the honest FAIL history that led here.
+
 ### Measured outcome (real Windows client, run 40078279249)
 
 The hard gate did its job and caught a real remaining defect — this is **not**

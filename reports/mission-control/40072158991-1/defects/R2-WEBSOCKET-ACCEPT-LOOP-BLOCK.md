@@ -228,3 +228,26 @@ readyState, frame counts and first frame texts. No transport is intercepted;
 controls now pass only on a real, open, frame-carrying socket created by the
 shipped app, concurrent in-page HTTP, and a genuine ladder reconnect. See
 `evidence/windows-run-40089578561-instrumentation-blind-spot.md`.
+
+## 9. ACCEPTED on real Windows — run 40091165292 (head 5ba3745)
+
+The workflow evaluate step passed with 33 PASS / 0 FAIL / 5 BLOCKED, where the
+five BLOCKED controls are pre-declared design-BLOCKED capabilities unrelated
+to R2 (real logon rows, staged file index, external search backend, native
+RDP, Web Desktop). Identity flags in the report satisfy the acceptance
+contract: `backendKind=actual_application`, `browserWebSocketStubbed=false`,
+`browserMode=headed`, real runner `WIN-NFU1JG4VESE\User`.
+
+All eleven `r2.*`/backend raw-socket controls pass with exact bounded behavior
+(held=8/rejected=1, genuine frames + hello-ack, normal and abrupt reconnect,
+idle expiry at ~8 s, malformed handshake bounded 400, ten leak-free cycles with
+flat threads), and all three headed `real.browser_ws_*` controls pass on the
+shipped application's own real socket through the passive native-WebSocket
+recorder (app socket readyState 1, 11 frames in / 6 out; concurrent in-page
+`/health` 200 `ws=true`; the shipped reconnect ladder opens a second real app
+socket). The audit shows one saturated-503 line (the deliberate capacity
+probe) and zero worker exceptions. This closes the R2 accept-loop starvation
+defect for the patched candidate; native RDP/Web Desktop remain separately
+BLOCKED and the read-only upstream is not deployed. Evidence:
+`evidence/windows-run-40091165292-r2-accepted.md` and
+`evidence/real-backend-40091165292/`.

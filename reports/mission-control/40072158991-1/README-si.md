@@ -61,7 +61,7 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
 | කාණ්ඩය | තත්ත්ව | සටහන |
 |---|---|---|
 | LAB_HARNESS | PASS | සත්කාරක(regression) 235 pass / 0 fail / 8 skip; ws-frame + R2 ව්‍යුහ පරීක්ෂණ ක්‍රියාත්මක |
-| PATCHED_APPLICATION_CANDIDATE | Windows නැවත-සනාථ කිරීම බලාපොරොත්තුවෙන් | smoke 1390/1390 + Windows step-7 23/23 PASS; build OK. **ධාවනය 40086011776 හිදී සත්‍ය Windows VM මත R2 raw-socket matrix එක සම්පූර්ණයෙන්ම PASS (r2 පාලන 10 + block පාලනය, 30 PASS / 3 FAIL / 5 BLOCKED සමස්ත): ධාරිතාව නිවැරදිව held=8, 9වැන්න පමණක් 503; සත්‍ය frames + hello-ack; reconnect; idle expiry 8191ms; malformed 400; චක්‍ර 10/10 (+11 handles). PS-runtime දෝෂ හතරක් හමුවී නිවැරදි කර ඇත: (1) Create overload; (2) finally හිමිකාරිත්වය; (3) pump EOF slot කාන්දුව → `Socket.Poll`; (4) සෙවනැලි `/health` මාර්ගය (පළමු handler එකේ ws ධජය අස්ථානගත, දෙවැන්න ළඟා විය නොහැකි වීම) → තනි සජීව මාර්ගය. ඉතිරිව ඇත්තේ headed browser එක කිසිදා WebSocket constructor එක නොකැඳවීම (totalObservations=0) පමණි; ඊළඟ ධාවනය සඳහා gate නොවන රෝග-විනිශ්චයක් එක් කර ඇත.** |
+| PATCHED_APPLICATION_CANDIDATE | **R2 ACCEPTED (ධාවනය 40091165292)** | smoke 1390/1390 + Windows step-7 23/23 PASS; build OK. **සත්‍ය Windows VM (headed, actual_application, stub=false) මත evaluate step එක සමත්: 33 PASS / 0 FAIL / 5 BLOCKED. r2/backend raw-socket පාලන 11ම PASS (held=8/rejected=1 නිවැරදි ධාරිතාව, සත්‍ය frames+hello-ack, reconnect, idle expiry, malformed 400, කාන්දුවක් නැති චක්‍ර 10/10); headed browser පාලන තුනම shipped යෙදුමේම සත්‍ය socket එක මත PASS (readyState 1, frames 11-in/6-out, සමගාමී /health 200, ladder reconnect). 5 BLOCKED යනු R2 නොවන පූර්ව-ප්‍රකාශිත සැලසුම්-BLOCKED හැකියාවන්ය. මඟ දී PS-runtime දෝෂ හතරක් හමුවී නිවැරදි කර ඇත.** |
 | LIVE_ORIGIN_APPLICATION | OBSERVED (in_progress, read-only) | ධාවනය 40072158991 නිරීක්ෂණය පමණි; වෙනස් නොකෙරේ |
 | UPSTREAM_DEPLOYMENT | NOT_RUN | application remote read-only; deploy කිරීමක් නැත |
 | AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION | ව්‍යුහාත්මකව PASS / සජීව අන්ත ලක්ෂ්‍යය VM-bound | ධාවනය 40072158991 හි MC-SIGNAL check-run දැන් සජීවීව ප්‍රකාශිතයි (step 60 සාර්ථක); AAD ගුප්ත-බන්ධනය නිවැරදියි. tailnet අන්ත ලක්ෂ්‍යය (100.85.153.77:7331) sandbox එකෙන් ළඟා විය නොහැක (off-tailnet connect timeout) — විකේතනය/සජීව UI සත්‍යාපනය VM මත පමණි |
@@ -179,6 +179,27 @@ FQDN/පරිශීලක/IP, අක්‍රිය බොත්තම් ස�
   ඉන් අදහස් වන්නේ ඒ සමගාමී in-page HTTP, සහ app socket එක වසා ladder එක නව socket එකක් විවෘත
   කරන බව. recorder තර්කනය Linux හි mock native WebSocket එකකින් ඒකක-පරීක්ෂා කර ඇත; lab suite
   235 pass / 0 fail / 8 skip. **recorder සාක්ෂි මත තුනම PASS වන තුරු evaluate gate එක රතු ලෙස පවතී.**
+
+### 3.5 ධාවනය 40091165292 — R2 සම්පූර්ණව පිළිගනී (ACCEPTED), evaluate step එක සමත්
+
+- head `5ba3745` මත workflow evaluate step එක **සමත්**; සමස්ත **33 PASS / 0 FAIL / 5 BLOCKED**.
+  BLOCKED පහම R2 හා සම්බන්ධ නොවන, පූර්ව-ප්‍රකාශිත සැලසුම්-BLOCKED හැකියාවන්ය (සත්‍ය logon පේළි,
+  staged file index, බාහිර search backend, native RDP, Web Desktop).
+- r2/backend raw-socket පාලන 11ම PASS: නිවැරදි `held=8 / rejected=1` ධාරිතාව (9වැන්න පමණක් 503),
+  සත්‍ය frames + hello-ack, සාමාන්‍ය/හදිසි reconnect, idle expiry 8050ms, malformed handshake 400,
+  කාන්දුවක් නැති චක්‍ර 10/10 (handles 896→910, +14; threads 35→34), සාමාන්‍ය HTTP කිසිදා නොනවතී.
+- headed browser පාලන තුනම **shipped යෙදුමේම** සත්‍ය socket එක මත PASS: `real.browser_ws_real_frames`
+  (source=app, readyState=1, framesIn=11 framesOut=6), `real.browser_ws_http_concurrent`
+  (in-page `/health` 200 `ws=true`, force-poll 200, socket සජීවීව), `real.browser_ws_reconnect`
+  (app socket එක වැසූ විට shipped 1/3/10/30s ladder එක නව app socket එකක් විවෘත කර නව frame එකක් ලබා ගැනීම).
+- අනන්‍යතා ධජ: `backendKind=actual_application`, `browserWebSocketStubbed=false`, `browserMode=headed`,
+  runner `WIN-NFU1JG4VESE\User`. recorder එක සත්‍ය native WebSocket අවස්ථා පමණක් රඳවා ගනී;
+  manual probe එක `manual` ලෙස ටැග් කර ඇත, කිසිදා app traffic ලෙස ගණන් නොගැනේ; URL වල key අගය redact කර ඇත.
+- මඟ හමුවූ නිවැරදි කළ දෝෂ හතර: (1) PS 5.1 `Create` overload; (2) outer-finally socket හිමිකාරිත්වය;
+  (3) pump EOF slot කාන්දුව (`Socket.Poll`); (4) සෙවනැලි `/health` දැන්වීම + Playwright අන්ධ-ස්ථානය
+  (native recorder). සවිස්තර: `evidence/windows-run-40091165292-r2-accepted.md`.
+- මායිම්: මෙය LAB_HARNESS + PATCHED_APPLICATION_CANDIDATE සාක්ෂියකි; read-only upstream යෙදුමට
+  deploy/push කර නැත. Native RDP / Web Desktop acceptance වෙනම lab server එකක් මත තවම BLOCKED.
 
 ## 4. පිරිසිදු නැවත-ධාවනය (clean replay)
 
