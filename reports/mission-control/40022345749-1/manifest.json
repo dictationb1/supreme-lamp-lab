@@ -1,0 +1,101 @@
+{
+  "schema": "arena-mission-control-handoff/v1",
+  "generatedAtUtc": "2026-10-23",
+  "app": {
+    "repository": "dictationb1/supreme-lamp",
+    "workflow": ".github/workflows/main.yml",
+    "runId": "40022345749",
+    "attempt": 1,
+    "pinnedSha": "e432d3df4cf00a8528d574f8410f6a76e590db31",
+    "runStateAtLastApiCheck": "in_progress",
+    "pinnedArchiveSha256": "811a5154f16208877405b18becd31b4a24cd949dfafcd30b35ae2f9908124ea5",
+    "mainCompare": {
+      "currentMainSha": "d0f9199ed4ef6b8ca605a36c6e7bf7e357935a05",
+      "commitsAhead": 125,
+      "changedFiles": [
+        "docs/status.json"
+      ],
+      "applicationSourceChanged": false
+    }
+  },
+  "cleanReplayEvidence": "evidence/clean-replay.md",
+  "patchSeries": [
+    {
+      "order": 1,
+      "id": "F201-probe-honesty",
+      "regressionTestPath": "evidence/repro-f201.test.tsx",
+      "regressionTestSha256": "48bcdb8ca1f8799e44dbd597b77781f8c4f566e6cfca9312cc312b0e3f8c7ba1",
+      "replayScriptPath": "replay-candidate.sh",
+      "replayScriptSha256": "d1132fdd0fe360a24d91b068c132143b55e142851c2652124c145970fcb536eb",
+      "path": "app-patches/0001-F201-probe-honesty.patch",
+      "sha256": "6d84cd954cf4b6a476c117dc92fe05e2a438ca4d7ba664a17b02813bc640f57f",
+      "scope": "Mission Control UI status trust and auto-login blocker wording",
+      "appRemoteModified": false
+    }
+  ],
+  "localCandidateReplay": {
+    "source": "pinned app archive",
+    "install": "npx pnpm@9.15.9 install --frozen-lockfile",
+    "patchApply": "PASS",
+    "regressionTests": {
+      "files": 1,
+      "passed": 8,
+      "failed": 0
+    },
+    "baselineReproduction": {
+      "unpatched": "PASS (1 assertion reproduces the misleading empty-default text)",
+      "patched": "EXPECTED_FAIL (the obsolete misleading text is no longer rendered)"
+    },
+    "fullSmokeSuite": {
+      "files": 106,
+      "passed": 1375,
+      "failed": 0
+    },
+    "productionBuild": "PASS",
+    "bundle": {
+      "path": "ui/dist/index.html",
+      "bytes": 1273547,
+      "sha256": "af31f9db6c88e9ea0a27901c7a87bfda27adb547179a8cda3a03d89444873512"
+    },
+    "executionRoot": "temporary OS directory created by replay script; removed on exit",
+    "notPerformed": [
+      "real production server startup on Windows",
+      "real headed-browser control sweep on client VM",
+      "live backend/native-status request verification",
+      "native RDP session proof",
+      "Web Desktop session proof"
+    ]
+  },
+  "priorCandidateEvidence": {
+    "runId": "40032463702",
+    "workflowConclusion": "success",
+    "runnerClass": "GitHub-hosted Windows / headless browser",
+    "reportedCounts": {
+      "PASS": 14,
+      "FAIL": 2,
+      "BLOCKED": 9
+    },
+    "acceptedAsOverallPass": false,
+    "reasons": [
+      "11 navigation PASS results only checked for non-empty page body",
+      "theme toggle failed",
+      "text scale failed",
+      "server and backend capabilities were stubbed or blocked",
+      "candidate screenshot and README claims were inconsistent"
+    ]
+  },
+  "verdicts": {
+    "LAB_HARNESS": "FAIL",
+    "LIVE_ORIGIN_APPLICATION": "BLOCKED",
+    "PATCHED_APPLICATION_CANDIDATE": "BLOCKED",
+    "UPSTREAM_DEPLOYMENT": "NOT_RUN",
+    "AUTOMATIC_APPLICATION_ORIGIN_INTEGRATION": "FAIL"
+  },
+  "security": {
+    "queryKeyOccurrencesRedactedBeforeReviewCopy": 4,
+    "rawCredentialValuesPublished": false,
+    "candidateImagesRepublished": false,
+    "liveEndpointOrCookiePublished": false,
+    "privateKeyOrCiphertextPublished": false
+  }
+}
