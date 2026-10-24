@@ -496,7 +496,7 @@ jobs:
             node scripts/mission-control-check.js --scope server-local --blocked-reason "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=$env:CONFIG_OUTCOME cert=$env:CERT_OUTCOME"
             exit 1
           }
-          node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
+          node scripts/backend-supervisor.js --root 'C:\ghrdp' --sha $env:APP_SHA --expect-build $env:CANDIDATE_BUILD --port 7331 --hold '${{ steps.tailscale.outcome == 'success' }}' --hold-max-ms 1200000 --client-job client
           exit $LASTEXITCODE
 
       - name: Collect bounded RDP evidence (server-side ground truth, read-only)

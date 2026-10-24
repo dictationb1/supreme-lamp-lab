@@ -137,6 +137,21 @@ module.exports = async function candidateStagingTests({ test, assert }) {
     assert.match(p4, /diff --git a\/payloads\/ghrdp-server\.ps1/, 'targets the server');
   });
 
+  await test('candidate staging: backend-supervisor forwards the candidate build identity to the server-local dashboard check', async () => {
+    // Run 40106229135: the patched UI correctly stamps cand-<pr-head-sha>, but
+    // the server-local dashboard check compared it against the app source sha
+    // -> DASHBOARD_BUILD_MISMATCH. The supervisor must forward --expect-build
+    // when given, and keep the app-sha fallback when absent (upstream UI).
+    const sup = read('scripts/backend-supervisor.js');
+    assert.match(sup, /--expect-build', args\.expectBuild/, 'the arg is forwarded to mission-control-check');
+    assert.match(sup, /if \(args\.expectBuild\) mcArgs\.push/, 'forwarded ONLY when provided (fallback preserved)');
+    assert.match(sup, /else if \(k === '--expect-build'\) a\.expectBuild = argv\[\+\+i\];/, 'the arg is parsed');
+    assert.match(wf, /backend-supervisor\.js --root 'C:\\ghrdp' --sha \$env:APP_SHA --expect-build \$env:CANDIDATE_BUILD/, 'the capability workflow passes the candidate build');
+    // The check itself prefers expectBuild over expectSha for the stamp.
+    const mc = read('scripts/mission-control-check.js');
+    assert.match(mc, /dashboardVariant\(page, args\.expectBuild \|\| args\.expectSha/, 'dashboardVariant prefers the candidate build');
+  });
+
   await test('candidate staging: the CRLF checkout guard renormalizes patch targets before git apply (run 40102291995)', async () => {
     // actions/checkout on Windows may materialize CRLF files while the bundle
     // patches are LF-normalized; git apply then fails on every touched file.

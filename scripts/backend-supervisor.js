@@ -49,7 +49,8 @@ function parseArgs(argv) {
   const a = {
     root: 'C:\\ghrdp', sha: null, port: 7331, hold: false, holdMaxMs: 20 * 60000, clientJob: 'client',
     holdPollMs: 15000, serverCmd: null, okFile: null, noMc: false, readyTimeoutMs: 180000,
-    identityTimeoutMs: 20000, listenerTimeoutMs: 20000, startupBudgetMs: 360000
+    identityTimeoutMs: 20000, listenerTimeoutMs: 20000, startupBudgetMs: 360000,
+    expectBuild: null
   };
   for (let i = 2; i < argv.length; i++) {
     const k = argv[i];
@@ -67,6 +68,7 @@ function parseArgs(argv) {
     else if (k === '--identity-timeout-ms') a.identityTimeoutMs = Number(argv[++i]);
     else if (k === '--listener-timeout-ms') a.listenerTimeoutMs = Number(argv[++i]);
     else if (k === '--startup-budget-ms') a.startupBudgetMs = Number(argv[++i]);
+    else if (k === '--expect-build') a.expectBuild = argv[++i];
   }
   return a;
 }
@@ -393,7 +395,14 @@ async function main() {
     let mcCode = 0;
     if (!args.noMc) {
       mcRan = true;
-      mcCode = await runChild(process.execPath, [path.join(__dirname, 'mission-control-check.js'), '--scope', 'server-local', '--target', target, '--expect-sha', args.sha, '--expect-pid', String(backend.child.pid), '--expect-port', String(args.port), '--headless', '--ready-timeout-ms', '30000']);
+      // [PATCHED-CANDIDATE IDENTITY] When the staged UI is a locally built
+      // patched candidate, its build stamp is cand-<sha> - NOT the app source
+      // sha. Forward --expect-build so the dashboard check compares against
+      // the candidate identity (run 40106229135: DASHBOARD_BUILD_MISMATCH).
+      // Absent -> the app-sha fallback (live-run upstream UI) is preserved.
+      const mcArgs = [path.join(__dirname, 'mission-control-check.js'), '--scope', 'server-local', '--target', target, '--expect-sha', args.sha, '--expect-pid', String(backend.child.pid), '--expect-port', String(args.port), '--headless', '--ready-timeout-ms', '30000'];
+      if (args.expectBuild) mcArgs.push('--expect-build', args.expectBuild);
+      mcCode = await runChild(process.execPath, mcArgs);
       phase('server-local-checks', { ok: mcCode === 0, code: mcCode === 0 ? 'OK' : `MC_EXIT_${mcCode}`, detail: 'mission-control-check --scope server-local' });
     }
     if (!backend.alive()) throw Object.assign(new Error('backend died after checks'), { phaseResult: phase('alive-after-checks', { ok: false, code: 'BACKEND_DIED', detail: JSON.stringify(backend.exit) }) });
