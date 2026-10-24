@@ -63,6 +63,7 @@ function isDownstreamDependency(reason) {
 function dependencyOf(capability, reason) {
   const r = String(reason || '');
   if (/^DEPENDS_ON_RDP_SESSION\b/.test(r)) return 'rdp_auto_login';
+  if (/^DEPENDS_ON_OPERABLE_DASHBOARD\b/.test(r)) return 'dashboard_client';
   if (/^DEPENDS_ON_TAILNET\b/.test(r)) return 'tailnet_connectivity';
   if (/^DEPENDS_ON_BACKEND\b/.test(r)) {
     return REQUIRED[capability] && REQUIRED[capability].scope === 'server_local'
@@ -168,7 +169,14 @@ function build(needs) {
   const regressionFailures = Object.entries(regressions).filter(([, r]) => r.status !== 'PASS')
     .map(([job, r]) => ({ job, status: r.status, reason: r.reason, failures: r.failures, failed: r.failed, skipped: r.skipped }));
   const regressionsOk = regressionFailures.length === 0;
-  const verdict = agg.accepted && staticOk && regressionsOk ? 'VERIFIED' : 'NOT_VERIFIED';
+  const requiredJobFailures = ['static', 'server', 'client']
+    .filter(name => !jobs[name] || jobs[name].result !== 'success')
+    .map(name => ({ job: name, result: jobs[name] ? jobs[name].result : 'absent' }));
+  // Capability outputs are not allowed to hide a later required-step failure
+  // (for example, sanitized server evidence publication failed after every
+  // probe passed). The rows remain useful, but the top-level verdict is not.
+  const requiredJobsOk = requiredJobFailures.length === 0;
+  const verdict = agg.accepted && staticOk && regressionsOk && requiredJobsOk ? 'VERIFIED' : 'NOT_VERIFIED';
 
   // EVERY independently observed failure, so a single "first cause" field can
   // never hide a second one (e.g. a supervisor guard timeout AND a tailnet join
@@ -192,6 +200,16 @@ function build(needs) {
       reason: `${r.reason}${r.failures && r.failures.length ? ` :: ${r.failures.map(f => f.name).join(' | ')}` : ''}`
     });
   }
+  // Add an otherwise-hidden job failure as its own root cause. When a probe
+  // already failed, its capability/regression row is clearer and avoids a
+  // duplicate job-level restatement here.
+  if (agg.accepted && staticOk && regressionsOk) {
+    for (const j of requiredJobFailures) independentCauses.push({
+      capability: `required_job_${j.job}`, subsystem: 'evidence', status: STATUS.FAIL,
+      category: 'REQUIRED_JOB_FAILED', dependsOn: null,
+      reason: `required ${j.job} job result=${j.result}; capability rows alone cannot prove the run complete`
+    });
+  }
   // First cause = first ROOT capability cause (in declared order). The bare
   // aggregate picks by insertion order, which named the downstream
   // web_desktop BLOCKED ahead of the rdp_auto_login FAIL it depends on.
@@ -202,6 +220,9 @@ function build(needs) {
   let firstCause = !staticOk ? { capability: 'static', status: STATUS.FAIL, reason: `static job result=${jobs.static ? jobs.static.result : 'absent'}` } : aggFirstCause;
   if (!firstCause && !regressionsOk) {
     firstCause = { capability: 'regressions', status: STATUS.FAIL, reason: regressionFailures.map(r => `${r.job}: ${r.reason}`).join('; ') };
+  }
+  if (!firstCause && !requiredJobsOk) {
+    firstCause = { capability: `required_job_${requiredJobFailures[0].job}`, status: STATUS.FAIL, reason: `required ${requiredJobFailures[0].job} job result=${requiredJobFailures[0].result}` };
   }
   const counts = { pass: 0, fail: 0, blocked: 0, blockedDownstream: 0, notRun: 0, other: 0 };
   for (const c of Object.values(caps)) {
@@ -232,6 +253,7 @@ function build(needs) {
     tailnetServiceState: server.tailnet_service_state || null,
     regressionGates: regressions,
     regressionGateFailures: regressionFailures,
+    requiredJobFailures,
     oidcSubject: server.oidc_sub || null,
     audienceMatchesConfigured: server.audience_matches === undefined ? null : server.audience_matches,
     rdpConfigured: server.rdp_configured || null,

@@ -35,6 +35,43 @@ function linesOf(text) { return text.split('\n'); }
 
 function hasCrlf(bytes) { return bytes.includes('\r\n'); }
 
+/**
+ * GitHub's workflow parser refuses a workflow whose unquoted scalar contains
+ * ": " (YAML reads it as a nested mapping). That is not a cosmetic problem: the
+ * whole file becomes unrunnable, and the only symptom on the repository is a
+ * failed run with ZERO jobs and no annotation at all (measured 2026-10-23 on
+ * `- name: Network preflight (read-only: can this desk ...)`, commit 4b2d085:
+ * run 39962631679, conclusion failure, 0 jobs). This gate is the only place that
+ * can catch it before GitHub does.
+ *
+ * Block scalars (run: |, with: ... |) are skipped by indentation, so shell text
+ * with colons is never reported.
+ */
+function unquotedColonSpace(text) {
+  const lines = linesOf(text);
+  const hits = [];
+  let block = null; // { indent }
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const indent = raw.match(/^[ ]*/)[0].length;
+    const trimmed = raw.trim();
+    if (block) {
+      if (trimmed === '' || indent > block.indent) continue; // still inside
+      block = null;
+    }
+    if (trimmed === '' || trimmed.startsWith('#')) continue;
+    // A block scalar opener: `key: |`, `key: >`, with optional chomping/indent.
+    const opener = raw.match(/^[ ]*(?:-[ ]+)?[A-Za-z_][\w.-]*:[ ]*[|>][-+]?[0-9]?[ ]*$/);
+    if (opener) { block = { indent }; continue; }
+    // `- name: VALUE` / `description: VALUE` style, value unquoted.
+    const m = raw.match(/^[ ]*(?:-[ ]+)?([A-Za-z_][\w.-]*):[ ]+([^'"|>#].*)$/);
+    if (!m) continue;
+    // `: ` inside the value (a second colon+space) makes it invalid YAML.
+    if (/: /.test(m[2])) hits.push({ line: i + 1, key: m[1], value: m[2].slice(0, 100) });
+  }
+  return hits;
+}
+
 function run() {
   const findings = [];
   const workflows = readAll();
@@ -45,6 +82,9 @@ function run() {
     // and a YAML file with a BOM is not valid for every consumer.
     if (wf.bytes[0] === 0xef && wf.bytes[1] === 0xbb && wf.bytes[2] === 0xbf) add('BOM_IN_WORKFLOW', wf.file, 'a UTF-8 BOM is present');
     if (/\t/.test(wf.text.split('\n').map(l => l.match(/^[ \t]*/)[0]).join(''))) add('TAB_INDENT', wf.file, 'indentation contains tabs');
+    for (const hit of unquotedColonSpace(wf.text)) {
+      add('YAML_UNQUOTED_COLON_SPACE', wf.file, `line ${hit.line}: ${hit.key}: ${hit.value} - quote the value (an unquoted ": " makes the whole workflow unrunnable)`);
+    }
   }
 
   const live = workflows.find(w => w.name === 'live-run.yml');
@@ -137,4 +177,4 @@ if (require.main === module) {
   process.exit(1);
 }
 
-module.exports = { run, readAll };
+module.exports = { run, readAll, unquotedColonSpace };

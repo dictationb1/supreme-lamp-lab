@@ -1,0 +1,41 @@
+﻿{
+    "schema":  "slab-real-backend-comparison/1",
+    "generatedAt":  "2026-10-24T04:36:06.3837765Z",
+    "labSha":  "08f6edf32d938b08ba0f30eae15ba9af8733df50",
+    "appSha":  "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "bundleSha256":  "6f4b4d7ec7a8dd639d6fafec7bbe6faa4dd33b2e225049a3e19d6b9d9403154b",
+    "baseline":  {
+                     "stallMs":  null,
+                     "firstHealthMs":  null,
+                     "readyAppearedMs":  null,
+                     "markerText":  null,
+                     "readyText":  null,
+                     "healthP95Ms":  null,
+                     "healthMaxMs":  null,
+                     "concurrent":  null,
+                     "fatal":  "LISTENING marker (server-ok.txt) never appeared within 60s",
+                     "verdicts":  {
+                                      "PASS":  0,
+                                      "FAIL":  0,
+                                      "BLOCKED":  0
+                                  },
+                     "socketOwner":  "no-listener"
+                 },
+    "patched":  {
+                    "stallMs":  null,
+                    "firstHealthMs":  null,
+                    "readyAppearedMs":  null,
+                    "markerText":  null,
+                    "readyText":  null,
+                    "healthP95Ms":  null,
+                    "healthMaxMs":  null,
+                    "concurrent":  null,
+                    "fatal":  "LISTENING marker (server-ok.txt) never appeared within 60s",
+                    "verdicts":  {
+                                     "PASS":  0,
+                                     "FAIL":  0,
+                                     "BLOCKED":  0
+                                 },
+                    "socketOwner":  "no-listener"
+                }
+}

@@ -1,0 +1,47 @@
+{
+  "scope": "server-local",
+  "job": "server",
+  "runId": "40076700890",
+  "runAttempt": "1",
+  "runner": "GitHub Actions 1000003917",
+  "writtenAt": "2026-10-24T08:11:51.361Z",
+  "capabilities": {
+    "backend_readiness_server_local": {
+      "status": "BLOCKED",
+      "required": true,
+      "contract": "/api/readiness ok&&status=ok&&phase=ready&&apiReadiness, pid==supervised pid, port; /api/version sha==expected",
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure",
+      "evidence": {}
+    },
+    "dashboard_server_local": {
+      "status": "BLOCKED",
+      "required": true,
+      "contract": "GET / 200 html and exact build; v2 also requires the real token dialog to clear, AUTO-LOGIN enabled, and a valid screenshot",
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure",
+      "evidence": {}
+    }
+  },
+  "target": null,
+  "expectSha": null,
+  "aggregate": {
+    "status": "BLOCKED",
+    "accepted": false,
+    "firstCause": {
+      "capability": "backend_readiness_server_local",
+      "status": "BLOCKED",
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure"
+    },
+    "counts": {
+      "PASS": 0,
+      "FAIL": 0,
+      "BLOCKED": 2,
+      "NOT_RUN": 0,
+      "SKIPPED": 0,
+      "SIMULATED": 0
+    },
+    "missingRequired": [
+      "backend_readiness_server_local",
+      "dashboard_server_local"
+    ]
+  }
+}

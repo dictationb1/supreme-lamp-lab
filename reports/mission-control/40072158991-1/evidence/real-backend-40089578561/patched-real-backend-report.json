@@ -1,0 +1,836 @@
+{
+  "schema": "slab-real-backend/2",
+  "generatedAt": "2026-10-24T11:27:40.298Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "backendKind": "actual_application",
+  "browserWebSocketStubbed": false,
+  "browserMode": "headed",
+  "identity": {
+    "label": "patched",
+    "appSha": "832a82eb7c29613b0b101585c56b5011ea008a06",
+    "labRevision": "abd43615afe170c8ab135169bf6505045a99d9be",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": false,
+    "account": "User",
+    "userDomain": "WIN-NFU1JG4VESE",
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "ghrdp-server.ps1",
+    "serverPid": 956
+  },
+  "r2Thresholds": {
+    "healthDuringWsTimeoutMs": 2000,
+    "healthDuringWsMaxMs": 1500,
+    "appRequestTimeoutMs": 3000,
+    "appRequestMaxMs": 2500,
+    "multiWsCount": 5,
+    "wsCapacityCap": 8,
+    "wsCapacityOverSubscribe": 1,
+    "frameWaitMs": 5000,
+    "echoWaitMs": 5000,
+    "idleExpiryWaitMs": 14000,
+    "reconnectWaitMs": 6000,
+    "malformedWaitMs": 4000,
+    "cycleCount": 10,
+    "maxHandleGrowth": 200
+  },
+  "timings": {
+    "desktopLockMs": 447,
+    "markerAppearedMs": 2038,
+    "markerText": "LISTENING pid=956 bind=127.0.0.1 port=7331 at=2026-10-24T16:57:42.5614088+05:30",
+    "listenerAppearedMs": 2041,
+    "connectMs": 0,
+    "firstHealthMs": 823,
+    "stallMs": 825,
+    "firstHealthStatus": 200,
+    "readyAppearedMs": 2866,
+    "readyText": "READY pid=956 port=7331 at=2026-10-24T16:57:42.9578047+05:30",
+    "healthSampleCount": 49,
+    "healthLatencyP95Ms": 72,
+    "healthLatencyMaxMs": 2331,
+    "healthLatencySamples": [
+      {
+        "t": 46,
+        "ms": 44
+      },
+      {
+        "t": 2227,
+        "ms": 72
+      },
+      {
+        "t": 4392,
+        "ms": 27
+      },
+      {
+        "t": 6944,
+        "ms": 53
+      },
+      {
+        "t": 11479,
+        "ms": 24
+      },
+      {
+        "t": 13701,
+        "ms": 53
+      },
+      {
+        "t": 15883,
+        "ms": 54
+      }
+    ],
+    "concurrent": {
+      "healthMs": 393,
+      "healthStatus": 200,
+      "slowFired": true,
+      "slowEndpoint": "/api/native-status",
+      "slowMs": 384,
+      "slowStatus": 200,
+      "slowBytes": 2609
+    },
+    "wsBlock": {
+      "wsUpgraded": true,
+      "healthDuringWsMs": 65,
+      "healthOk": true,
+      "healthStatus": 200,
+      "blocked": false
+    },
+    "wsRecovery": {
+      "recovered": true,
+      "waitedMs": 50,
+      "lastProbeMs": 50
+    },
+    "r2NoWs": {
+      "count": 5,
+      "okCount": 5,
+      "median": 55,
+      "p95": 62,
+      "max": 62,
+      "timeouts": 0
+    },
+    "r2OneWs": {
+      "upgraded": true,
+      "health": {
+        "count": 6,
+        "okCount": 5,
+        "median": 24,
+        "p95": 38,
+        "max": 38,
+        "timeouts": 1
+      }
+    },
+    "r2MultiWs": {
+      "socketsHeld": 5,
+      "health": {
+        "count": 6,
+        "okCount": 6,
+        "median": 56,
+        "p95": 76,
+        "max": 76,
+        "timeouts": 0
+      },
+      "configMs": 82,
+      "configStatus": 200
+    },
+    "r2Capacity": {
+      "cap": 8,
+      "held": 8,
+      "rejected": 1,
+      "healthDuringSaturation": {
+        "ok": true,
+        "ms": 24,
+        "status": 200
+      },
+      "auditPresent": true
+    },
+    "r2StateChange": {
+      "socketsHeld": 2,
+      "postStatus": 200,
+      "postMs": 73,
+      "fileWritten": true
+    },
+    "r2Frames": {
+      "frames": 3,
+      "opcodes": "1,9",
+      "helloAck": true,
+      "firstTexts": [
+        "{\"ok\":true,\"ts\":\"2026-10-24T16:58:16.9545848+05:30\",\"ws\":\"connected\",\"note\":\"F99 ws upgrade live\",\"heartbeat\":true,\"pingIntervalSec\":2}"
+      ]
+    },
+    "r2CloseReconnect": {
+      "normalCloseCompleted": true,
+      "reconnectUpgraded": true
+    },
+    "r2IdleExpiry": {
+      "expired": true,
+      "waitedMs": 8192,
+      "configuredIdleSec": 8,
+      "closeCode": 1001
+    },
+    "r2Malformed": {
+      "result": {
+        "status": 400
+      },
+      "ms": 79
+    },
+    "r2Cycles": {
+      "cycles": 10,
+      "okCycles": 10,
+      "before": {
+        "handles": 912,
+        "threads": 34,
+        "workingSet": 215285760
+      },
+      "after": {
+        "handles": 925,
+        "threads": 34,
+        "workingSet": 215384064
+      },
+      "handleGrowth": 13,
+      "healthAfter": {
+        "ok": true,
+        "ms": 9
+      }
+    },
+    "r2AuditLines": [
+      "2026-10-24T11:28:16.2365725Z ws rejected: at capacity 8 count=0 avail=0"
+    ]
+  },
+  "endpoints": {
+    "/health": {
+      "status": 200,
+      "ok": true,
+      "ms": 2112,
+      "bytes": 608,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "app",
+        "pid",
+        "listenerBound",
+        "bind",
+        "port",
+        "serverStartedUtc",
+        "ws",
+        "scans"
+      ],
+      "bodyHead": "{\"ok\":true,\"app\":\"ghrdp\",\"pid\":956,\"listenerBound\":true,\"bind\":\"127.0.0.1\",\"port\":7331,\"serverStartedUtc\":\"10/24/2026 11:27:42\",\"ws\":true,\"scans\":{\"logon\":{\"scanTs\":null,\"probeError\":null},\"connLog\":{\"scanTs\":null,\"probeError\":null},\"telescope\":{\"scanTs\":\"2026-10-24T11:28:00.6162218Z\",\"probeError\":\"telescope red: {\\\"ts\\\":\\\"2026-10-24T11:28:02.6428393Z\\\",\\\"trace\\\":\\\"t261024112800-live-52a331ec\\\",\\\""
+    },
+    "/api/config": {
+      "status": 200,
+      "ok": true,
+      "ms": 88,
+      "bytes": 811,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"labCandidate\":true,\"labOnly\":true,\"identity\":\"isolated-lab-candidate-not-live-origin\",\"rdpIp\":\"127.0.0.1\",\"ghrdp\":\"lab-candidate\",\"dnsName\":\"lab-candidate.invalid\",\"hostKind\":\"lab-isolated\",\"buildSha\":\"cand-abd43615afe1\",\"repo\":\"dictationb1/supreme-lamp-lab\",\"mirror\":false,\"mirrorHosts\":[],\"encryptMode\":\"all\",\"telegraphToken\":\"\",\"telegraphPath\":\"\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\""
+    },
+    "/api/native-status": {
+      "status": 200,
+      "ok": true,
+      "ms": 139,
+      "bytes": 12838,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"fqdn\":\"lab-candidate.invalid\",\"hostKind\":\"ephemeral\",\"buildSha\":\"cand-abd43615afe1\",\"rdpListener\":{\"authLast\":null,\"logonCollector\":{\"intervalSec\":30,\"staleSec\":90,\"scans\":0,\"alive\":true,\"startedAt\":\"2026-10-24T11:27:42.0442765Z\",\"uptimeSec\":21,\"lastScanAgeSec\":null,\"probeError\":\"\"},\"credsspLive\":\"warn\",\"credsspLiveWhy\":\"cert-not-bound\",\"credsspLiveTs\":\"2026-10-24T11:28:03.0335608Z\",\"connLog\":nu"
+    },
+    "/api/progress": {
+      "status": 200,
+      "ok": true,
+      "ms": 111,
+      "bytes": 1180,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"ok\":true,\"status\":\"ok\",\"phase\":\"ready\",\"serverTs\":\"2026-10-24T11:28:03Z\",\"mirror\":false,\"encryptMode\":\"all\",\"mirrorPlaintextElection\":false,\"mirrorDiag\":null,\"mirrorProbe\":null,\"ghrdp\":\"lab-candidate\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\",\"startedAt\":\"2026-10-24T11:27:40.884Z\",\"runStartedAt\":\"2026-10-24T11:27:40.884Z\",\"sessionStartedAt\":\"\",\"sessionEnd\":\"\",\"legacyIndexUrl\":\"\",\"rentryNe"
+    },
+    "/api/version": {
+      "status": 200,
+      "ok": true,
+      "ms": 81,
+      "bytes": 288,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "server",
+        "sha",
+        "sha7",
+        "shaSource",
+        "features"
+      ],
+      "bodyHead": "{\"ok\":true,\"server\":\"ghrdp\",\"sha\":\"832a82eb7c29613b0b101585c56b5011ea008a06\",\"sha7\":\"832a82e\",\"shaSource\":\"env.GITHUB_SHA\",\"features\":{\"autoHttps\":true,\"wwwTolerance\":true,\"noFallback\":true,\"downloadToRdp\":true,\"launchTiers\":true,\"selfTest\":true,\"mirrorLauncher\":true,\"streamProxy\":true}}"
+    },
+    "/ping": {
+      "status": 200,
+      "ok": true,
+      "ms": 43,
+      "bytes": 42,
+      "ctype": "application/json",
+      "topLevelKeys": [
+        "ok",
+        "wire",
+        "ts"
+      ],
+      "bodyHead": "{\"ok\":true,\"wire\":null,\"ts\":{\"Length\":33}}"
+    },
+    "/": {
+      "status": 200,
+      "ok": true,
+      "ms": 1732,
+      "bytes": 1273470,
+      "ctype": "text/html; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "\n\n  \n    \n    \n    <meta name="
+    }
+  },
+  "socketOwner": "pid=956 name=powershell start=2026-10-24T16:57:40.9021854+05:30",
+  "controls": [
+    {
+      "control_id": "backend.ws_accept_loop_block",
+      "area": "health",
+      "pre": "real PowerShell server, authenticated raw WebSocket upgrade",
+      "action": "Open one /ws connection and concurrently GET /health.",
+      "expect_ui": "an unrelated lightweight endpoint stays responsive while a long-lived WS is open",
+      "expect_req": "GET /ws (101) + GET /health in parallel",
+      "actual": "wsUpgraded=true blocked=false healthDuringWsMs=65 ",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "FAIL here is a REAL application backend defect (R2): inline WS handling stalls the single-threaded accept loop; it is reported, never hidden"
+    },
+    {
+      "control_id": "r2.no_ws_control_health",
+      "area": "health",
+      "pre": "real server, no WebSocket held",
+      "action": "GET /health five times.",
+      "expect_req": "five 200s",
+      "expect_ui": "n/a",
+      "actual": "median=55ms p95=62ms max=62ms timeouts=0",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "control baseline for the during-WS comparisons"
+    },
+    {
+      "control_id": "r2.one_ws_health_responsive",
+      "area": "health",
+      "pre": "one authenticated /ws held open",
+      "action": "GET /health six times on separate connections while the socket pumps.",
+      "expect_req": "101 then /health 200 within 1500ms",
+      "expect_ui": "polling continues while WS is open",
+      "actual": "upgraded=true ok=5/6 median=24ms p95=38ms max=38ms timeouts=1",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "the accept loop drains HTTP while a WS worker pumps"
+    },
+    {
+      "control_id": "r2.multi_ws_health_and_config",
+      "area": "health",
+      "pre": "5 concurrent authenticated /ws sockets",
+      "action": "hold all sockets, repeatedly GET /health and one authenticated /api/config.",
+      "expect_req": "all upgrades 101; /health 200 <= 1500ms; /api/config 200 <= 2500ms",
+      "expect_ui": "dashboard polls and button requests are not starved by many sockets",
+      "actual": "upgraded=5/5 healthOk=6/6 healthMax=76ms configStatus=200 configMs=82",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "WS workers must not exhaust the capacity that serves HTTP"
+    },
+    {
+      "control_id": "r2.capacity_limit_predictable",
+      "area": "health",
+      "pre": "server cap GHRDP_WS_MAX_CLIENTS=8",
+      "action": "open 9 sockets, then GET /health while saturated.",
+      "expect_req": "exactly 8 upgrades, excess answered 503 (not queued/hung), /health still 200",
+      "expect_ui": "a denied extra socket retries on the ladder instead of freezing the app",
+      "actual": "held=8 rejected=1 rejectStatuses=[503] firstRejectBody=\"websocket capacity exhausted; retry\" healthDuring=200/24ms audit=true",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "bounded admission: excess fails fast and never monopolizes the accept thread"
+    },
+    {
+      "control_id": "r2.state_change_while_ws_open",
+      "area": "connections",
+      "pre": "two authenticated /ws sockets held open",
+      "action": "POST /api/handler-hello (a real local heartbeat-file write), then verify the file and clean up.",
+      "expect_req": "200 {\"ok\":true} and handler-hello-last.json written while both sockets stay open",
+      "expect_ui": "a button/POST operation completes concurrently with live sockets",
+      "actual": "socketsHeld=2 post=200/73 fileWritten=true body={\"ok\":true}",
+      "evidence": "{\"ts\":\"2026-10-24T11:28:16.5007074Z\",\"verb\":\"check\",\"ok\":true,\"details\":\"launcher-error\"}",
+      "verdict": "PASS",
+      "note": "genuine backend mutation, not a 200-only check; test-owned files removed afterward"
+    },
+    {
+      "control_id": "r2.ws_real_frames_and_echo",
+      "area": "telemetry",
+      "pre": "authenticated /ws",
+      "action": "read real server frames and send an authenticated hello.",
+      "expect_req": "101, >=1 real text frame (heartbeat), and a hello-ack reply",
+      "expect_ui": "real WS messages, not a stub",
+      "actual": "frames=3 opcodes=[1,9] helloAck=true sample={\"ok\":true,\"ts\":\"2026-10-24T16:58:16.9545848+05:30\",\"ws\":\"connected\",\"note\":\"F99 ws upgrade live\",\"heartbeat\":true,\"ping",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "genuine RFC6455 frames from the real server worker"
+    },
+    {
+      "control_id": "r2.ws_close_abrupt_reconnect",
+      "area": "connections",
+      "pre": "authenticated /ws",
+      "action": "send a CLOSE frame, then abruptly drop a socket and open a fresh one.",
+      "expect_req": "clean teardown and a successful new 101 (worker capacity released)",
+      "expect_ui": "the reconnect ladder restores the bridge",
+      "actual": "normalClose=true abruptReconnect=true",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "the gate/slot must be released so reconnect succeeds"
+    },
+    {
+      "control_id": "r2.ws_idle_expiry",
+      "area": "connections",
+      "pre": "GHRDP_WS_IDLE_TIMEOUT_SEC=8; a socket that sends no frames",
+      "action": "open a silent /ws and wait for the server to close it.",
+      "expect_req": "server-initiated close within 14000ms",
+      "expect_ui": "a half-open peer is reaped, not held forever",
+      "actual": "expired=true waitedMs=8192",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "interactive sockets answer pings and are not affected; only a silent peer expires"
+    },
+    {
+      "control_id": "r2.ws_malformed_handshake_bounded",
+      "area": "health",
+      "pre": "GET /ws without Upgrade: websocket",
+      "action": "send a non-upgrade request to the /ws route.",
+      "expect_req": "an HTTP answer (400) within the bound, no hung connection",
+      "expect_ui": "n/a",
+      "actual": "result={\"status\":400} ms=79",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "the worker preserves the original 400 path for a non-upgrade"
+    },
+    {
+      "control_id": "r2.repeated_cycles_no_leak",
+      "area": "health",
+      "pre": "10 connect/frame/close cycles",
+      "action": "repeatedly open and tear down /ws workers, then sample process handles/threads and /health.",
+      "expect_req": "all 10 cycles upgrade, handle growth <= 200, /health still 200",
+      "expect_ui": "long-lived server does not accumulate runspace handles",
+      "actual": "okCycles=10 handles 912 -> 925 (growth=13) threads 34 -> 34 health=200/9ms",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "reaper disposes PowerShell handles; sockets/streams close in worker finally"
+    },
+    {
+      "control_id": "real.auth_gate",
+      "area": "authentication",
+      "pre": "real PowerShell server, fresh context, no key",
+      "action": "Load /?ui=v2 without a dashboard key.",
+      "expect_ui": "the token gate blocks the dashboard (or an explicit refusal is shown)",
+      "expect_req": "GET / -> 200 real ui-v2.html",
+      "actual": "initialGotoOk=true gateVisible=true ",
+      "evidence": "shots\\gate-patched.png",
+      "verdict": "PASS",
+      "note": "a rendered UI behind a real gate is proof of real bootstrap, not a stub"
+    },
+    {
+      "control_id": "real.authenticated_shell",
+      "area": "overview",
+      "pre": "real server, valid synthetic key",
+      "action": "Load with ?key, wait for the app shell.",
+      "expect_ui": "app-topbar mounts against the real backend; served origin is this server",
+      "expect_req": "GET /api/config, /api/native-status, /api/progress -> real responses",
+      "actual": "shell=true unlocked=true origin=http://127.0.0.1:7331 uiV2MissingBanner=false topStatus=\"No /ws endpoint\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.status_chip_semantics",
+      "area": "overview",
+      "pre": "real backend with lab synthetic data",
+      "action": "Read the topbar status chip and the auto-login gate note.",
+      "expect_ui": "the chip does not assert \"Live\" from an unmeasured state; the note names the actual probe result",
+      "expect_req": "200 /api/native-status consumed truthfully (F201)",
+      "actual": "chip=\"No /ws endpoint\" note=\"WINDOWS AUTO-LOGIN is unavailable because: waiting for the first status answer; nothing has been measured yet\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": "F201: a refused/empty probe must not become confirmed credential/DNS/listener failure"
+    },
+    {
+      "control_id": "real.nav.overview",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/ and assert [overview-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=overview-page visible=true heading=\"Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose fr\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.search",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/search and assert [search-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=search-page visible=true heading=\"Search Ready Federated search across the compiled source roster and your own sto\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.sessions",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/sessions and assert [page-sessions] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-sessions visible=true heading=\"Sessions The current runner session, its logon events and the ticket audit.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.connections",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/connections and assert [page-connections] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-connections visible=true heading=\"Connections lab-candidate.invalid Launch, copy and diagnose the RDP connection.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.keys",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/keys and assert [page-keys] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-keys visible=true heading=\"Keys & Secrets Protected access. Values stay masked until you reveal them.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.files",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/files and assert [file-explorer-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=file-explorer-page visible=true heading=\"File Explorer Read / write Live runner index Real operations on the watcher root\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.mirror",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/mirror and assert [page-mirror] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-mirror visible=true heading=\"Mirror Runner-side upload mirroring and its read-only transport matrix.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.telemetry",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/telemetry and assert [page-telemetry] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-telemetry visible=true heading=\"Telemetry Event timelines and the raw log streams behind them.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.health",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/health and assert [health-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=health-page visible=true heading=\"Health Probing… Every self-test check, with the one-cell fix for each failing ro\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.collector",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/collector and assert [collector-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=collector-page visible=true heading=\"Collector No run yet Live feature probes, on demand or on the 1/5 minute schedul\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.settings",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/settings and assert [page-settings] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-settings visible=true heading=\"Settings Appearance, glass quality, sources, storage and developer surfaces.\"",
+      "evidence": "shots\\authenticated-patched.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.browser_ws_real_frames",
+      "area": "telemetry",
+      "pre": "authenticated real server, ordinary frontend, no WebSocket stub",
+      "action": "let the shipped app open /ws and read its real frames while polling.",
+      "expect_ui": "a live bridge indicator driven by genuine server frames",
+      "expect_req": "real GET /ws 101 followed by >=1 server text frame",
+      "actual": "wsOpened=false framesIn=0 framesOut=0 url= bridge=\"RDP Mission Control var rS=Object.defineProperty;var sS=(e,t,n)=>t in e?rS(e,t,{enumerable:!0,configurable:!0,writable:!0,value:n}):e[t]=n;v\"",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "browserWebSocketStubbed=false; genuine RFC6455 frames from the real worker"
+    },
+    {
+      "control_id": "real.browser_ws_http_concurrent",
+      "area": "health",
+      "pre": "a real /ws socket is open in the browser",
+      "action": "fetch /health and trigger a force-poll while the socket stays open.",
+      "expect_ui": "polls/button requests keep completing beside the live socket",
+      "expect_req": "/health 200 and a poll lane 200 with the socket still open",
+      "actual": "health={\"ok\":false,\"error\":\"no-ws\"} forcePollStatus=200 socketStillOpen=false",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "the R2 invariant, exercised through the real browser rather than a raw socket only"
+    },
+    {
+      "control_id": "real.browser_ws_reconnect",
+      "area": "connections",
+      "pre": "real /ws socket open in the browser",
+      "action": "close the socket client-side and wait for the app reconnect ladder.",
+      "expect_ui": "the bridge automatically re-establishes without a manual reload",
+      "expect_req": "a new GET /ws 101 with fresh frames after the close",
+      "actual": "reconnected=false secondSocketFrames=0 totalObservations=0",
+      "evidence": "",
+      "verdict": "FAIL",
+      "note": "exercises the shipped 1s/3s/10s/30s reconnect ladder against the real server"
+    },
+    {
+      "control_id": "real.settings_theme_toggle",
+      "area": "settings",
+      "pre": "authenticated real server",
+      "action": "Click the theme toggle.",
+      "expect_ui": "document data-theme changes and persists",
+      "expect_req": "browser-local only (no backend)",
+      "actual": "before=dark after=light clicked=true",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "real browser-local setting, not inferred from a unit test"
+    },
+    {
+      "control_id": "real.sessions.list",
+      "area": "sessions",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/sessions on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/sessions",
+      "actual": "status=404 ms=32 bytes=9 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: real session rows (needs a genuine logon) (endpoint 404)"
+    },
+    {
+      "control_id": "real.keys.reveal",
+      "area": "keys",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/config on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/config",
+      "actual": "status=200 ms=54 bytes=811 keys=[]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; masked creds in the authenticated config (reveal needs the real store) is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.files.browse",
+      "area": "files",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/fx/list on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/fx/list",
+      "actual": "status=404 ms=45 bytes=279 keys=[phase,error,at,index]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: File Explorer index (needs the real staged filesystem index) (endpoint 404)"
+    },
+    {
+      "control_id": "real.mirror.start",
+      "area": "mirror",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/mirror/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/mirror/status",
+      "actual": "status=200 ms=49 bytes=152 keys=[ok,enabled,mirror,hosts,host,scope,source,at]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; mirror status (real start needs external hosts + opt-in) is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.telemetry.samples",
+      "area": "telemetry",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/progress on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/progress",
+      "actual": "status=200 ms=49 bytes=1180 keys=[]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; real progress samples is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.health.service_checks",
+      "area": "health",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /health on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /health",
+      "actual": "status=200 ms=43 bytes=678 keys=[ok,app,pid,listenerBound,bind,port,serverStartedUtc,ws]",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "REAL endpoint responded; real service health is still separately required for full acceptance"
+    },
+    {
+      "control_id": "real.search.query",
+      "area": "search",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/search/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/search/status",
+      "actual": "status=403 ms=44 bytes=246 keys=[requestId,traceId,code,messageKey,retryable,details]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: search lane status (a real query needs the search backend) (endpoint 403)"
+    },
+    {
+      "control_id": "real.native_rdp_connect",
+      "area": "connections",
+      "pre": "requires a signed production launcher, a real run key and an RDP listener",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: native RDP needs the origin signal chain + signed launcher + a real listener",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "lab server is loopback with synthetic identity; a helper-only connect is NOT counted"
+    },
+    {
+      "control_id": "real.web_desktop_frames",
+      "area": "connections",
+      "pre": "requires a real noVNC/TightVNC session on the tailnet",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: web desktop needs a real captured interactive session",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "no simulated frames are counted as proof"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: the server responded with a status of 404 ()",
+    "Failed to load resource: the server responded with a status of 404 ()",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "failedRequests": [
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/api/fx/list",
+      "why": "net::ERR_ABORTED"
+    }
+  ],
+  "verdicts": {
+    "PASS": 30,
+    "FAIL": 3,
+    "BLOCKED": 5,
+    "PENDING": 0
+  },
+  "fatal": "",
+  "desktopLock": "acquired",
+  "startupDiag": {
+    "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40089578561\\ghrdp-server.ps1 -Port 7331 -Bind 127.0.0.1 -Root C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40089578561 -LimitMinutes 6",
+    "runFile": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40089578561\\ghrdp-server.ps1",
+    "root": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-patched-40089578561",
+    "resolvedRunFileExists": true,
+    "liveness": [
+      {
+        "t": 4,
+        "exited": false,
+        "spawnError": "",
+        "stdoutBytes": 0,
+        "stderrBytes": 0,
+        "listener": false
+      }
+    ],
+    "listenerAppeared": true
+  },
+  "browserWsStubbed": false,
+  "browserWsDiagnostic": {
+    "webSocketType": "function",
+    "webSocketToString": "function WebSocket() { [native code] }",
+    "origin": "http://127.0.0.1:7331",
+    "tokenStoredLen": 21,
+    "healthJson": {
+      "status": 200,
+      "ok": true,
+      "ws": true,
+      "app": "ghrdp"
+    },
+    "consoleWs": [],
+    "pageWsRequests": [],
+    "pageWsFailed": [],
+    "pageWsResponses": [],
+    "manual": {
+      "constructed": true,
+      "threw": "",
+      "readyState": 1,
+      "events": [
+        "open",
+        "frame:{\"ok\":true,\"ts\":\"2026-10-24T16:58:40.796",
+        "frame:{\"ok\":true,\"ts\":\"2026-10-24T16:58:42.886",
+        "frame:{\"type\":\"ping\",\"ok\":true,\"ts\":\"2026-10-2"
+      ],
+      "url": "ws://127.0.0.1:7331/ws?key=<redacted>"
+    },
+    "contextObservationsBeforeManual": 0,
+    "contextObservationsAfterManual": 0,
+    "contextSawManual": false,
+    "appSocketWaitedMs": 7003,
+    "contextObservationsAfterWait": 0,
+    "appSocketObserved": false
+  },
+  "_startupStallMs": 825
+}

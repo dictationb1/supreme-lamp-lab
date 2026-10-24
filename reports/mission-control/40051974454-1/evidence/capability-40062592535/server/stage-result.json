@@ -1,0 +1,11 @@
+{
+  "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "stageRoot": "C:\\ghrdp",
+  "staged": 38,
+  "missing": [],
+  "uiBundle": "ui-dist-4a91c5c2eadc12e5b071bc46bae7683087f56fbd.zip",
+  "uiBundleBytes": 1269742,
+  "uiBundleSha256": "3fc7305d9ef3ef05ac545394c5727bbd7517793ed5c9c0d284907e142fb7510c",
+  "serverSha256": "5f114fb17dd2a74693e5cb28f15a3d43271c6b2e0144ab2947f5c4ff6da2908d",
+  "uiHtmlSha256": "3d86eb4f205a1fd1fbcac3e1d0462d88f482786572147e62a9a98664dd6f6e09"
+}

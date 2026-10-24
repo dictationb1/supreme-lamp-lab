@@ -1,0 +1,77 @@
+{
+  "schema": "slab-candidate-report/1",
+  "generatedAt": "2026-10-24T02:27:39.920Z",
+  "candidate": {
+    "buildSha": "cand-5cb081a9a917",
+    "bundle": {
+      "path": "index.html",
+      "bytes": 1273477,
+      "sha256": "d63e1dd78adf1843e2c702fe91b34b64a031f6862510ca722ee846a9a537ba88"
+    }
+  },
+  "backend": "lab-candidate-stub (synthetic; NOT the application server)",
+  "modes": [
+    "refuse"
+  ],
+  "host": "runnervmdaln5",
+  "execution": {
+    "headless": true,
+    "runner": "GitHub Actions 1000003733",
+    "runnerEnvironment": "github-hosted",
+    "session": ""
+  },
+  "counts": {
+    "PASS": 2
+  },
+  "consoleErrors": [
+    {
+      "mode": "refuse",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "mode": "refuse",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "mode": "refuse",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "mode": "refuse",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    },
+    {
+      "mode": "refuse",
+      "text": "WebSocket connection to 'ws://127.0.0.1:7331/ws' failed: Error during WebSocket handshake: Unexpected response code: 404"
+    }
+  ],
+  "failedRequests": [],
+  "controls": [
+    {
+      "mode": "refuse",
+      "control_id": "overview.auto_login_gate",
+      "area": "overview",
+      "preconditions": "lab candidate build served on 127.0.0.1 with the stub backend in this mode",
+      "action": "Load the dashboard while /api/config and /api/native-status answer 401, read the gate note and the button state.",
+      "expected_ui": "the note names the refused status read; it does NOT claim credentials/DNS/listener were measured; the button stays disabled",
+      "expected_request": "GET /api/config -> 401, GET /api/native-status -> 401",
+      "actual": "note=\"WINDOWS AUTO-LOGIN is unavailable because: the dashboard refused this page: no valid run key was presented, so nothing about credentials, DNS or the listener has been measured. Open the page with this run's ?key= and reload (HTTP 401)\" disabled=true chip=\"Data unavailable\"",
+      "evidence": "shots/overview-refuse.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "mode": "refuse",
+      "control_id": "topbar.status_semantics",
+      "area": "overview",
+      "preconditions": "lab candidate build served on 127.0.0.1 with the stub backend in this mode",
+      "action": "Read the glanceable status chip while both status probes are refused.",
+      "expected_ui": "NOT \"Live\": the chip reports unavailable data",
+      "expected_request": "",
+      "actual": "chip=\"Data unavailable\"",
+      "evidence": "shots/overview-refuse.png",
+      "verdict": "PASS",
+      "note": "Live must describe connectivity, never stand in for backend data"
+    }
+  ]
+}

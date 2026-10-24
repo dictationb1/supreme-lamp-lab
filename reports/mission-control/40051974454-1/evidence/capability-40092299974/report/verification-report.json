@@ -1,0 +1,450 @@
+{
+  "schema": 2,
+  "generatedAt": "2026-10-24T12:09:04.753Z",
+  "repository": "dictationb1/supreme-lamp-lab",
+  "runId": "40092299974",
+  "runAttempt": "1",
+  "event": "pull_request",
+  "correlationId": null,
+  "labCommit": "aba6fa99d670e6af82e97d123118c15f2ad2c511",
+  "prHeadCommit": "aba6fa99d670e6af82e97d123118c15f2ad2c511",
+  "appRepository": "dictationb1/supreme-lamp",
+  "appCommit": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "verdict": "NOT_VERIFIED",
+  "aggregate": "BLOCKED",
+  "counts": {
+    "pass": 0,
+    "fail": 0,
+    "blocked": 2,
+    "blockedDownstream": 2,
+    "notRun": 7,
+    "other": 0
+  },
+  "firstCause": {
+    "capability": "browser_synthetic",
+    "status": "NOT_RUN",
+    "reason": "NO_RESULT: job client result=skipped produced no client_local capability output"
+  },
+  "independentCauses": [
+    {
+      "capability": "browser_synthetic",
+      "subsystem": "client_local",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no client_local capability output"
+    },
+    {
+      "capability": "native_screenshot",
+      "subsystem": "client_local",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no client_local capability output"
+    },
+    {
+      "capability": "backend_readiness_server_local",
+      "subsystem": "server_local",
+      "status": "BLOCKED",
+      "category": "DEPENDS_ON_STANDALONE_IDENTITY_TLS",
+      "dependsOn": null,
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure"
+    },
+    {
+      "capability": "dashboard_server_local",
+      "subsystem": "server_local",
+      "status": "BLOCKED",
+      "category": "DEPENDS_ON_STANDALONE_IDENTITY_TLS",
+      "dependsOn": null,
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure"
+    },
+    {
+      "capability": "tailnet_connectivity",
+      "subsystem": "tailnet_or_remote",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no tailnet capability output"
+    },
+    {
+      "capability": "backend_readiness_remote",
+      "subsystem": "tailnet_or_remote",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+    },
+    {
+      "capability": "dashboard_client",
+      "subsystem": "tailnet_or_remote",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+    },
+    {
+      "capability": "web_desktop",
+      "subsystem": "tailnet_or_remote",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+    },
+    {
+      "capability": "rdp_auto_login",
+      "subsystem": "tailnet_or_remote",
+      "status": "NOT_RUN",
+      "category": null,
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+    },
+    {
+      "capability": "regressions_client",
+      "subsystem": "regression",
+      "status": "FAIL",
+      "category": "REGRESSION_GATE_MISSING",
+      "dependsOn": null,
+      "reason": "NO_RESULT: job client produced no caps_regressions output"
+    }
+  ],
+  "bySubsystem": {
+    "client_local": [
+      "browser_synthetic=NOT_RUN",
+      "native_screenshot=NOT_RUN"
+    ],
+    "server_local": [
+      "backend_readiness_server_local=BLOCKED (DEPENDS_ON_STANDALONE_IDENTITY_TLS)",
+      "dashboard_server_local=BLOCKED (DEPENDS_ON_STANDALONE_IDENTITY_TLS)"
+    ],
+    "tailnet_or_remote": [
+      "tailnet_connectivity=NOT_RUN",
+      "backend_readiness_remote=NOT_RUN",
+      "dashboard_client=NOT_RUN",
+      "web_desktop=NOT_RUN",
+      "rdp_auto_login=NOT_RUN"
+    ],
+    "regression": [
+      "regressions_client=FAIL (REGRESSION_GATE_MISSING)"
+    ]
+  },
+  "diagnostics": {
+    "supervisorFirstFailure": null,
+    "supervisorDegradedGuards": null,
+    "backendIdentityState": null,
+    "backendFailureClass": "UNKNOWN",
+    "backendHealthProven": false,
+    "tailscaleStepOutcome": "success",
+    "tailnetCategory": "JOIN_OK",
+    "tailnetDetail": "identity token exchanged and tailscale up succeeded",
+    "tailnetFirstError": null,
+    "tailnetFailedOperation": null,
+    "tailnetCliVersion": null,
+    "tailnetServiceState": null,
+    "regressionGates": {
+      "static": {
+        "job": "static",
+        "required": true,
+        "total": 243,
+        "passed": 243,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "linux"
+      },
+      "client": {
+        "job": "client",
+        "required": true,
+        "total": null,
+        "passed": null,
+        "failed": null,
+        "skipped": null,
+        "failures": [],
+        "reason": "NO_RESULT: job client produced no caps_regressions output",
+        "status": "MISSING"
+      }
+    },
+    "regressionGateFailures": [
+      {
+        "job": "client",
+        "status": "MISSING",
+        "reason": "NO_RESULT: job client produced no caps_regressions output",
+        "failures": [],
+        "failed": null,
+        "skipped": null
+      }
+    ],
+    "requiredJobFailures": [
+      {
+        "job": "server",
+        "result": "failure"
+      },
+      {
+        "job": "client",
+        "result": "skipped"
+      }
+    ],
+    "oidcSubject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "audienceMatchesConfigured": "true",
+    "rdpConfigured": "true",
+    "rdpReason": "OK",
+    "prerequisitesMissing": [
+      "backend_readiness_server_local",
+      "dashboard_server_local"
+    ],
+    "rootCauses": [
+      {
+        "capability": "browser_synthetic",
+        "subsystem": "client_local",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no client_local capability output"
+      },
+      {
+        "capability": "native_screenshot",
+        "subsystem": "client_local",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no client_local capability output"
+      },
+      {
+        "capability": "tailnet_connectivity",
+        "subsystem": "tailnet_or_remote",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no tailnet capability output"
+      },
+      {
+        "capability": "backend_readiness_remote",
+        "subsystem": "tailnet_or_remote",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+      },
+      {
+        "capability": "dashboard_client",
+        "subsystem": "tailnet_or_remote",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+      },
+      {
+        "capability": "web_desktop",
+        "subsystem": "tailnet_or_remote",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+      },
+      {
+        "capability": "rdp_auto_login",
+        "subsystem": "tailnet_or_remote",
+        "status": "NOT_RUN",
+        "category": null,
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client result=skipped produced no remote capability output"
+      },
+      {
+        "capability": "regressions_client",
+        "subsystem": "regression",
+        "status": "FAIL",
+        "category": "REGRESSION_GATE_MISSING",
+        "dependsOn": null,
+        "reason": "NO_RESULT: job client produced no caps_regressions output"
+      }
+    ],
+    "downstreamBlocked": [
+      {
+        "capability": "backend_readiness_server_local",
+        "subsystem": "server_local",
+        "category": "DEPENDS_ON_STANDALONE_IDENTITY_TLS",
+        "dependsOn": null
+      },
+      {
+        "capability": "dashboard_server_local",
+        "subsystem": "server_local",
+        "category": "DEPENDS_ON_STANDALONE_IDENTITY_TLS",
+        "dependsOn": null
+      }
+    ]
+  },
+  "regressions": {
+    "static": {
+      "job": "static",
+      "required": true,
+      "total": 243,
+      "passed": 243,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "linux"
+    },
+    "client": {
+      "job": "client",
+      "required": true,
+      "total": null,
+      "passed": null,
+      "failed": null,
+      "skipped": null,
+      "failures": [],
+      "reason": "NO_RESULT: job client produced no caps_regressions output",
+      "status": "MISSING"
+    }
+  },
+  "capabilities": {
+    "browser_synthetic": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no client_local capability output",
+      "source": "client.caps_client_local"
+    },
+    "native_screenshot": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no client_local capability output",
+      "source": "client.caps_client_local"
+    },
+    "backend_readiness_server_local": {
+      "status": "BLOCKED",
+      "required": true,
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure",
+      "source": "server.caps_server_local"
+    },
+    "dashboard_server_local": {
+      "status": "BLOCKED",
+      "required": true,
+      "reason": "DEPENDS_ON_STANDALONE_IDENTITY_TLS: config=success cert=failure",
+      "source": "server.caps_server_local"
+    },
+    "tailnet_connectivity": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no tailnet capability output",
+      "source": "client.caps_tailnet"
+    },
+    "backend_readiness_remote": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output",
+      "source": "client.caps_remote"
+    },
+    "dashboard_client": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output",
+      "source": "client.caps_remote"
+    },
+    "web_desktop": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output",
+      "source": "client.caps_remote"
+    },
+    "rdp_auto_login": {
+      "status": "NOT_RUN",
+      "required": true,
+      "reason": "NO_RESULT: job client result=skipped produced no remote capability output",
+      "source": "client.caps_remote"
+    }
+  },
+  "jobs": {
+    "static": "success",
+    "server": "failure",
+    "client": "skipped"
+  },
+  "jobsDetail": [
+    {
+      "name": "static",
+      "id": 120867667879,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000003994",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T12:04:25Z",
+      "completedAt": "2026-10-24T12:06:45Z"
+    },
+    {
+      "name": "auth-diagnostic",
+      "id": 120867668480,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T12:04:23Z",
+      "completedAt": "2026-10-24T12:04:22Z"
+    },
+    {
+      "name": "live-origin guard",
+      "id": 120867698499,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T12:04:32Z",
+      "completedAt": "2026-10-24T12:04:22Z"
+    },
+    {
+      "name": "server",
+      "id": 120868144225,
+      "status": "completed",
+      "conclusion": "failure",
+      "runner": "GitHub Actions 1000003996",
+      "labels": [
+        "windows-latest"
+      ],
+      "startedAt": "2026-10-24T12:06:48Z",
+      "completedAt": "2026-10-24T12:08:57Z"
+    },
+    {
+      "name": "client",
+      "id": 120868145412,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "rdp-lab-client"
+      ],
+      "startedAt": "2026-10-24T12:06:46Z",
+      "completedAt": "2026-10-24T12:06:46Z"
+    },
+    {
+      "name": "report",
+      "id": 120868579882,
+      "status": "in_progress",
+      "conclusion": null,
+      "runner": "GitHub Actions 1000003998",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T12:09:00Z",
+      "completedAt": null
+    }
+  ],
+  "publish": {
+    "published": true,
+    "updated": true,
+    "created": false,
+    "id": 6381797317,
+    "status": 200,
+    "error": null
+  }
+}

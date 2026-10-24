@@ -1,0 +1,13 @@
+{
+  "mode": "postflight",
+  "runId": "40068292407",
+  "runAttempt": "1",
+  "registry": "C:\\hostedtoolcache\\windows\\supreme-lamp-lab-state\\process-registry.json",
+  "startedAt": "2026-10-24T06:02:12.775Z",
+  "decisions": [],
+  "terminated": 0,
+  "survivors": [],
+  "errors": [],
+  "limitations": [],
+  "durationMs": 1142
+}

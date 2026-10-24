@@ -1,0 +1,192 @@
+diff --git a/payloads/ghrdp-server.ps1 b/payloads/ghrdp-server.ps1
+index 5407db4..e74b4b0 100644
+--- a/payloads/ghrdp-server.ps1
++++ b/payloads/ghrdp-server.ps1
+@@ -9539,45 +9539,42 @@ try {
+     }
+ } catch { }
+ try { Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',(Join-Path $Root 'rdp-usage.ps1') -WindowStyle Hidden } catch { }
+-# [F45-R §1] READINESS BEFORE SCANS. The listener bind and the LISTENING
+-# marker happen FIRST, and /health (added below the auth gate) answers
+-# ok/app/pid as soon as the accept loop runs. Rationale: the three startup
+-# scans below are synchronous Get-WinEvent walks of the Security/System logs
+-# and can take seconds on a busy host. Readiness (listener bound + the right
+-# application instance responding) must never be held hostage by them, and a
+-# harness waiting on server-ok.txt must observe the bind, not the scan.
+-# What this reorder CHANGES: the F28/F30/F37 guarantee softens from "stamped
+-# before the first client can poll" to "stamped promptly after the listener
+-# accepts, within one scan duration" - every consumer already tolerates the
+-# not-yet-stamped window via scanTs/probeError (an honest "not reported yet",
+-# never a fabricated value). What it does NOT fix, and documents honestly:
+-# while a scan runs on this thread the accept loop is not draining, so
+-# requests arriving mid-scan queue in the TCP backlog. Bounding THAT latency
+-# is the isolated-scan-worker work package (docs/mission-control tracker,
+-# F45-B): a cooperative delay on this thread cannot yield inside Get-WinEvent.
++# [F45-R §1 / LAB-R1] READINESS BEFORE SCANS - the accept loop starts first.
++# The listener bind happens FIRST and the LISTENING marker records a BOUND
++# SOCKET (connectivity), which is NOT the same as HTTP readiness. The three
++# startup Get-WinEvent scans that used to run here SYNCHRONOUSLY, before the
++# accept loop, were the readiness stall: a TCP connect succeeded, the marker
++# existed, but no thread was accepting, so /health could not answer until all
++# three scans finished (seconds on a busy Security/System log). LAB-R1 removes
++# those synchronous startup scans. The F28/F30/F37 collectors are UNCHANGED and
++# still run on the bounded accept-loop ticks below; they remain the ONLY writers
++# of their state files, so audit/logon evidence is preserved - it is merely
++# stamped on the first tick instead of before the first byte is served. A
++# genuinely absent first stamp is reported honestly by /health as scanTs=null
++# ("not reported yet"), never a fabricated value.
++# [LAB-R1 §2] HTTP readiness is published via server-ready.txt, written from
++# INSIDE the accept loop on its first iteration, so a consumer can wait for a
++# service that has actually begun accepting rather than trusting a bind marker.
++# [LAB-R1 §3] Residual, honestly tracked (F45-B): a periodic tick scan still
++# runs on this thread, so one request arriving mid-scan waits one bounded scan.
++# LAB-R1 adds a one-scan-per-iteration guard so two due ticks can never stack
++# their Get-WinEvent cost into a single blocking stretch. A fully isolated scan
++# worker is the documented F45-B follow-up; it is deliberately NOT attempted
++# here because relocating several interdependent collectors cannot be proven
++# safe without more Windows verification cycles than this bundle could run.
+ $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Parse($Bind), $Port)
+ try { $listener.Start() } catch {
+     try { [System.IO.File]::WriteAllText($script:OkFile, 'LISTEN_FAIL: ' + $_.Exception.Message, $script:NoBom) } catch { }
+     exit 1
+ }
+ [System.IO.File]::WriteAllText($script:OkFile, ('LISTENING pid={0} bind={1} port={2} at={3}' -f $PID, $Bind, $Port, (Get-Date -Format o)), $script:NoBom)
+-# [F28 §1] STARTUP SCAN: stamps the logon verdict promptly after the listener
+-# starts accepting, so /api/native-status reports a real verdict (scanTs +
+-# result) instead of a long "not reported yet" window. Failure is contained
+-# (the function stamps probeError + scanTs instead of throwing).
+-try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
++# [LAB-R1 §1] No synchronous event-log scan before the accept loop. The tick
++# timers below own the first stamp; /health answers immediately from the loop.
+ $lastLogonScan = Get-Date
+-# [F30 §3] STARTUP SCAN: the first conn-log stamp lands promptly after the
+-# listener starts, so the SERVER CONN LOG row reports a real verdict instead
+-# of "not reported yet" while the collector is actually alive. Failure is
+-# contained (probeError + scanTs are stamped by the function, not a throw).
+-try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+ $lastConnLogScan = Get-Date
+-# [F37 §4] STARTUP SCAN: the telescope stamps promptly after the listener starts
+-# (same shape as the F28/F30 startup scans), and the 60s tick below keeps it
+-# live. "Not reported yet" means a genuinely absent sample.
+-try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+ $lastTelScan = Get-Date
++$script:ServerReadyPath = Join-Path $Root 'server-ready.txt'
++$script:ServerReadyStamped = $false
+ 
+ # Transition InitPhase to 'ready' after successful startup initialization
+ $script:InitPhase = 'ready'
+@@ -9768,31 +9765,34 @@ if ($env:GHRDP_SCAN_DELAY_MS -match '^[0-9]+$') {
+     $script:ScanDelayMs = [Math]::Max(5, [Math]::Min(1000, [int]$env:GHRDP_SCAN_DELAY_MS))
+ }
+ while (((Get-Date) - $start) -lt $limit) {
++    # [LAB-R1 §2] Publish HTTP readiness exactly once, from INSIDE the running
++    # accept loop, so waiting on server-ready.txt implies a thread is accepting.
++    if (-not $script:ServerReadyStamped) {
++        try { [System.IO.File]::WriteAllText($script:ServerReadyPath, ('READY pid={0} port={1} at={2}' -f $PID, $Port, (Get-Date -Format o)), $script:NoBom) } catch { }
++        $script:ServerReadyStamped = $true
++    }
+     while ($listener.Pending()) {
+         $client = $null
+         try { $client = $listener.AcceptTcpClient() } catch { }
+         if ($client) { Invoke-ClientRequest -Client $client -Token $script:Token }
+     }
+-    # [F28 §1] INDEPENDENT 30s logon-result tick (server start, not the
+-    # workflow's keep-alive step). The accept loop sleeps 50ms, so this costs
+-    # nothing and the verdict is never older than ~30s.
+-    if (((Get-Date) - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec) {
+-        $lastLogonScan = Get-Date
++    # [LAB-R1 §3] ONE inline scan per iteration. Each collector keeps its own
++    # last-run timer and remains the sole writer of its state file; the guard
++    # only spreads coincident ticks across adjacent 50ms iterations so their
++    # Get-WinEvent cost can never stack into one long block on the accept
++    # thread. A due-but-deferred collector simply runs on the next iteration.
++    $iterNow = Get-Date
++    $dueLogon = (($iterNow - $lastLogonScan).TotalSeconds -ge $script:F28IntervalSec)
++    $dueConn  = (($iterNow - $lastConnLogScan).TotalSeconds -ge $script:F30ConnLogIntervalSec)
++    $dueTel   = (($iterNow - $lastTelScan).TotalSeconds -ge $script:F37TelIntervalSec)
++    if ($dueLogon) {
++        $lastLogonScan = $iterNow
+         try { Update-RdpLogonAuthLast -StatePath $script:LogonStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+-    }
+-    # [F30 §3] INDEPENDENT 30s RDP connection-log tick (both Operational logs).
+-    # This is the ONLY surface that can see a TLS handshake drop, because
+-    # 4624/4625 never fire for a connection killed before LSA.
+-    if (((Get-Date) - $lastConnLogScan).TotalSeconds -ge $script:F30ConnLogIntervalSec) {
+-        $lastConnLogScan = Get-Date
++    } elseif ($dueConn) {
++        $lastConnLogScan = $iterNow
+         try { Update-RdpConnLog -StatePath $script:ConnLogStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+-    }
+-    # [F37 §4] INDEPENDENT 60s telescope tick: binds the OBSERVED listener
+-    # (boundThumb vs servedThumb, serving, key container + ACL SIDs, Schannel
+-    # tail) to the row, so a bind drift or a refused handshake is visible the
+-    # moment it happens instead of at the next workflow dispatch.
+-    if (((Get-Date) - $lastTelScan).TotalSeconds -ge $script:F37TelIntervalSec) {
+-        $lastTelScan = Get-Date
++    } elseif ($dueTel) {
++        $lastTelScan = $iterNow
+         try { Update-RdpListenerTelescope -StatePath $script:F37TelStatePath -ScanStartedUtc $script:ServerStartedUtc | Out-Null } catch { }
+     }
+     # [F95 §3.2 / R2] was a blind `Start-ScheduledTask -TaskName GhrdpWatcher`
+diff --git a/src/tests/smoke/r1-server-readiness.test.ts b/src/tests/smoke/r1-server-readiness.test.ts
+new file mode 100644
+index 0000000..f474ede
+--- /dev/null
++++ b/src/tests/smoke/r1-server-readiness.test.ts
+@@ -0,0 +1,56 @@
++// [LAB-R1] Server startup/readiness invariants - EXECUTED against the shipped
++// payloads/ghrdp-server.ps1, not a mocked copy. On the unpatched base the
++// synchronous startup scans sit BEFORE the accept loop, so a TCP connect and
++// the LISTENING marker can exist while /health cannot answer. These three
++// assertions fail on that base and pass only after the LAB-R1 repair:
++//   1. no synchronous event-log scanner runs before the accept loop,
++//   2. HTTP readiness is published from inside the running accept loop,
++//   3. at most one inline tick scan can run per iteration.
++// Static by necessity: this Linux CI lane has no PowerShell interpreter. The
++// timing CONSEQUENCE (connect -> first /health) is measured for real on the
++// Windows client VM by scripts/candidate/real-backend.js; this test pins the
++// source structure that produces it.
++import { readFileSync } from "node:fs";
++import { describe, expect, it } from "vitest";
++
++const server = readFileSync("payloads/ghrdp-server.ps1", "utf8");
++// The ACCEPT LOOP is the outer time-bounded while; the inner
++// `while ($listener.Pending())` only drains already-queued connections. The
++// readiness stamp is emitted at the very top of the outer loop (before the
++// drain), so the correct boundary is the outer loop header.
++const acceptLoopIdx = server.indexOf("while (((Get-Date) - $start) -lt $limit)");
++
++const STARTUP_SCANNERS = [
++  "Update-RdpLogonAuthLast",
++  "Update-RdpConnLog",
++  "Update-RdpListenerTelescope",
++];
++
++describe("LAB-R1 backend startup readiness", () => {
++  it("has a single TCP accept loop so the boundary index is meaningful", () => {
++    expect(acceptLoopIdx).toBeGreaterThan(0);
++    // The scanner *function definitions* live above the loop; only their
++    // synchronous INVOCATIONS before the loop are forbidden. Count invocations
++    // (a call that pipes to Out-Null), not the definitions.
++    const preLoop = server.slice(0, acceptLoopIdx);
++    const synchronousCallsBeforeLoop = STARTUP_SCANNERS.filter((name) =>
++      new RegExp(`try \\{ ${name}[^\\n]*\\| Out-Null`, "m").test(preLoop)
++    );
++    expect(synchronousCallsBeforeLoop).toEqual([]);
++  });
++
++  it("publishes HTTP readiness from inside the running accept loop", () => {
++    expect(server).toContain("server-ready.txt");
++    const readyWrite = server.indexOf("$script:ServerReadyStamped = $true");
++    expect(readyWrite).toBeGreaterThan(acceptLoopIdx); // written inside the loop
++  });
++
++  it("runs at most one inline tick scan per accept-loop iteration", () => {
++    // The one-per-iteration guard uses an if / elseif / elseif chain over the
++    // due flags so coincident tick timers cannot stack two Get-WinEvent scans
++    // into a single blocking stretch on the accept thread.
++    expect(server).toMatch(/\$dueLogon\s*=/);
++    expect(server).toMatch(/\} elseif \(\$dueConn\)/);
++    expect(server).toMatch(/\} elseif \(\$dueTel\)/);
++  });
++});

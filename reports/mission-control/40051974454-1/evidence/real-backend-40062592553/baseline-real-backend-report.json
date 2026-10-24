@@ -1,0 +1,36 @@
+{
+  "schema": "slab-real-backend/1",
+  "generatedAt": "2026-10-24T04:34:00.108Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "identity": {
+    "label": "baseline",
+    "appSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "labRevision": "08f6edf32d938b08ba0f30eae15ba9af8733df50",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": true,
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "pristine-ghrdp-server.ps1",
+    "serverPid": 5932
+  },
+  "timings": {
+    "desktopLockMs": 761,
+    "markerAppearedMs": null,
+    "markerText": null
+  },
+  "endpoints": {},
+  "socketOwner": "no-listener",
+  "controls": [],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "verdicts": {
+    "PASS": 0,
+    "FAIL": 0,
+    "BLOCKED": 0
+  },
+  "fatal": "LISTENING marker (server-ok.txt) never appeared within 60s",
+  "desktopLock": "acquired"
+}

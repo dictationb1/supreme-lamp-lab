@@ -1,0 +1,710 @@
+{
+  "schema": "slab-real-backend/1",
+  "generatedAt": "2026-10-24T04:46:34.759Z",
+  "scope": "REAL_APPLICATION_POWERSHELL_SERVER_ON_WINDOWS; not the live origin, not native RDP/Web Desktop acceptance",
+  "identity": {
+    "label": "baseline",
+    "appSha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+    "labRevision": "5f57e1a9f1d47ea693ab5d94517d21519c016e18",
+    "runner": "rdp-lab-client",
+    "port": 7331,
+    "headless": true,
+    "bundlePath": "index.html",
+    "syntheticKeyFingerprint": "b2c13f08f529",
+    "note": "fresh lab-only synthetic dash key; never an upstream credential",
+    "stagedPayloadEntries": 56,
+    "serverSource": "pristine-ghrdp-server.ps1",
+    "serverPid": 936
+  },
+  "timings": {
+    "desktopLockMs": 452,
+    "markerAppearedMs": 2030,
+    "markerText": "LISTENING pid=936 bind=127.0.0.1 port=7331 at=2026-10-24T10:16:37.3359153+05:30",
+    "listenerAppearedMs": 2039,
+    "connectMs": 0,
+    "firstHealthMs": 4046,
+    "stallMs": 4048,
+    "firstHealthStatus": 200,
+    "readyAppearedMs": null,
+    "readyText": null,
+    "healthSampleCount": 98,
+    "healthLatencyP95Ms": 74,
+    "healthLatencyMaxMs": 2244,
+    "healthLatencySamples": [
+      {
+        "t": 35,
+        "ms": 35
+      },
+      {
+        "t": 2275,
+        "ms": 65
+      },
+      {
+        "t": 9420,
+        "ms": 56
+      },
+      {
+        "t": 11539,
+        "ms": 56
+      },
+      {
+        "t": 15974,
+        "ms": 40
+      },
+      {
+        "t": 18157,
+        "ms": 23
+      },
+      {
+        "t": 20389,
+        "ms": 28
+      },
+      {
+        "t": 24544,
+        "ms": 24
+      },
+      {
+        "t": 26773,
+        "ms": 55
+      },
+      {
+        "t": 28930,
+        "ms": 55
+      },
+      {
+        "t": 33004,
+        "ms": 32
+      },
+      {
+        "t": 35287,
+        "ms": 57
+      },
+      {
+        "t": 37485,
+        "ms": 26
+      }
+    ],
+    "concurrent": {
+      "healthMs": 2925,
+      "healthStatus": 200,
+      "slowFired": true,
+      "slowMs": 2917,
+      "slowStatus": 200,
+      "slowBytes": 3311
+    }
+  },
+  "endpoints": {
+    "/health": {
+      "status": 200,
+      "ok": true,
+      "ms": 56,
+      "bytes": 668,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "app",
+        "pid",
+        "listenerBound",
+        "bind",
+        "port",
+        "serverStartedUtc",
+        "scans"
+      ],
+      "bodyHead": "{\"ok\":true,\"app\":\"ghrdp\",\"pid\":936,\"listenerBound\":true,\"bind\":\"127.0.0.1\",\"port\":7331,\"serverStartedUtc\":\"10/24/2026 04:46:36\",\"scans\":{\"logon\":{\"scanTs\":\"2026-10-24T04:47:10.1796876Z\",\"probeError\":null},\"connLog\":{\"scanTs\":\"2026-10-24T04:47:10.2224948Z\",\"probeError\":\"conn-logs-unreadable\"},\"telescope\":{\"scanTs\":\"2026-10-24T04:47:16.8858068Z\",\"probeError\":\"telescope red: {\\\"ts\\\":\\\"2026-10-24T04:4"
+    },
+    "/api/config": {
+      "status": 200,
+      "ok": true,
+      "ms": 97,
+      "bytes": 811,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"labCandidate\":true,\"labOnly\":true,\"identity\":\"isolated-lab-candidate-not-live-origin\",\"rdpIp\":\"127.0.0.1\",\"ghrdp\":\"lab-candidate\",\"dnsName\":\"lab-candidate.invalid\",\"hostKind\":\"lab-isolated\",\"buildSha\":\"cand-5f57e1a9f1d4\",\"repo\":\"dictationb1/supreme-lamp-lab\",\"mirror\":false,\"mirrorHosts\":[],\"encryptMode\":\"all\",\"telegraphToken\":\"\",\"telegraphPath\":\"\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\""
+    },
+    "/api/native-status": {
+      "status": 200,
+      "ok": true,
+      "ms": 319,
+      "bytes": 13937,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "{\"fqdn\":\"lab-candidate.invalid\",\"hostKind\":\"ephemeral\",\"buildSha\":\"cand-5f57e1a9f1d4\",\"rdpListener\":{\"authLast\":{\"result\":\"none\",\"sub\":\"\",\"eventTs\":\"\",\"scanTs\":\"2026-10-24T04:47:10.1796876Z\",\"windowSec\":3600,\"windowStart\":\"2026-10-24T03:47:10.1796876Z\",\"count4624\":0,\"count4625\":0,\"subMeaning\":\"\",\"probeError\":\"\",\"logonType\":\"\",\"logonKind\":\"\"},\"logonCollector\":{\"intervalSec\":30,\"staleSec\":90,\"scans\""
+    },
+    "/api/progress": {
+      "status": 200,
+      "ok": true,
+      "ms": 104,
+      "bytes": 1180,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"ok\":true,\"status\":\"ok\",\"phase\":\"ready\",\"serverTs\":\"2026-10-24T04:47:24Z\",\"mirror\":false,\"encryptMode\":\"all\",\"mirrorPlaintextElection\":false,\"mirrorDiag\":null,\"mirrorProbe\":null,\"ghrdp\":\"lab-candidate\",\"mirrorIndexUrl\":\"\",\"serveUrl\":\"\",\"funnelUrl\":\"\",\"startedAt\":\"2026-10-24T04:46:35.330Z\",\"runStartedAt\":\"2026-10-24T04:46:35.330Z\",\"sessionStartedAt\":\"\",\"sessionEnd\":\"\",\"legacyIndexUrl\":\"\",\"rentryNe"
+    },
+    "/api/version": {
+      "status": 200,
+      "ok": true,
+      "ms": 88,
+      "bytes": 288,
+      "ctype": "application/json; charset=utf-8",
+      "topLevelKeys": [
+        "ok",
+        "server",
+        "sha",
+        "sha7",
+        "shaSource",
+        "features"
+      ],
+      "bodyHead": "{\"ok\":true,\"server\":\"ghrdp\",\"sha\":\"4a91c5c2eadc12e5b071bc46bae7683087f56fbd\",\"sha7\":\"4a91c5c\",\"shaSource\":\"env.GITHUB_SHA\",\"features\":{\"autoHttps\":true,\"wwwTolerance\":true,\"noFallback\":true,\"downloadToRdp\":true,\"launchTiers\":true,\"selfTest\":true,\"mirrorLauncher\":true,\"streamProxy\":true}}"
+    },
+    "/ping": {
+      "status": 200,
+      "ok": true,
+      "ms": 42,
+      "bytes": 42,
+      "ctype": "application/json",
+      "topLevelKeys": [
+        "ok",
+        "wire",
+        "ts"
+      ],
+      "bodyHead": "{\"ok\":true,\"wire\":null,\"ts\":{\"Length\":33}}"
+    },
+    "/diag": {
+      "status": 200,
+      "ok": true,
+      "ms": 1935,
+      "bytes": 1948,
+      "ctype": "application/json",
+      "topLevelKeys": [],
+      "bodyHead": "{\"serverTs\":\"2026-10-24T04:47:26Z\",\"port\":7331,\"pid\":936,\"rust7332Listening\":false,\"webDesktopUrl\":\"\",\"dashTokenRequired\":true,\"watcherTask\":\"not found\",\"progressAgeSeconds\":null,\"watcherAlive\":false,\"watcherSupervisor\":null,\"mirrorHosts\":[{\"capEvidence\":\"advertised-only\",\"note\":\"read-only GET /servers reachable; upload flow is documented + enabled=False | maxFileBytes=unknown; max-proven=unknown "
+    },
+    "/": {
+      "status": 200,
+      "ok": true,
+      "ms": 2236,
+      "bytes": 1273470,
+      "ctype": "text/html; charset=utf-8",
+      "topLevelKeys": [],
+      "bodyHead": "\n\n  \n    \n    \n    <meta name="
+    }
+  },
+  "socketOwner": "pid=936 name=powershell start=2026-10-24T10:16:35.3570232+05:30",
+  "controls": [
+    {
+      "control_id": "real.auth_gate",
+      "area": "authentication",
+      "pre": "real PowerShell server, fresh context, no key",
+      "action": "Load /?ui=v2 without a dashboard key.",
+      "expect_ui": "the token gate blocks the dashboard (or an explicit refusal is shown)",
+      "expect_req": "GET / -> 200 real ui-v2.html",
+      "actual": "gateVisible=true",
+      "evidence": "shots\\gate-baseline.png",
+      "verdict": "PASS",
+      "note": "a rendered UI behind a real gate is proof of real bootstrap, not a stub"
+    },
+    {
+      "control_id": "real.authenticated_shell",
+      "area": "overview",
+      "pre": "real server, valid synthetic key",
+      "action": "Load with ?key, wait for the app shell.",
+      "expect_ui": "app-topbar mounts against the real backend; served origin is this server",
+      "expect_req": "GET /api/config, /api/native-status, /api/progress -> real responses",
+      "actual": "shell=false origin=undefined uiV2MissingBanner=undefined topStatus=\"\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "BLOCKED",
+      "note": "shell did not mount; inspect consoleErrors + endpoints"
+    },
+    {
+      "control_id": "real.status_chip_semantics",
+      "area": "overview",
+      "pre": "real backend with lab synthetic data",
+      "action": "Read the topbar status chip and the auto-login gate note.",
+      "expect_ui": "the chip does not assert \"Live\" from an unmeasured state; the note names the actual probe result",
+      "expect_req": "200 /api/native-status consumed truthfully (F201)",
+      "actual": "chip=\"\" note=\"\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "BLOCKED",
+      "note": "F201: a refused/empty probe must not become confirmed credential/DNS/listener failure"
+    },
+    {
+      "control_id": "real.nav.overview",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/ and assert [overview-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=overview-page visible=true heading=\"Overview Launch unavailable Frosted / Tinted / 75% Connect, work and diagnose fr\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.search",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/search and assert [search-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=search-page visible=true heading=\"Search Ready Federated search across the compiled source roster and your own sto\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.sessions",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/sessions and assert [page-sessions] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-sessions visible=true heading=\"Sessions The current runner session, its logon events and the ticket audit.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.connections",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/connections and assert [page-connections] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-connections visible=true heading=\"Connections lab-candidate.invalid Launch, copy and diagnose the RDP connection.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.keys",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/keys and assert [page-keys] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-keys visible=true heading=\"Keys & Secrets Protected access. Values stay masked until you reveal them.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.files",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/files and assert [file-explorer-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=file-explorer-page visible=true heading=\"File Explorer Read / write Live runner index Real operations on the watcher root\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.mirror",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/mirror and assert [page-mirror] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-mirror visible=true heading=\"Mirror Runner-side upload mirroring and its read-only transport matrix.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.telemetry",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/telemetry and assert [page-telemetry] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-telemetry visible=true heading=\"Telemetry Event timelines and the raw log streams behind them.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.health",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/health and assert [health-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=health-page visible=true heading=\"Health Probing… Every self-test check, with the one-cell fix for each failing ro\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.collector",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/collector and assert [collector-page] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=collector-page visible=true heading=\"Collector No run yet Live feature probes, on demand or on the 1/5 minute schedul\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.nav.settings",
+      "area": "navigation",
+      "pre": "authenticated real server",
+      "action": "Navigate to #/settings and assert [page-settings] is visible.",
+      "expect_ui": "the routed page component mounts (not merely a non-empty body)",
+      "expect_req": "any page data comes from the real backend routes",
+      "actual": "marker=page-settings visible=true heading=\"Settings Appearance, glass quality, sources, storage and developer surfaces.\"",
+      "evidence": "shots\\authenticated-baseline.png",
+      "verdict": "PASS",
+      "note": ""
+    },
+    {
+      "control_id": "real.settings_theme_toggle",
+      "area": "settings",
+      "pre": "authenticated real server",
+      "action": "Click the theme toggle.",
+      "expect_ui": "document data-theme changes and persists",
+      "expect_req": "browser-local only (no backend)",
+      "actual": "before=dark after=light clicked=true",
+      "evidence": "",
+      "verdict": "PASS",
+      "note": "real browser-local setting, not inferred from a unit test"
+    },
+    {
+      "control_id": "real.sessions.list",
+      "area": "sessions",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/sessions on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/sessions",
+      "actual": "status=ERR ms=10007 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: real session rows (needs a genuine logon) (endpoint timeout)"
+    },
+    {
+      "control_id": "real.keys.reveal",
+      "area": "keys",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/config on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/config",
+      "actual": "status=ERR ms=10014 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: masked creds in the authenticated config (reveal needs the real store) (endpoint timeout)"
+    },
+    {
+      "control_id": "real.files.browse",
+      "area": "files",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/fx/list on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/fx/list",
+      "actual": "status=ERR ms=10009 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: File Explorer index (needs the real staged filesystem index) (endpoint timeout)"
+    },
+    {
+      "control_id": "real.mirror.start",
+      "area": "mirror",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/mirror/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/mirror/status",
+      "actual": "status=ERR ms=10004 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: mirror status (real start needs external hosts + opt-in) (endpoint timeout)"
+    },
+    {
+      "control_id": "real.telemetry.samples",
+      "area": "telemetry",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/progress on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/progress",
+      "actual": "status=ERR ms=10017 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: real progress samples (endpoint timeout)"
+    },
+    {
+      "control_id": "real.health.service_checks",
+      "area": "health",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /health on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /health",
+      "actual": "status=ERR ms=10005 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: real service health (endpoint timeout)"
+    },
+    {
+      "control_id": "real.search.query",
+      "area": "search",
+      "pre": "real PowerShell server, lab synthetic data",
+      "action": "GET /api/search/status on the real backend.",
+      "expect_ui": "the page consumes a REAL response (or an honest unavailable state)",
+      "expect_req": "GET /api/search/status",
+      "actual": "status=ERR ms=10006 bytes=0 keys=[]",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "prerequisite: search lane status (a real query needs the search backend) (endpoint timeout)"
+    },
+    {
+      "control_id": "real.native_rdp_connect",
+      "area": "connections",
+      "pre": "requires a signed production launcher, a real run key and an RDP listener",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: native RDP needs the origin signal chain + signed launcher + a real listener",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "lab server is loopback with synthetic identity; a helper-only connect is NOT counted"
+    },
+    {
+      "control_id": "real.web_desktop_frames",
+      "area": "connections",
+      "pre": "requires a real noVNC/TightVNC session on the tailnet",
+      "action": "not attempted on this lab-only server",
+      "expect_ui": "n/a",
+      "expect_req": "n/a",
+      "actual": "BLOCKED: web desktop needs a real captured interactive session",
+      "evidence": "",
+      "verdict": "BLOCKED",
+      "note": "no simulated frames are counted as proof"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: the server responded with a status of 404 ()",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: the server responded with a status of 404 ()",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED",
+    "Failed to load resource: net::ERR_NAME_NOT_RESOLVED"
+  ],
+  "failedRequests": [
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://lab-candidate.invalid:7331/",
+      "why": "net::ERR_NAME_NOT_RESOLVED"
+    },
+    {
+      "url": "http://127.0.0.1:7331/health",
+      "why": "net::ERR_ABORTED"
+    }
+  ],
+  "verdicts": {
+    "PASS": 13,
+    "FAIL": 0,
+    "BLOCKED": 11,
+    "startupStallMs": 4048
+  },
+  "fatal": "",
+  "desktopLock": "acquired",
+  "startupDiag": {
+    "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40063545799\\ghrdp-server.ps1 -Port 7331 -Bind 127.0.0.1 -Root C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40063545799 -LimitMinutes 6",
+    "runFile": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40063545799\\ghrdp-server.ps1",
+    "root": "C:\\Windows\\System32\\actions-runner\\_work\\_temp\\rbro-baseline-40063545799",
+    "resolvedRunFileExists": true,
+    "liveness": [
+      {
+        "t": 4,
+        "exited": false,
+        "spawnError": "",
+        "stdoutBytes": 0,
+        "stderrBytes": 0,
+        "listener": false
+      }
+    ],
+    "listenerAppeared": true
+  }
+}
