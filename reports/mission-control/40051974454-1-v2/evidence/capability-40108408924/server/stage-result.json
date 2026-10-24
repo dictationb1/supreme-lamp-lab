@@ -1,0 +1,13 @@
+{
+  "sha": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "stageRoot": "C:\\ghrdp",
+  "staged": 38,
+  "missing": [],
+  "uiBundle": "local-build-98110466ad05",
+  "uiBundleBytes": 1273688,
+  "uiBundleSha256": "98110466ad05cb68cd1db5bcdaef88719a43cdafdff610204c95b9fd5918382a",
+  "uiBundleSource": "local-patched-build",
+  "uiBundleIdentity": "cand-c85ce8c7cb339a3af9e825fdd961c6566b5bef8d (patched series 0001-0004 on 4a91c5c2eadc12e5b071bc46bae7683087f56fbd)",
+  "serverSha256": "44ab2a3f5fc7d09cb5b14a24870b5a843b93c83b8f2566240c62fe5339258d89",
+  "uiHtmlSha256": "3d86eb4f205a1fd1fbcac3e1d0462d88f482786572147e62a9a98664dd6f6e09"
+}
