@@ -1919,6 +1919,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert, tmpRoot });
   }
 
+  // ===== functional sweep (fx/search/core contracts, live candidate) =====
+  {
+    const register = require('./test/functional-sweep-regressions');
+    await register({ test, assert });
+  }
+
   // ===== evidence publish gate (the lab is public; refusals are security) =====
   {
     const register = require('./test/publish-evidence-regressions');

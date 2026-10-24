@@ -668,6 +668,33 @@ jobs:
           }
           exit $LASTEXITCODE
 
+      - name: Functional sweep (fx/search/core contracts against the live candidate)
+        id: functional
+        if: always() && inputs.mode != 'consent-setup' && steps.remote.outcome == 'success'
+        timeout-minutes: 14
+        env:
+          PEER_IP: ${{ steps.peer.outputs.peer_ip }}
+          RDP_LAB_PASSWORD: ${{ secrets.RDP_LAB_PASSWORD }}
+          ARTIFACT_DIR: ${{ runner.temp }}\artifacts\run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # The stub-lane sweep leaves these BLOCKED (its stub has no real fx /
+          # search / credential backends). THIS probe drives the REAL staged
+          # candidate: File Explorer list/preview/download-verify (three-way:
+          # pinned bytes, index checksum, served bytes) + op lifecycle +
+          # guardrails + upload-queue contract, search lifecycle + validation,
+          # and the core dashboard contracts. A FAIL here fails the job after
+          # the report is written, so the evidence always survives the verdict.
+          if (-not $env:PEER_IP) {
+            Write-Host '::error title=functional sweep::no live server peer for this attempt'
+            exit 1
+          }
+          $fsOut = Join-Path $env:ARTIFACT_DIR 'functional-sweep'
+          New-Item -ItemType Directory -Force -Path $fsOut | Out-Null
+          node scripts\candidate\functional-sweep.js --target "http://$($env:PEER_IP):7331" --out $fsOut --label "functional-$env:GITHUB_RUN_ID" --expect-build $env:CANDIDATE_BUILD --max-seconds 420
+          $rc = $LASTEXITCODE
+          Write-Host "::notice title=functional sweep::exit=$rc"
+          exit $rc
+
       - name: SETUP ONLY - bounded RDP-file consent window (no verification verdict)
         id: setup
         if: always() && inputs.mode == 'consent-setup'
@@ -740,6 +767,9 @@ jobs:
               $src = Join-Path $art $name
               if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $flat $name) -Force }
             }
+            # The functional sweep coverage CSV (its JSON is picked up above).
+            $fsCsv = Join-Path $art 'functional-sweep\functional-sweep-control-coverage.csv'
+            if (Test-Path $fsCsv) { Copy-Item -LiteralPath $fsCsv -Destination (Join-Path $flat 'functional-sweep-control-coverage.csv') -Force }
           }
           node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/capability-' + $env:GITHUB_RUN_ID + '/client') --branch $env:HEAD_BRANCH --message "evidence: capability client $env:GITHUB_RUN_ID [skip ci]"
           exit $LASTEXITCODE
