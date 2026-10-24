@@ -1,0 +1,343 @@
+{
+  "schema": 2,
+  "generatedAt": "2026-10-24T16:02:50.309Z",
+  "repository": "dictationb1/supreme-lamp-lab",
+  "runId": "40108408924",
+  "runAttempt": "1",
+  "event": "pull_request",
+  "correlationId": null,
+  "labCommit": "c85ce8c7cb339a3af9e825fdd961c6566b5bef8d",
+  "prHeadCommit": "c85ce8c7cb339a3af9e825fdd961c6566b5bef8d",
+  "appRepository": "dictationb1/supreme-lamp",
+  "appCommit": "4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+  "verdict": "NOT_VERIFIED",
+  "aggregate": "FAIL",
+  "counts": {
+    "pass": 7,
+    "fail": 1,
+    "blocked": 1,
+    "blockedDownstream": 1,
+    "notRun": 0,
+    "other": 0
+  },
+  "firstCause": {
+    "capability": "rdp_auto_login",
+    "status": "FAIL",
+    "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404"
+  },
+  "independentCauses": [
+    {
+      "capability": "web_desktop",
+      "subsystem": "tailnet_or_remote",
+      "status": "BLOCKED",
+      "category": "DEPENDS_ON_RDP_SESSION",
+      "dependsOn": "rdp_auto_login",
+      "reason": "DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL"
+    },
+    {
+      "capability": "rdp_auto_login",
+      "subsystem": "tailnet_or_remote",
+      "status": "FAIL",
+      "category": null,
+      "dependsOn": null,
+      "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404"
+    },
+    {
+      "capability": "regressions_client",
+      "subsystem": "regression",
+      "status": "FAIL",
+      "category": "REGRESSION_GATE_FAILED",
+      "dependsOn": null,
+      "reason": "REGRESSION_GATE_FAILED: 1 failed, 0 skipped (browser e2e required=true) :: evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED"
+    }
+  ],
+  "bySubsystem": {
+    "tailnet_or_remote": [
+      "web_desktop=BLOCKED (DEPENDS_ON_RDP_SESSION)",
+      "rdp_auto_login=FAIL"
+    ],
+    "regression": [
+      "regressions_client=FAIL (REGRESSION_GATE_FAILED)"
+    ]
+  },
+  "diagnostics": {
+    "supervisorFirstFailure": "none",
+    "supervisorDegradedGuards": "none",
+    "backendIdentityState": "VERIFIED",
+    "backendFailureClass": "UNKNOWN",
+    "backendHealthProven": true,
+    "tailscaleStepOutcome": "success",
+    "tailnetCategory": "JOIN_OK",
+    "tailnetDetail": "identity token exchanged and tailscale up succeeded",
+    "tailnetFirstError": null,
+    "tailnetFailedOperation": null,
+    "tailnetCliVersion": null,
+    "tailnetServiceState": null,
+    "regressionGates": {
+      "static": {
+        "job": "static",
+        "required": true,
+        "total": 263,
+        "passed": 263,
+        "failed": 0,
+        "skipped": 0,
+        "failures": [],
+        "reason": null,
+        "status": "PASS",
+        "browserRequired": true,
+        "platform": "linux"
+      },
+      "client": {
+        "job": "client",
+        "required": true,
+        "total": 263,
+        "passed": 262,
+        "failed": 1,
+        "skipped": 0,
+        "failures": [
+          {
+            "name": "evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED",
+            "detail": "AssertionError [ERR_ASSERTION]: the server sanitized-evidence publisher needs contents:write |     at C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\test\\workflow-ownership-regressions.js:59:12 |     at test (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-l"
+          }
+        ],
+        "reason": "REGRESSION_GATE_FAILED: 1 failed, 0 skipped (browser e2e required=true)",
+        "status": "FAIL",
+        "browserRequired": true,
+        "platform": "win32"
+      }
+    },
+    "regressionGateFailures": [
+      {
+        "job": "client",
+        "status": "FAIL",
+        "reason": "REGRESSION_GATE_FAILED: 1 failed, 0 skipped (browser e2e required=true)",
+        "failures": [
+          {
+            "name": "evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED",
+            "detail": "AssertionError [ERR_ASSERTION]: the server sanitized-evidence publisher needs contents:write |     at C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\test\\workflow-ownership-regressions.js:59:12 |     at test (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-l"
+          }
+        ],
+        "failed": 1,
+        "skipped": 0
+      }
+    ],
+    "requiredJobFailures": [
+      {
+        "job": "client",
+        "result": "failure"
+      }
+    ],
+    "oidcSubject": "repo:dictationb1@342137832/supreme-lamp-lab@1425092794:pull_request",
+    "audienceMatchesConfigured": "true",
+    "rdpConfigured": "true",
+    "rdpReason": "OK",
+    "prerequisitesMissing": [
+      "web_desktop"
+    ],
+    "rootCauses": [
+      {
+        "capability": "rdp_auto_login",
+        "subsystem": "tailnet_or_remote",
+        "status": "FAIL",
+        "category": null,
+        "dependsOn": null,
+        "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404"
+      },
+      {
+        "capability": "regressions_client",
+        "subsystem": "regression",
+        "status": "FAIL",
+        "category": "REGRESSION_GATE_FAILED",
+        "dependsOn": null,
+        "reason": "REGRESSION_GATE_FAILED: 1 failed, 0 skipped (browser e2e required=true) :: evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED"
+      }
+    ],
+    "downstreamBlocked": [
+      {
+        "capability": "web_desktop",
+        "subsystem": "tailnet_or_remote",
+        "category": "DEPENDS_ON_RDP_SESSION",
+        "dependsOn": "rdp_auto_login"
+      }
+    ]
+  },
+  "regressions": {
+    "static": {
+      "job": "static",
+      "required": true,
+      "total": 263,
+      "passed": 263,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "reason": null,
+      "status": "PASS",
+      "browserRequired": true,
+      "platform": "linux"
+    },
+    "client": {
+      "job": "client",
+      "required": true,
+      "total": 263,
+      "passed": 262,
+      "failed": 1,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "evidence permissions: the capability server can publish, and a failed required job vetoes VERIFIED",
+          "detail": "AssertionError [ERR_ASSERTION]: the server sanitized-evidence publisher needs contents:write |     at C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-lab\\supreme-lamp-lab\\scripts\\test\\workflow-ownership-regressions.js:59:12 |     at test (C:\\Windows\\System32\\actions-runner\\_work\\supreme-lamp-l"
+        }
+      ],
+      "reason": "REGRESSION_GATE_FAILED: 1 failed, 0 skipped (browser e2e required=true)",
+      "status": "FAIL",
+      "browserRequired": true,
+      "platform": "win32"
+    }
+  },
+  "capabilities": {
+    "browser_synthetic": {
+      "status": "PASS",
+      "required": true,
+      "reason": "DOM interaction asserted; screenshot 1280x720; video 41744 bytes",
+      "source": "client.caps_client_local"
+    },
+    "native_screenshot": {
+      "status": "PASS",
+      "required": true,
+      "reason": "CAPTURED 1022x765 session=1 path=C:\\Windows\\System32\\actions-runner\\_work\\_temp\\artifacts\\run-40108408924-1\\native-desktop.png; 1022x765",
+      "source": "client.caps_client_local"
+    },
+    "backend_readiness_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=1320 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "server.caps_server_local"
+    },
+    "dashboard_server_local": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build cand-c85ce8c (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "source": "server.caps_server_local"
+    },
+    "tailnet_connectivity": {
+      "status": "PASS",
+      "required": true,
+      "reason": "peer slab-srv-40108408924-1.tail7cf774.ts.net. 100.89.245.36 online; tcp 7331 reachable from 100.93.94.15",
+      "source": "client.caps_tailnet"
+    },
+    "backend_readiness_remote": {
+      "status": "PASS",
+      "required": true,
+      "reason": "pid=1320 port=7331 phase=ready; sha=4a91c5c2eadc12e5b071bc46bae7683087f56fbd",
+      "source": "client.caps_remote"
+    },
+    "dashboard_client": {
+      "status": "PASS",
+      "required": true,
+      "reason": "v2: title ok, build cand-c85ce8c (meta[name=ghrdp-build] + #ghrdpBuild[data-build]), app-topbar visible, token gate cleared and AUTO-LOGIN enabled, screenshot 1366x820",
+      "source": "client.caps_remote"
+    },
+    "web_desktop": {
+      "status": "BLOCKED",
+      "required": true,
+      "reason": "DEPENDS_ON_RDP_SESSION: capture engine runs at logon of the RDP user; rdp_auto_login=FAIL",
+      "source": "client.caps_remote"
+    },
+    "rdp_auto_login": {
+      "status": "FAIL",
+      "required": true,
+      "reason": "PRODUCTION_INSTALLER_UNAVAILABLE: HTTP 404",
+      "source": "client.caps_remote"
+    }
+  },
+  "jobs": {
+    "static": "success",
+    "server": "success",
+    "client": "failure"
+  },
+  "jobsDetail": [
+    {
+      "name": "static",
+      "id": 120914821550,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000004097",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T15:45:18Z",
+      "completedAt": "2026-10-24T15:47:47Z"
+    },
+    {
+      "name": "auth-diagnostic",
+      "id": 120914822366,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T15:45:15Z",
+      "completedAt": "2026-10-24T15:45:14Z"
+    },
+    {
+      "name": "live-origin guard",
+      "id": 120914822517,
+      "status": "completed",
+      "conclusion": "skipped",
+      "runner": null,
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T15:45:15Z",
+      "completedAt": "2026-10-24T15:45:14Z"
+    },
+    {
+      "name": "client",
+      "id": 120915391541,
+      "status": "completed",
+      "conclusion": "failure",
+      "runner": "rdp-lab-client",
+      "labels": [
+        "self-hosted",
+        "Windows",
+        "X64",
+        "rdp-lab-client"
+      ],
+      "startedAt": "2026-10-24T15:57:20Z",
+      "completedAt": "2026-10-24T16:01:58Z"
+    },
+    {
+      "name": "server",
+      "id": 120915391551,
+      "status": "completed",
+      "conclusion": "success",
+      "runner": "GitHub Actions 1000004100",
+      "labels": [
+        "windows-latest"
+      ],
+      "startedAt": "2026-10-24T15:47:50Z",
+      "completedAt": "2026-10-24T16:02:41Z"
+    },
+    {
+      "name": "report",
+      "id": 120918730966,
+      "status": "in_progress",
+      "conclusion": null,
+      "runner": "GitHub Actions 1000004102",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "startedAt": "2026-10-24T16:02:44Z",
+      "completedAt": null
+    }
+  ],
+  "publish": {
+    "published": true,
+    "updated": true,
+    "created": false,
+    "id": 6385386217,
+    "status": 200,
+    "error": null
+  }
+}
