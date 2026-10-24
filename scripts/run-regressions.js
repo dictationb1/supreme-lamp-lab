@@ -1913,6 +1913,12 @@ $obj | ConvertTo-Json -Compress
     await register({ test, assert });
   }
 
+  // ===== R2b pool-fallback fault-injection harness =====
+  {
+    const register = require('./test/r2-fault-injection-regressions');
+    await register({ test, assert, tmpRoot });
+  }
+
   // ===== evidence publish gate (the lab is public; refusals are security) =====
   {
     const register = require('./test/publish-evidence-regressions');

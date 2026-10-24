@@ -215,6 +215,59 @@ jobs:
           } catch { Write-Host "::warning title=real-backend comparison::" + $_.Exception.Message }
           exit 0
 
+      - name: Stage the 0001-0004 candidate server for the R2b fault lane
+        run: |
+          $ErrorActionPreference = 'Continue'
+          try {
+            # Second isolated tree: the FULL current series (0001-0004) from the
+            # v2 bundle. The fault lane compares the pre-0004 fallback (the
+            # patched server above, 0001-0003) against the repaired candidate.
+            $work = Join-Path $env:RUNNER_TEMP "r2b-$env:GITHUB_RUN_ID"
+            New-Item -ItemType Directory -Force -Path $work | Out-Null
+            $zip = Join-Path $work 'app.zip'
+            curl.exe -fsSL -o $zip "https://codeload.github.com/dictationb1/supreme-lamp/zip/$env:APP_SHA"
+            if ($LASTEXITCODE -ne 0) { throw "codeload download failed (exit $LASTEXITCODE)" }
+            $sha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sha -ne $env:APP_ZIP_SHA256) { throw "APP ZIP SHA MISMATCH: got $sha expected $env:APP_ZIP_SHA256" }
+            Expand-Archive -LiteralPath $zip -DestinationPath $work -Force
+            $app2 = Get-ChildItem -Path $work -Directory | Where-Object { $_.Name -like 'supreme-lamp-*' } | Select-Object -First 1
+            if (-not $app2) { throw 'no supreme-lamp-* dir after expand' }
+            $v2 = 'reports/mission-control/40051974454-1-v2'
+            $names = Get-Content -LiteralPath (Join-Path $v2 'series.txt') | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+            $lfdir = Join-Path $work 'lf'
+            New-Item -ItemType Directory -Force -Path $lfdir | Out-Null
+            foreach ($rel in $names) {
+              $src = Join-Path $v2 ($rel -replace '/', '\')
+              $lf = Join-Path $lfdir ((Split-Path -Leaf $rel) + '.lf')
+              $text = [System.IO.File]::ReadAllText($src) -replace "`r`n", "`n"
+              [System.IO.File]::WriteAllText($lf, $text, (New-Object System.Text.UTF8Encoding($false)))
+              & git -C $app2.FullName -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn $lf
+              if ($LASTEXITCODE -ne 0) { throw "git apply failed for $rel (exit $LASTEXITCODE)" }
+            }
+            $srv2 = Join-Path $app2.FullName 'payloads\ghrdp-server.ps1'
+            if (-not (Test-Path $srv2)) { throw 'patched 0001-0004 server missing' }
+            "R2B_APP_DIR=$($app2.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "R2B_SERVER=$srv2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "::notice title=r2b tree::0001-0004 staged at $srv2"
+            exit 0
+          } catch {
+            Write-Host ("::error title=r2b staging::" + ($_.Exception.Message -replace '[\r\n]+', ' '))
+            exit 1
+          }
+
+      - name: R2b fault injection (reproduce the old starvation; verify the bounded truthful repair)
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # --server-old: the 0001-0003 patched server (pre-0004 fallback).
+          # --server-new: the 0001-0004 candidate (the bounded truthful repair).
+          # Dedicated port 7341 so this never collides with the real-backend lanes.
+          $r2bOut = Join-Path $env:RB_OUT 'r2-fault'
+          node scripts\candidate\r2-fault-injection.js --app-dir $env:APP_DIR --server-old (Join-Path $env:APP_DIR 'payloads\ghrdp-server.ps1') --server-new $env:R2B_SERVER --out $r2bOut --port 7341 --key 'lab-fault-key-000' --label r2-fault --app-sha $env:APP_SHA --lab-revision $env:LAB_REVISION --max-seconds 240
+          Write-Host "::notice title=r2-fault::node exit=$LASTEXITCODE"
+          # The harness always exits 0; verdicts live in the JSON (measured, not
+          # inferred), and the evaluate step below gates on them.
+
       - name: Publish sanitized real-backend evidence into the repository
         if: always()
         env:
@@ -241,6 +294,14 @@ jobs:
           }
           $cmp = Join-Path $env:RB_OUT 'comparison.json'
           if (Test-Path $cmp) { Copy-Item $cmp (Join-Path $flat 'comparison.json') -Force }
+          # R2b fault lane evidence (measured reproduction + repair + recovery).
+          $r2bDir = Join-Path $env:RB_OUT 'r2-fault'
+          if (Test-Path $r2bDir) {
+            foreach ($n in @('r2-fault-report.json','r2-fault-control-coverage.csv','fault-server-stdout.log.sanitized','fault-server-stderr.log.sanitized')) {
+              $src = Join-Path $r2bDir $n
+              if (Test-Path $src) { Copy-Item $src (Join-Path $flat ('r2b-' + $n)) -Force }
+            }
+          }
           node scripts/publish-evidence.js --dir $flat --dest ($env:BUNDLE_DIR + '/evidence/real-backend-' + $env:GITHUB_RUN_ID) --branch $env:HEAD_BRANCH --message "evidence: real backend $($env:GITHUB_RUN_ID) [skip ci]"
           exit $LASTEXITCODE
 
@@ -298,5 +359,20 @@ jobs:
           if ($null -ne $bd.timings.stallMs -and $null -ne $pd.timings.stallMs -and [double]$pd.timings.stallMs -gt [double]$bd.timings.stallMs) {
             Write-Host "::warning title=stall regression::patched ($($pd.timings.stallMs)ms) slower than baseline ($($bd.timings.stallMs)ms) - investigate, do not hide"
           }
-          Write-Host "::notice title=real-backend MEASUREMENT VERIFIED::$passes real controls passed; R2 matrix PASS=$r2MatrixPass FAIL=$r2MatrixFail; $blocked BLOCKED by design. Native RDP/Web Desktop remain separately gated."
+          # R2b fault-injection gate: the pre-0004 fallback defect must be
+          # REPRODUCED (negative control), and the 0001-0004 repair must pass
+          # every fault-phase control. A missing fault report is a failure,
+          # never a skip: the residual risk stays unproven otherwise.
+          $r2bPath = Join-Path $env:RB_OUT 'r2-fault\r2-fault-report.json'
+          if (-not (Test-Path $r2bPath)) { Write-Host '::error title=R2b FAULT LANE MISSING::the fault-injection report was not produced'; exit 2 }
+          $r2b = Get-Content $r2bPath -Raw | ConvertFrom-Json
+          $r2bPass = 0; $r2bFail = 0; $r2bBlocked = 0
+          foreach ($c in $r2b.controls) {
+            if ($c.verdict -eq 'PASS') { $r2bPass++ } elseif ($c.verdict -eq 'FAIL') { $r2bFail++ } else { $r2bBlocked++ }
+          }
+          Write-Host "::notice title=R2b fault lane::PASS=$r2bPass FAIL=$r2bFail BLOCKED=$r2bBlocked variants=$(@($r2b.variants).Count) fatal=$($r2b.fatal)"
+          if ($r2b.fatal) { Write-Host "::error title=R2b FAULT LANE FATAL::$($r2b.fatal)"; exit 2 }
+          if ($r2bFail -gt 0) { Write-Host "::error title=R2b FAULT LANE FAIL::$r2bFail fault-injection control(s) failed (defect reproduction / bounded repair / recovery)"; exit 2 }
+          if ($r2bBlocked -gt 0) { Write-Host "::warning title=R2b FAULT LANE BLOCKED::$r2bBlocked fault control(s) BLOCKED - the residual-risk proof is incomplete" }
+          Write-Host "::notice title=real-backend MEASUREMENT VERIFIED::$passes real controls passed; R2 matrix PASS=$r2MatrixPass FAIL=$r2MatrixFail; R2b fault lane PASS=$r2bPass; $blocked BLOCKED by design. Native RDP/Web Desktop remain separately gated."
           exit 0

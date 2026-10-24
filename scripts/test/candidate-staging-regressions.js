@@ -124,4 +124,26 @@ module.exports = async function candidateStagingTests({ test, assert }) {
     // Series does not double-apply: 0004 applies AFTER 0003 (context includes 0003's code).
     assert.match(p4, /diff --git a\/payloads\/ghrdp-server\.ps1/, 'targets the server');
   });
+
+  await test('candidate staging: the CRLF checkout guard renormalizes patch targets before git apply (run 40102291995)', async () => {
+    // actions/checkout on Windows may materialize CRLF files while the bundle
+    // patches are LF-normalized; git apply then fails on every touched file.
+    // The guard must derive targets FROM the patches, rewrite existing files
+    // byte-exactly (Latin-1), and never touch patch-created files.
+    assert.match(wf, /CRLF GUARD/, 'the guard is present and explained');
+    assert.match(wf, /Groups\[1\]\.Value/, 'targets parsed from +++ b/ headers');
+    assert.match(wf, /GetEncoding\(28591\)/, 'Latin-1 round-trip: byte-exact, no UTF-8 corruption');
+    assert.match(wf, /patch-created=\$created/, 'patch-created targets are counted, not renormalized');
+    // Sanity: every file the current series touches is either renormalized or
+    // created - the guard must not depend on a hardcoded file list.
+    const v2 = path.join(REPO, 'reports/mission-control/40051974454-1-v2');
+    const series = fs.readFileSync(path.join(v2, 'series.txt'), 'utf8')
+      .split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+    let targets = 0;
+    for (const rel of series) {
+      const txt = fs.readFileSync(path.join(v2, rel), 'utf8');
+      targets += (txt.match(/^\+\+\+ b\/.+$/gm) || []).filter(l => !l.includes('/dev/null')).length;
+    }
+    assert.ok(targets >= 11, 'series touches ' + targets + ' files (guard covers them all dynamically)');
+  });
 };

@@ -303,6 +303,37 @@ jobs:
           $patchRoot = Join-Path $env:BUNDLE_DIR 'app-patches'
           $names = Get-Content -LiteralPath $series | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
           if (-not $names) { throw 'PATCH_SERIES_EMPTY' }
+          # [CRLF GUARD] actions/checkout on Windows may materialize CRLF
+          # working files (autocrlf), while the patches are LF-normalized; git
+          # apply then fails with 'patch does not apply' (run 40102291995).
+          # Renormalize every EXISTING patch target to LF (bytes, not text) so
+          # the patch context matches the patch bytes exactly. Targets that the
+          # patches CREATE (absent now) need no renormalization.
+          $targets = @{}
+          foreach ($rel in $names) {
+            $patchText = [System.IO.File]::ReadAllText((Join-Path $env:BUNDLE_DIR ($rel -replace '/', '\')))
+            foreach ($m in [regex]::Matches($patchText, '(?m)^\+\+\+ b/(.+)$')) {
+              $t = $m.Groups[1].Value.Trim()
+              if ($t -ne '/dev/null') { $targets[$t] = $true }
+            }
+          }
+          $renorm = 0; $created = 0
+          foreach ($t in $targets.Keys) {
+            $fp = Join-Path 'app' ($t -replace '/', '\')
+            if (-not (Test-Path -LiteralPath $fp)) { $created++; continue }
+            $bytes = [System.IO.File]::ReadAllBytes($fp)
+            $dirty = $false
+            for ($i = 0; ($i + 1) -lt $bytes.Length; $i++) { if ($bytes[$i] -eq 13 -and $bytes[$i + 1] -eq 10) { $dirty = $true; break } }
+            if ($dirty) {
+              # Latin-1 maps every byte 1:1, so decode->replace->encode is an
+              # exact, encoding-agnostic CR/LF strip (no UTF-8 corruption risk).
+              $l1 = [System.Text.Encoding]::GetEncoding(28591)
+              $text = $l1.GetString($bytes).Replace("`r`n", "`n")
+              [System.IO.File]::WriteAllBytes($fp, $l1.GetBytes($text))
+              $renorm++
+            }
+          }
+          Write-Host "::notice title=candidate patch targets::existing-LF-renormalized=$renorm patch-created=$created (targets=$($targets.Count))"
           $work = Join-Path $env:RUNNER_TEMP 'cand-patches'
           New-Item -ItemType Directory -Force -Path $work | Out-Null
           foreach ($rel in $names) {
