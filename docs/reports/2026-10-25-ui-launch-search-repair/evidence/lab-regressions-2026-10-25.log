@@ -1,0 +1,7 @@
+command: node scripts/run-regressions.js
+platform: linux x64 node v22.22.3
+branch: arena/677dde66-supreme-lamp-lab @ a3eb4b7 (lab main before bundle)
+result: 162 tests passed, 0 failed, 8 skipped
+skips: browser e2e (playwright/chromium not installed here) + real PowerShell (no pwsh on this host)
+never counted as PASS: those 8 are Windows-only capabilities; they are NOT_RUN, not inferred
+candidate under test: dictationb1/supreme-lamp @ f66f9485649d5520a787d66496fffd43d8aa772a

@@ -1,0 +1,114 @@
+{
+  "kind": "slab-lab-bundle/1",
+  "generatedAt": "2026-10-25T15:50:00Z",
+  "labRepository": "dictationb1/supreme-lamp-lab",
+  "labBranch": "arena/677dde66-supreme-lamp-lab",
+  "labCommitBeforeBundle": "a3eb4b7",
+  "applicationRepository": "dictationb1/supreme-lamp",
+  "applicationRemote": "read-only (no write; git push and POST /git/refs refused with HTTP 403)",
+  "applicationBasePinBeforeSession": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+  "applicationBaseMainRevision": "e067bcef5ff97287bbc79345fa6a55cd8f3fcf31",
+  "applicationBranchCutFrom": "ae360351eb3fea434f482af1b9e9db48025936a7",
+  "applicationCandidate": "f66f9485649d5520a787d66496fffd43d8aa772a",
+  "applicationCandidateDate": "2026-10-25T15:40:21Z",
+  "applicationCandidateContainsPr88": true,
+  "pr88": {
+    "number": 88,
+    "url": "https://github.com/dictationb1/supreme-lamp/pull/88",
+    "headSha": "f06017fe598fbff0408ee963f2e6c21c815f216a",
+    "mergeCommitSha": "5f175a6db83cdd57132f8ee36cc220e21b506f6c",
+    "mergedAt": "2026-10-25T15:11:18Z",
+    "state": "MERGED",
+    "title": "fix(launch,search): one dispatch per intent, reachable result inspection, honest prompts and links (#88)"
+  },
+  "historicalRunNotReused": {
+    "runId": 40193924876,
+    "headSha": "644476b603f484565bd0655a9b5f6583f70f4333",
+    "reason": "historical run at old source; not current main; not used as proof of this candidate"
+  },
+  "labPr30": {
+    "number": 30,
+    "state": "OPEN (not merged; not built upon by this bundle)",
+    "headSha": "d7c90dc81867553c65f862308d799caaaf3cbec7",
+    "title": "Complete Mission Control candidate: patched staging, cert observability, R2b bounded fallback"
+  },
+  "repairsAlreadyMovedToMain": [
+    { "id": "D1", "title": "one dispatch per intent", "files": ["src/lib/domain/dispatch.ts", "src/lib/api.ts", "src/stores/sessionStore.ts"], "tests": "dispatch-single-attempt(19), launch-store-single-dispatch(11)", "state": "done", "verifiedAtCandidate": "present in source + 1535/1535 vitest" },
+    { "id": "D2", "title": "cancellation/recovery correlation", "files": ["src/lib/domain/native.ts", "src/components/domain/PrimaryActions.tsx"], "tests": "rdp-recovery-correlation(18)", "state": "done", "verifiedAtCandidate": "present in source + 1535/1535 vitest" },
+    { "id": "D3", "title": "native publisher warning vs cmdkey prompt (replay guard)", "files": ["payloads/ghrdp-rdp-launcher.cs", "src/components/domain/PrimaryActions.tsx"], "tests": "launcher-replay-contract(4)", "state": "done-source; runtime pending", "verifiedAtCandidate": "present in source; runtime NOT RUN (no Windows compiler/VM)" },
+    { "id": "D4", "title": "awesome.re per-source redirect allowlist", "files": ["payloads/ghrdp-server.ps1"], "tests": "lab-inspect-endpoint(16)", "state": "done-source", "verifiedAtCandidate": "present in source; client HTTP-PASS via vitest" },
+    { "id": "D5", "title": "/api/lab/inspect mode-first, one budget, one pipeline", "files": ["payloads/ghrdp-server.ps1", "src/api/lab/index.ts", "src/pages/search/LabInspector.tsx"], "tests": "lab-inspect-endpoint(16), lab-inspector(8)", "state": "done-source + client verified", "verifiedAtCandidate": "present in source + 1535/1535 vitest" },
+    { "id": "D6", "title": "single repository identity for all links", "files": ["src/lib/repoIdentity.ts", "src/pages/Search.tsx", "src/lib/domain/native.ts", "src/components/domain/DashTokenGate.tsx", "src/components/domain/F92VersionGate.tsx", "src/components/domain/WebDesktopCard.tsx", "src/pages/Collector.tsx"], "tests": "repo-identity-links(6)", "state": "done", "verifiedAtCandidate": "present in source + 1535/1535 vitest" },
+    { "id": "D7", "title": "occurred/observed/resolved timestamps", "files": ["src/lib/overview/issues.ts"], "tests": "v4 incident suites", "state": "done", "verifiedAtCandidate": "present in source + 1535/1535 vitest" },
+    { "id": "D8", "title": "production bundle carries no demo rows", "files": ["src/lib/devMode.ts", "src/lib/domain/devSearchFixture.ts", "src/pages/search/devFixture.ts", "src/pages/Search.tsx", "src/pages/FileExplorer.tsx"], "tests": "production-bundle-no-demo(4)", "state": "done, artifact measured", "verifiedAtCandidate": "artifact measured: sha 9315cdc8... contains no fx-snap-01 / 'Pride and Prejudice' sentinel" },
+    { "id": "D9-logon-status-clobber", "title": "/api/logon-status $Matches clobber (observed app defect)", "files": ["payloads/ghrdp-server.ps1"], "state": "done (already merged at PR #88); lab patch series NOT re-applied", "verifiedAtCandidate": "present in source ($ltM local capture before user filter) + 1535/1535 vitest" },
+    { "id": "D10-live-signal-publisher", "title": "MC-SIGNAL live publisher (self-advertising run)", "files": [".github/workflows/main.yml", "scripts/live-signal-publisher.js"], "state": "done (merged at PR #88)", "verifiedAtCandidate": "present in source at f66f9485" }
+  ],
+  "additionalApplicationPatchSeries": "NONE — every application defect found is already merged at f66f9485; patches/series.txt records this explicitly so no patch is applied twice",
+  "uiBuild": {
+    "artifact": "ui/dist/index.html",
+    "command": "npm run build",
+    "sha256": "9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff",
+    "bytes": 1312534,
+    "matchesHandoffArtifact": true,
+    "builtFrom": "f66f9485 (src/ identical to 5f175a6; the 27 intervening commits are status updates + docs #89 only)"
+  },
+  "testExecution": {
+    "command": "npx vitest run",
+    "files": 118,
+    "tests": 1535,
+    "failed": 0,
+    "platform": "linux x64 node v22.22.3",
+    "evidence": "evidence/vitest-final-2026-10-25.log"
+  },
+  "typeCheck": {
+    "command": "npx tsc --noEmit -p tsconfig.build.json",
+    "result": "PASS (0 errors)",
+    "evidence": "evidence/tsc-clean-2026-10-25.log"
+  },
+  "labRegressions": {
+    "command": "node scripts/run-regressions.js",
+    "result": "162 passed, 0 failed, 8 skipped (skips are Windows PowerShell / browser-only)",
+    "evidence": "evidence/lab-regressions-2026-10-25.log"
+  },
+  "verdicts": {
+    "LAB_HARNESS": "PASS",
+    "PATCHED_APPLICATION_CANDIDATE": "PASS",
+    "USER_VM_ACCEPTANCE": "NOT_RUN",
+    "LIVE_ORIGIN_APPLICATION": "BLOCKED",
+    "AUTOMATIC_ATTACHMENT": "NOT_RUN",
+    "UPSTREAM_DEPLOYMENT": "BLOCKED"
+  },
+  "deployment": {
+    "workflow": ".github/workflows/main.yml",
+    "mode": "rdp",
+    "runnerTarget": "windows-latest",
+    "status": "BLOCKED-403",
+    "error": "HTTP 403: Resource not accessible by integration (actions/workflows/.../dispatches)",
+    "attempts": 1,
+    "operatorAction": "GitHub UI -> Actions -> 'Windows RDP - Tailscale Mission Control (6h ephemeral)' -> Run workflow -> branch main, mode rdp, runner_target windows-latest; head SHA must be f66f9485 (current main, contains 5f175a6)"
+  },
+  "remainingPrerequisites": [
+    "Publish ui-dist-<f66f9485>.zip + .sha256 to the application's ui-dist release (requires write to dictationb1/supreme-lamp — currently 403). Until then the lab stages the locally built UI recorded above.",
+    "Operator-triggered deployment: main.yml (mode=rdp, runner_target=windows-latest) from the GitHub Actions UI (403 blocks the API path).",
+    "USER_VM_ACCEPTANCE on rdp-lab-client (WIN-NFU1JG4VESE\\User, session 1): one explicit launch, cancel, native prompts, status accuracy, search, links — none of these can run in this Linux sandbox; reported as NOT_RUN, not inferred.",
+    "Launcher C# runtime proof (ghrdp-rdp-launcher.exe compile + double-open old link) — no csc/mono/dotnet on this host; STRUCT-PASS only.",
+    "PowerShell server route runtime proof — no pwsh on this host; STRUCT + client-HTTP only.",
+    "Live awesome.re fetch — sandbox outbound network restricted; contract-proven, not live-measured."
+  ],
+  "rollback": {
+    "applicationBaseBeforeSession": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+    "labMainBeforeBundle": "a3eb4b7",
+    "note": "No application repository was written by this session (read-only). Rolling back the lab means reverting this bundle's commit on arena/677dde66-supreme-lamp-lab; the application remains at f66f9485 untouched."
+  },
+  "immutableLinks": {
+    "applicationCandidateTree": "https://github.com/dictationb1/supreme-lamp/tree/f66f9485649d5520a787d66496fffd43d8aa772a",
+    "applicationCandidateRaw": "https://raw.githubusercontent.com/dictationb1/supreme-lamp/f66f9485649d5520a787d66496fffd43d8aa772a",
+    "pr88Merge": "https://github.com/dictationb1/supreme-lamp/commit/5f175a6db83cdd57132f8ee36cc220e21b506f6c",
+    "pr88": "https://github.com/dictationb1/supreme-lamp/pull/88",
+    "appEvidenceDir": "https://github.com/dictationb1/supreme-lamp/tree/f66f9485649d5520a787d66496fffd43d8aa772a/docs/reports/2026-10-25-ui-launch-search-repair",
+    "handoffJson": "https://raw.githubusercontent.com/dictationb1/supreme-lamp/f66f9485649d5520a787d66496fffd43d8aa772a/docs/reports/mission-control-current-handoff.json",
+    "labBundleCommit": "https://github.com/dictationb1/supreme-lamp-lab/commit/<PENDING-BUNDLE-COMMIT>",
+    "labBundleTree": "https://github.com/dictationb1/supreme-lamp-lab/tree/arena/677dde66-supreme-lamp-lab"
+  }
+}

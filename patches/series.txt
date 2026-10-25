@@ -1,0 +1,65 @@
+LAB application patch series — supreme-lamp candidate f66f9485649d5520a787d66496fffd43d8aa772a
+Generated: 2026-10-25 (this lab session)
+Branch: arena/677dde66-supreme-lamp-lab (dictationb1/supreme-lamp-lab)
+
+FORMAT
+  <n> <patch-sha256> <file> <applies-to> <state> <reason>
+
+RULE (enforced this session)
+  Detect already-applied behavior; do NOT apply any patch twice, and do NOT
+  silently test an older application revision while claiming to test current
+  main. Every repair below was verified present IN SOURCE at f66f9485 before
+  any series entry was written.
+
+APPLICATION PATCHES IN THIS SERIES
+  (none)
+
+  The application under test is dictationb1/supreme-lamp at f66f9485.
+  All defects found during discovery are ALREADY MERGED there (PR #88,
+  squash 5f175a6db83cdd57132f8ee36cc220e21b506f6c, merged
+  2026-10-25T15:11:18Z, which is an ancestor of f66f9485):
+
+    D1 one dispatch per intent                      src/lib/domain/dispatch.ts, src/lib/api.ts, src/stores/sessionStore.ts
+    D2 cancellation/recovery correlation            src/lib/domain/native.ts, src/components/domain/PrimaryActions.tsx
+    D3 native publisher warning vs cmdkey prompt    payloads/ghrdp-rdp-launcher.cs, src/components/domain/PrimaryActions.tsx  (runtime pending: no Windows compiler/VM)
+    D4 awesome.re per-source redirect allowlist     payloads/ghrdp-server.ps1
+    D5 /api/lab/inspect mode-first/one budget       payloads/ghrdp-server.ps1, src/api/lab/index.ts, src/pages/search/LabInspector.tsx
+    D6 single repository identity for all links     src/lib/repoIdentity.ts + 6 call sites
+    D7 occurred/observed/resolved timestamps        src/lib/overview/issues.ts
+    D8 production bundle carries no demo rows       src/lib/devMode.ts, src/lib/domain/devSearchFixture.ts, src/pages/search/devFixture.ts, src/pages/Search.tsx, src/pages/FileExplorer.tsx
+    D9 /api/logon-status $Matches clobber           payloads/ghrdp-server.ps1  (observed defect; already fixed at PR #88: $ltM local capture precedes the user filter)
+    D10 MC-SIGNAL live publisher                    .github/workflows/main.yml, scripts/live-signal-publisher.js  (already merged at PR #88)
+
+  Because no application patch remains to apply, patches/ contains NO new
+  .patch files for this candidate. The historical lab patches
+  (supreme-lamp-*-logon-status-matches-clobber.patch cut against the OLD pins
+  978a837 / daf13685, and app-live-run-signal.snippet.yml cut against daf13685
+  main.yml) were VERIFIED NOT TO APPLY to f66f9485 as-is (their basis bytes
+  differ; the fix is already in the file) and are therefore NOT in this series.
+  They are preserved under patches/vendor/ for reference only.
+
+LAB-SIDE PATCHES (this repository, not the application)
+  scripts/build-lab-candidate.js       NEW  — builds the app UI from f66f9485 and records sha/bytes
+  scripts/stage-lab-candidate.js       NEW  — stages backend + freshly built UI + modules + fixtures + search deps + session/capture components
+  scripts/replay-lab-bundle.js         NEW  — replays acceptance from a fresh download of this committed bundle
+  scripts/cleanup-lab-candidate.js     NEW  — postflight cleanup of staged candidate artifacts
+  config/app-source.json               UPDATED — pin 978a837 -> f66f9485 with rationale
+
+VERIFICATION OF THIS CANDIDATE
+  npx tsc --noEmit -p tsconfig.build.json          -> PASS (0 errors)   [evidence/tsc-clean-2026-10-25.log]
+  npx vitest run                                   -> 118 files / 1535 tests, 0 failed   [evidence/vitest-final-2026-10-25.log]
+  npm run build (single-file ui/dist/index.html)   -> 9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff, 1312534 bytes (matches the application's own handoff artifact)
+
+REMAINING PREREQUISITE (not a code defect)
+  Publish ui-dist-<f66f9485>.zip + .sha256 to the application's ui-dist release
+  so the lab's Stage-F60UiBundle can accept the pin without a local build.
+  Blocked: writes to dictationb1/supreme-lamp are refused (HTTP 403). Until
+  published, the lab stages the locally built UI recorded above and the pin is
+  honored with the recorded sha/bytes.
+
+IMMUTABLE LINKS
+  Application candidate tree:
+    https://github.com/dictationb1/supreme-lamp/tree/f66f9485649d5520a787d66496fffd43d8aa772a
+  PR #88 (the merge that already carries every repair):
+    https://github.com/dictationb1/supreme-lamp/pull/88
+    https://github.com/dictationb1/supreme-lamp/commit/5f175a6db83cdd57132f8ee36cc220e21b506f6c

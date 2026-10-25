@@ -1,0 +1,31 @@
+Application source identities (verified 2026-10-25, read-only clone, no push to application repo)
+
+repository: dictationb1/supreme-lamp
+remote: https://github.com/dictationb1/supreme-lamp (read-only; writes refused HTTP 403)
+
+current main (resolved via /repos/dictationb1/supreme-lamp/commits/main):
+  f66f9485649d5520a787d66496fffd43d8aa772a  (2026-10-25T15:40:21Z, "status update 2026-10-25T15:40:20.8273384+00:00")
+
+PR #88 repair merge (already an ancestor of f66f9485):
+  5f175a6db83cdd57132f8ee36cc220e21b506f6c  squash of head f06017fe598fbff0408ee963f2e6c21c815f216a
+  mergedAt 2026-10-25T15:11:18Z
+  contains D1-D8 + logon-status $Matches clobber fix + MC-SIGNAL publisher
+
+base revisions from handoff:
+  baseRevision       ae360351eb3fea434f482af1b9e9db48025936a7
+  baseMainRevision   e067bcef5ff97287bbc79345fa6a55cd8f3fcf31
+
+old lab pin (pre-repair, NOT used for acceptance):
+  978a8375ee77b392ce11694ccee7722fd6ca4f71  (carried the logon-status clobber defect)
+
+historical run NOT reused:
+  run 40193924876, head 644476b603f484565bd0655a9b5f6583f70f4333 (old source; in_progress)
+
+UI bundle availability in app ui-dist release:
+  ui-dist-f66f9485649d5520a787d66496fffd43d8aa772a.zip -> ABSENT
+  ui-dist-5f175a6db83cdd57132f8ee36cc220e21b506f6c.zip -> present
+  ui-dist-f06017fe598fbff0408ee963f2e6c21c815f216a.zip -> present
+  => lab stages a freshly built UI (sha/bytes recorded in ui-build-sha256.txt);
+     publishing the commit-matched bundle is remaining prerequisite P1.
+
+src/ identical between 5f175a6 and f66f9485 (27 intervening commits = status updates + docs #89 only).

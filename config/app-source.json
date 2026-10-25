@@ -1,7 +1,8 @@
 {
   "repository": "dictationb1/supreme-lamp",
-  "sha": "978a8375ee77b392ce11694ccee7722fd6ca4f71",
+  "sha": "f66f9485649d5520a787d66496fffd43d8aa772a",
   "uiReleaseTag": "ui-dist",
-  "reason": "Newest app commit with a commit-matched ui-dist-<sha>.zip (+ .sha256) in the app's ui-dist release. App main daf1368 differs from it only in docs/status.json and has no published UI bundle, so staging daf1368 would be refused by Stage-F60UiBundle (pinned-SHA miss throws). Override per run with workflow_dispatch input source_sha.",
-  "pinnedAt": "2026-10-21"
-}
+  "baseRepairCommit": "5f175a6db83cdd57132f8ee36cc220e21b506f6c",
+  "baseMainRevision": "e067bcef5ff97287bbc79345fa6a55cd8f3fcf31",
+  "branchCutFrom": "ae360351eb3fea434f482af1b9e9db48025936a7",
+  "reason": "Current application main at this lab session (2026-10-25). It contains PR #88 (squash merge 5f175a6, head f06017fe) repairs D1-D8 plus the /api/logon-status $Matches clobber fix and the MC-SIGNAL live publisher — all verified present in source at f66f9485 by direct inspection, `npx tsc --noEmit` (0 errors) and `npx vitest run` (118 files / 1535 tests, 0 failed). The single-file production build from this commit is ui/dist/index.html sha256 9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff (1,312,534 bytes), byte-identical to the pre-built artifact measured in the application's own evidence bundle at this same commit.\n\nNo commit-matched ui-dist-<f66f9485>.zip + .sha256 exists in the application's ui-dist release, and writes to dictationb1/supreme-lamp are refused (HTTP 403), so Stage-F60UiBundle cannot auto-accept this pin from a release asset. The lab therefore stages a FRESHLY BUILT UI (local npm run build, sha recorded below) and records publication of ui-dist-<f66f9485>.zip as a remaining prerequisite. Override per run with workflow_dispatch input source_sha.\n\nDo NOT re-pin to 978a837 (the pre-repair pin: it still carries the logon-status $Matches clobber defect) or to any older commit while claiming to test current main.\n\npinnedAt: 2026-10-25\nverifiedBy: { command: 'npx vitest run', files: 118, tests: 1535, failed: 0, buildSha256: '9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff' }\n"

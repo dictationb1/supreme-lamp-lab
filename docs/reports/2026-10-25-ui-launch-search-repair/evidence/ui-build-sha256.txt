@@ -1,0 +1,6 @@
+sha256  9315cdc8fe7d4f3cf3fa5f81e84811ed98e01c1aec79f1c7f57cb7af56b123ff  ui/dist/index.html
+bytes   1312534
+builtAt 2026-10-25T15:47:00Z
+command npm run build
+fromCommit f66f9485649d5520a787d66496fffd43d8aa772a
+matchesHandoffArtifact true
