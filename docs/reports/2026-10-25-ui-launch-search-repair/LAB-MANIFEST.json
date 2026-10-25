@@ -108,7 +108,7 @@
     "pr88": "https://github.com/dictationb1/supreme-lamp/pull/88",
     "appEvidenceDir": "https://github.com/dictationb1/supreme-lamp/tree/f66f9485649d5520a787d66496fffd43d8aa772a/docs/reports/2026-10-25-ui-launch-search-repair",
     "handoffJson": "https://raw.githubusercontent.com/dictationb1/supreme-lamp/f66f9485649d5520a787d66496fffd43d8aa772a/docs/reports/mission-control-current-handoff.json",
-    "labBundleCommit": "https://github.com/dictationb1/supreme-lamp-lab/commit/<PENDING-BUNDLE-COMMIT>",
+    "labBundleCommit": "https://github.com/dictationb1/supreme-lamp-lab/commit/811ba63",
     "labBundleTree": "https://github.com/dictationb1/supreme-lamp-lab/tree/arena/677dde66-supreme-lamp-lab"
   }
 }
